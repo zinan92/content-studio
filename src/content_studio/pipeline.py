@@ -9,7 +9,8 @@ import subprocess
 import sys
 from typing import Any, Callable, Sequence
 
-from .baseline import BaselineError, douyin_baseline
+from .baseline import douyin_baseline
+from .deps import subprocess_env
 from .judge import JudgeFn, cli_judge
 from .structure import build_report, load_glossary, render_markdown
 
@@ -83,9 +84,12 @@ def _download_one(url: str, cookies: Path, output_dir: Path) -> Path:
         check=False,
         capture_output=True,
         text=True,
+        env=subprocess_env(),
     )
     if completed.returncode != 0:
-        raise PipelineError(f"download failed for requested URL (exit {completed.returncode})")
+        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+        hint = detail[-1][:200] if detail else ""
+        raise PipelineError(f"下载失败（退出码 {completed.returncode}）{('：' + hint) if hint else ''}")
     content_id = _content_id_from_url(url)
     if content_id is None:
         match = re.search(
@@ -155,6 +159,64 @@ def _write_report(report: dict, data_dir: Path) -> dict[str, str]:
     return {"report_json": str(json_path), "report_markdown": str(markdown_path)}
 
 
+StageFn = Callable[[str], None]
+
+
+def process_url(
+    url: str,
+    *,
+    cookie_path: Path,
+    data_dir: Path,
+    downloads_dir: Path,
+    download_fn: Callable[[str, Path, Path], Path] = _download_one,
+    extract_fn: Callable[[Path, str], Path] = _extract_one,
+    whisper_model: str = "turbo",
+    generated_at: str | None = None,
+    judge_fn: JudgeFn = cli_judge,
+    baseline_fn: Callable[[Path, Path, Path], dict[str, Any] | None] = _default_baseline,
+    creator_db: Path | None = None,
+    glossary: dict[str, str] | None = None,
+    on_stage: StageFn = lambda _stage: None,
+) -> dict[str, Any]:
+    """Download → transcribe → analyse one link, reporting each stage as it starts."""
+    on_stage("downloading")
+    content_dir = _find_content_dir(downloads_dir, _content_id_from_url(url))
+    if content_dir is None:
+        try:
+            content_dir = download_fn(url, cookie_path, downloads_dir)
+        except PipelineError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise PipelineError(f"下载失败：{exc}") from exc
+    item = _read_json(content_dir / "content_item.json")
+    if not (content_dir / "transcript.json").is_file():
+        on_stage("transcribing")
+        try:
+            content_dir = extract_fn(content_dir, whisper_model)
+        except PipelineError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise PipelineError(f"转写失败：{exc}") from exc
+    transcript = _read_json(content_dir / "transcript.json")
+    on_stage("analyzing")
+    content_id = str(item.get("content_id") or "")
+    try:
+        baseline = baseline_fn(content_dir, cookie_path, data_dir / "baselines")
+    except Exception:  # noqa: BLE001 - a missing baseline only removes the multiple
+        baseline = None
+    report = build_report(
+        item,
+        transcript,
+        judge_fn=judge_fn,
+        baseline=baseline,
+        creator_metrics=_creator_metrics(creator_db, content_id),
+        glossary=glossary,
+        generated_at=generated_at,
+    )
+    paths = _write_report(report, data_dir)
+    return {"content_id": report["content_id"], **paths}
+
+
 def run_pipeline(
     urls: Sequence[str],
     *,
@@ -180,29 +242,21 @@ def run_pipeline(
     results: list[dict] = []
     for url in urls:
         try:
-            content_dir = _find_content_dir(downloads_dir, _content_id_from_url(url))
-            if content_dir is None:
-                content_dir = download_fn(url, cookie_path, downloads_dir)
-            item = _read_json(content_dir / "content_item.json")
-            if not (content_dir / "transcript.json").is_file():
-                content_dir = extract_fn(content_dir, whisper_model)
-            transcript = _read_json(content_dir / "transcript.json")
-            content_id = str(item.get("content_id") or "")
-            try:
-                baseline = baseline_fn(content_dir, cookie_path, data_dir / "baselines")
-            except BaselineError:
-                baseline = None
-            report = build_report(
-                item,
-                transcript,
-                judge_fn=judge_fn,
-                baseline=baseline,
-                creator_metrics=_creator_metrics(creator_db, content_id),
-                glossary=glossary,
+            paths = process_url(
+                url,
+                cookie_path=cookie_path,
+                data_dir=data_dir,
+                downloads_dir=downloads_dir,
+                download_fn=download_fn,
+                extract_fn=extract_fn,
+                whisper_model=whisper_model,
                 generated_at=run_at,
+                judge_fn=judge_fn,
+                baseline_fn=baseline_fn,
+                creator_db=creator_db,
+                glossary=glossary,
             )
-            paths = _write_report(report, data_dir)
-            results.append({"status": "ok", "content_id": report["content_id"], "url": url, **paths})
+            results.append({"status": "ok", "url": url, **paths})
         except Exception as exc:  # noqa: BLE001
             results.append({"status": "failed", "url": url, "error": str(exc)})
 
