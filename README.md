@@ -17,6 +17,21 @@ python3 -m content_studio creator-sync \
 
 默认命令会串行分页请求并在页间等待 1 秒。可用 `--days`、`--delay-seconds` 和 `--page-size` 调整窗口与节奏。cookies 文件必须在仓库外且权限为 `600` 或更严；没有登录态时重新由 Park 在浏览器登录并导出，不尝试绕过验证。
 
+## M1 样本流水线
+
+M1-3 使用已安装的 `content-downloader` 和 `content-extractor`，把链接串成下载、转写、结构拆解和报告：
+
+```bash
+python3 -m content_studio pipeline \
+  --url https://www.douyin.com/video/7658238400629083402 \
+  --url https://www.douyin.com/video/7645203889066724646 \
+  --url https://www.douyin.com/video/7683154176955731234 \
+  --cookies ~/.config/content-studio/douyin-cookies.json \
+  --data-dir ~/.config/content-studio/m1
+```
+
+报告写入 `data-dir/reports/<content_id>/report.json` 和 `report.md`。已有下载/转写产物会安全复用；短链接只有在下载器返回实际作品 ID 后才定位，不会复用任意旧记录。结构标签和“为什么爆/为什么散”都带原文时间点，只是待验证假设。
+
 ## 输入 / 输出 / 失败合同
 
 ```text

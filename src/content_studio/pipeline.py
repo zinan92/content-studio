@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+from typing import Callable, Sequence
+
+from .structure import build_report, render_markdown
+
+
+class PipelineError(RuntimeError):
+    """A pipeline stage could not produce a verifiable result."""
+
+
+def _secure_dir(path: Path) -> Path:
+    path = path.expanduser().resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    path.chmod(0o700)
+    return path
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PipelineError(f"invalid JSON artifact: {path}") from exc
+    if not isinstance(value, dict):
+        raise PipelineError(f"JSON artifact must be an object: {path}")
+    return value
+
+
+def _find_content_dir(downloads_dir: Path, content_id: str | None) -> Path | None:
+    if not content_id:
+        return None
+    for path in downloads_dir.rglob("content_item.json"):
+        try:
+            item = _read_json(path)
+        except PipelineError:
+            continue
+        if content_id is None or str(item.get("content_id")) == content_id:
+            return path.parent
+    return None
+
+
+def _content_id_from_url(url: str) -> str | None:
+    match = re.search(r"/video/(\d+)", url)
+    return match.group(1) if match else None
+
+
+def _download_one(url: str, cookies: Path, output_dir: Path) -> Path:
+    from .creator_metrics import load_cookie_file
+
+    cookies = cookies.expanduser().resolve()
+    repo_root = Path.cwd().resolve()
+    try:
+        cookies.relative_to(repo_root)
+    except ValueError:
+        pass
+    else:
+        raise PipelineError("cookies must be stored outside the content-studio repository")
+    load_cookie_file(cookies)
+    output_dir = _secure_dir(output_dir)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "content_downloader",
+            "download",
+            url,
+            "--cookies",
+            str(cookies),
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise PipelineError(f"download failed for requested URL (exit {completed.returncode})")
+    content_id = _content_id_from_url(url)
+    if content_id is None:
+        match = re.search(
+            r"(?:Downloaded|Skipped \(already downloaded\)):\s*([A-Za-z0-9_-]+)",
+            completed.stdout,
+        )
+        content_id = match.group(1) if match else None
+    content_dir = _find_content_dir(output_dir, content_id)
+    if content_dir is None:
+        raise PipelineError("download reported success but no content_item.json was found")
+    return content_dir
+
+
+def _extract_one(content_dir: Path, whisper_model: str) -> Path:
+    try:
+        from content_extractor.config import ExtractorConfig
+        from content_extractor.extract import extract_content
+    except ImportError as exc:
+        raise PipelineError("content-extractor is not installed") from exc
+    extract_content(
+        content_dir,
+        ExtractorConfig(whisper_model=whisper_model, force_reprocess=False),
+    )
+    if not (content_dir / "transcript.json").is_file():
+        raise PipelineError("transcription stage returned without transcript.json")
+    return content_dir
+
+
+def _write_report(report: dict, data_dir: Path) -> dict[str, str]:
+    report_dir = _secure_dir(data_dir / "reports" / str(report["content_id"]))
+    json_path = report_dir / "report.json"
+    markdown_path = report_dir / "report.md"
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    markdown_path.write_text(render_markdown(report), encoding="utf-8")
+    json_path.chmod(0o600)
+    markdown_path.chmod(0o600)
+    return {"report_json": str(json_path), "report_markdown": str(markdown_path)}
+
+
+def run_pipeline(
+    urls: Sequence[str],
+    *,
+    cookie_path: Path,
+    data_dir: Path,
+    downloads_dir: Path | None = None,
+    download_fn: Callable[[str, Path, Path], Path] = _download_one,
+    extract_fn: Callable[[Path, str], Path] = _extract_one,
+    whisper_model: str = "turbo",
+    generated_at: str | None = None,
+) -> dict:
+    """Run download → transcribe → structure → report serially for URLs."""
+    if not urls:
+        raise PipelineError("at least one video URL is required")
+    data_dir = _secure_dir(data_dir)
+    downloads_dir = _secure_dir(downloads_dir or data_dir / "downloads")
+    run_at = generated_at or datetime.now(timezone.utc).isoformat()
+    results: list[dict] = []
+    for url in urls:
+        try:
+            content_dir = _find_content_dir(downloads_dir, _content_id_from_url(url))
+            if content_dir is None:
+                content_dir = download_fn(url, cookie_path, downloads_dir)
+            item = _read_json(content_dir / "content_item.json")
+            if not (content_dir / "transcript.json").is_file():
+                content_dir = extract_fn(content_dir, whisper_model)
+            transcript = _read_json(content_dir / "transcript.json")
+            report = build_report(item, transcript, generated_at=run_at)
+            paths = _write_report(report, data_dir)
+            results.append({"status": "ok", "content_id": report["content_id"], "url": url, **paths})
+        except Exception as exc:  # noqa: BLE001
+            results.append({"status": "failed", "url": url, "error": str(exc)})
+
+    status = "ok" if all(result["status"] == "ok" for result in results) else "partial"
+    receipt = {"status": status, "generated_at": run_at, "reports": results}
+    receipt_path = data_dir / "pipeline-run.json"
+    receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    receipt_path.chmod(0o600)
+    return receipt
