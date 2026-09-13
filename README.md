@@ -17,20 +17,26 @@ python3 -m content_studio creator-sync \
 
 默认命令会串行分页请求并在页间等待 1 秒。可用 `--days`、`--delay-seconds` 和 `--page-size` 调整窗口与节奏。cookies 文件必须在仓库外且权限为 `600` 或更严；没有登录态时重新由 Park 在浏览器登录并导出，不尝试绕过验证。
 
-## M1 样本流水线
+## 拆解流水线
 
-M1-3 使用已安装的 `content-downloader` 和 `content-extractor`，把链接串成下载、转写、结构拆解和报告：
+把任意抖音视频链接串成：下载（`content-downloader`）→ 转写（`content-extractor`）→ 结构拆解（模型）→ 报告。
 
 ```bash
-python3 -m content_studio pipeline \
-  --url https://www.douyin.com/video/7658238400629083402 \
-  --url https://www.douyin.com/video/7645203889066724646 \
-  --url https://www.douyin.com/video/7683154176955731234 \
+PYTHONPATH=~/work/content-downloader python3 -m content_studio pipeline \
+  --url https://www.douyin.com/video/7651653378111540495 \
   --cookies ~/.config/content-studio/douyin-cookies.json \
-  --data-dir ~/.config/content-studio/m1
+  --data-dir ~/.config/content-studio/m1 \
+  --downloads-dir ~/.config/content-studio/downloads
 ```
 
-报告写入 `data-dir/reports/<content_id>/report.json` 和 `report.md`。已有下载/转写产物会安全复用；短链接只有在下载器返回实际作品 ID 后才定位，不会复用任意旧记录。结构标签和“为什么爆/为什么散”都带原文时间点，只是待验证假设。
+- **判断与计算分离**：主线、按意思分段、每段是否服务主线（附理由）、"为什么爆 / 为什么散"由模型给出；收藏/赞、转发/赞、评论/赞、账号点赞中位数倍数等数字由代码算好再交给模型，结论必须引用数字，不合格会带错误重试一次。
+- **证据可复验**：每条结论的引文由代码按时间点回查真实转写，不采用模型复述。
+- **账号基准**：按作者近 60 条非置顶作品的点赞中位数计算倍数，缓存 24 小时（`data-dir/baselines/`）。
+- **自己的视频**：若 `creator-sync` 已存该视频后台数据，报告增加"观众平均看到的前 N 秒"一节；对标视频没有这一节。
+- **模型**：默认调用本机已登录的 `claude -p --model sonnet`（禁用所有工具）；可用环境变量 `CONTENT_STUDIO_LLM_CMD` 换成其他命令，命令需从标准输入读提示词、向标准输出写 JSON。
+- **转写纠错**：`config/glossary.json` 词表，增删不需要改代码。
+
+报告写入 `data-dir/reports/<content_id>/report.json` 与 `report.md`。结构标签和结论是待验证假设，不是爆款判定规则。
 
 ## 输入 / 输出 / 失败合同
 

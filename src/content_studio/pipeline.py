@@ -4,11 +4,16 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 import sys
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
-from .structure import build_report, render_markdown
+from .baseline import BaselineError, douyin_baseline
+from .judge import JudgeFn, cli_judge
+from .structure import build_report, load_glossary, render_markdown
+
+DEFAULT_GLOSSARY_PATH = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
 
 
 class PipelineError(RuntimeError):
@@ -109,6 +114,36 @@ def _extract_one(content_dir: Path, whisper_model: str) -> Path:
     return content_dir
 
 
+def _creator_metrics(db_path: Path | None, content_id: str) -> dict[str, Any] | None:
+    """Creator-backend metrics for one of Park's own videos, if synced."""
+    if db_path is None:
+        return None
+    db_path = db_path.expanduser()
+    if not db_path.is_file():
+        return None
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM creator_video_metrics WHERE video_id = ?", (content_id,)
+        ).fetchone()
+    if row is None:
+        return None
+    return {key: row[key] for key in row.keys() if key != "raw_json"}
+
+
+def _default_baseline(content_dir: Path, cookie_path: Path, cache_dir: Path) -> dict[str, Any] | None:
+    from .creator_metrics import load_cookie_file
+
+    metadata_path = content_dir / "metadata.json"
+    if not metadata_path.is_file():
+        return None
+    author = (_read_json(metadata_path).get("author") or {})
+    sec_uid = str(author.get("sec_uid") or "").strip()
+    if not sec_uid:
+        return None
+    return douyin_baseline(sec_uid, cookies=load_cookie_file(cookie_path), cache_dir=cache_dir)
+
+
 def _write_report(report: dict, data_dir: Path) -> dict[str, str]:
     report_dir = _secure_dir(data_dir / "reports" / str(report["content_id"]))
     json_path = report_dir / "report.json"
@@ -130,6 +165,10 @@ def run_pipeline(
     extract_fn: Callable[[Path, str], Path] = _extract_one,
     whisper_model: str = "turbo",
     generated_at: str | None = None,
+    judge_fn: JudgeFn = cli_judge,
+    baseline_fn: Callable[[Path, Path, Path], dict[str, Any] | None] = _default_baseline,
+    creator_db: Path | None = None,
+    glossary_path: Path | None = DEFAULT_GLOSSARY_PATH,
 ) -> dict:
     """Run download → transcribe → structure → report serially for URLs."""
     if not urls:
@@ -137,6 +176,7 @@ def run_pipeline(
     data_dir = _secure_dir(data_dir)
     downloads_dir = _secure_dir(downloads_dir or data_dir / "downloads")
     run_at = generated_at or datetime.now(timezone.utc).isoformat()
+    glossary = load_glossary(glossary_path)
     results: list[dict] = []
     for url in urls:
         try:
@@ -147,7 +187,20 @@ def run_pipeline(
             if not (content_dir / "transcript.json").is_file():
                 content_dir = extract_fn(content_dir, whisper_model)
             transcript = _read_json(content_dir / "transcript.json")
-            report = build_report(item, transcript, generated_at=run_at)
+            content_id = str(item.get("content_id") or "")
+            try:
+                baseline = baseline_fn(content_dir, cookie_path, data_dir / "baselines")
+            except BaselineError:
+                baseline = None
+            report = build_report(
+                item,
+                transcript,
+                judge_fn=judge_fn,
+                baseline=baseline,
+                creator_metrics=_creator_metrics(creator_db, content_id),
+                glossary=glossary,
+                generated_at=run_at,
+            )
             paths = _write_report(report, data_dir)
             results.append({"status": "ok", "content_id": report["content_id"], "url": url, **paths})
         except Exception as exc:  # noqa: BLE001

@@ -15,7 +15,8 @@ from .creator_metrics import (
     DEFAULT_USER_AGENT,
     load_cookie_file,
 )
-from .pipeline import PipelineError, run_pipeline
+from .pipeline import DEFAULT_GLOSSARY_PATH, PipelineError, run_pipeline
+from .structure import ReportError
 
 
 DEFAULT_COOKIE_PATH = Path("~/.config/content-studio/douyin-cookies.json")
@@ -43,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--data-dir", type=Path, default=Path("~/.config/content-studio"))
     pipeline.add_argument("--downloads-dir", type=Path, default=None)
     pipeline.add_argument("--whisper-model", default="turbo")
+    pipeline.add_argument("--creator-db", type=Path, default=DEFAULT_DB_PATH)
+    pipeline.add_argument("--glossary", type=Path, default=DEFAULT_GLOSSARY_PATH)
     return parser
 
 
@@ -76,6 +79,8 @@ def run_pipeline_command(args: argparse.Namespace) -> int:
         data_dir=args.data_dir,
         downloads_dir=args.downloads_dir,
         whisper_model=args.whisper_model,
+        creator_db=args.creator_db,
+        glossary_path=args.glossary,
     )
     print(json.dumps(receipt, ensure_ascii=False))
     return 0 if receipt["status"] == "ok" else 1
@@ -89,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             return run_creator_sync(args)
         if args.command == "pipeline":
             return run_pipeline_command(args)
-    except (CreatorMetricsError, PipelineError, OSError, ValueError) as exc:
+    except (CreatorMetricsError, PipelineError, ReportError, OSError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"unknown command: {args.command}")

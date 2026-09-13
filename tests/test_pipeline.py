@@ -6,6 +6,21 @@ from pathlib import Path
 from content_studio.pipeline import run_pipeline
 
 
+def _judge(_prompt: str) -> dict:
+    return {
+        "thesis": {"text": "主线", "evidence_start": 0},
+        "segments": [
+            {"start": 0, "end": 4, "label": "钩子", "summary": "主张", "serves_thesis": True, "reason": "开门见山"}
+        ],
+        "why_boom": [{"text": "收藏/赞 50.0%", "evidence_start": 0}],
+        "why_scatter": [{"text": "只有 4 秒，无法判断", "evidence_start": 0}],
+        "opening": None,
+    }
+
+
+STUB = {"judge_fn": _judge, "baseline_fn": lambda *_args: None, "creator_db": None}
+
+
 def _write_content_item(root: Path, content_id: str = "v1") -> Path:
     content_dir = root / "douyin" / "author" / content_id
     (content_dir / "media").mkdir(parents=True)
@@ -54,6 +69,7 @@ def test_pipeline_reuses_downloaded_content_and_writes_two_report_formats(tmp_pa
         download_fn=lambda *_args, **_kwargs: calls.append("download") or content_dir,
         extract_fn=lambda path, _model: calls.append("extract") or path,
         generated_at="2026-09-13T00:00:00+00:00",
+        **STUB,
     )
 
     assert calls == []
@@ -97,6 +113,7 @@ def test_pipeline_runs_download_and_extract_for_a_new_link(tmp_path: Path) -> No
         download_fn=download,
         extract_fn=extract,
         generated_at="2026-09-13T00:00:00+00:00",
+        **STUB,
     )
 
     assert calls == ["download", "extract"]
@@ -119,6 +136,7 @@ def test_pipeline_does_not_reuse_arbitrary_content_for_short_link(tmp_path: Path
         downloads_dir=downloads,
         download_fn=download,
         generated_at="2026-09-13T00:00:00+00:00",
+        **STUB,
     )
 
     assert calls == ["download"]
