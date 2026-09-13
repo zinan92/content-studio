@@ -14,7 +14,7 @@
 
 ## Where we are now
 
-M1 已完成真实执行但未过 Park 闸门：M1-1 的抖音下载修复已合并到 `content-downloader`（`f0b7e09`）；M1-2 已完成手动后台快照实现，PR [#3](https://github.com/zinan92/content-studio/pull/3) 因 GitHub merge API 502 仍开放；M1-3 PR [#4](https://github.com/zinan92/content-studio/pull/4) 已生成 3 份本机报告并回帖。报告、转写、下载和数据库均在仓库外本机；等待 Park 阅读三份报告并确认“说中了”。
+M1 已完成真实执行但未过 Park 闸门：M1-1 的抖音下载修复已合并到 `content-downloader`（`f0b7e09`）；M1-2 手动后台快照实现已合并（`14a414a`），Issue #1 重新打开等待人工验收；M1-3 PR [#4](https://github.com/zinan92/content-studio/pull/4) 已生成 3 份本机报告并回帖。报告、转写、下载和数据库均在仓库外本机；等待 Park 阅读三份报告并确认“说中了”。
 
 ## Milestone position
 
@@ -27,7 +27,7 @@ M1 已完成真实执行但未过 Park 闸门：M1-1 的抖音下载修复已合
 ## Next move
 
 1. Park 阅读 [M1-3 Issue #2](https://github.com/zinan92/content-studio/issues/2) 中的三份本机报告并确认是否“说中了”。
-2. GitHub merge API 恢复后合并 [M1-2 PR #3](https://github.com/zinan92/content-studio/pull/3) 与 [M1-3 PR #4](https://github.com/zinan92/content-studio/pull/4)；确认前不开始 M2。
+2. 完成 [M1-2 Issue #1](https://github.com/zinan92/content-studio/issues/1) 的人工抽查，并合并 [M1-3 PR #4](https://github.com/zinan92/content-studio/pull/4)；确认前不开始 M2。
 
 ## ETA
 
