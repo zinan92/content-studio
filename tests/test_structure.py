@@ -136,7 +136,7 @@ def test_invalid_judgement_is_retried_with_the_validation_error() -> None:
 
     report = build_report(_item(), TRANSCRIPT, judge_fn=judge)
     assert len(prompts) == 2
-    assert "没有引用任何数字" in prompts[1]
+    assert "没有任何一条引用数据里的数字" in prompts[1]
     assert report["why_boom"][0]["text"].startswith("收藏/赞")
 
 
