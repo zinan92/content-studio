@@ -171,9 +171,23 @@ def test_auto_enqueue_respects_threshold_cap_and_does_not_duplicate(store: Studi
     )
     first = auto_enqueue_outliers(store)
     assert [job["video_id"] for job in first] == ["5"]
+    # The cap counts auto jobs still waiting, across every sync call.
+    assert auto_enqueue_outliers(store) == []
+    store.update_job(first[0]["id"], stage="done")
     second = auto_enqueue_outliers(store)
     assert [job["video_id"] for job in second] == ["4"]
+    store.update_job(second[0]["id"], stage="done")
     assert auto_enqueue_outliers(store) == []
+
+
+def test_auto_enqueue_skips_videos_that_already_have_reports(store: StudioStore) -> None:
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    store.upsert_videos(
+        account["id"],
+        [normalize_post(_post(str(i), likes)) for i, likes in enumerate([100, 100, 100, 900, 1200], start=1)],
+    )
+    created = auto_enqueue_outliers(store, has_report=lambda vid: vid == "5")
+    assert [job["video_id"] for job in created] == ["4"]
 
 
 def test_self_account_is_excluded_from_outliers_and_cannot_be_removed(store: StudioStore) -> None:

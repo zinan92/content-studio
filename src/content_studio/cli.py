@@ -33,7 +33,7 @@ DEFAULT_DB_PATH = Path("~/.config/content-studio/data/creator-metrics.sqlite3")
 DEFAULT_DATA_DIR = Path("~/.config/content-studio")
 DEFAULT_REPORTS_DIR = DEFAULT_DATA_DIR / "studio"
 DEFAULT_DOWNLOADS_DIR = DEFAULT_DATA_DIR / "downloads"
-DEFAULT_PORT = 8765
+DEFAULT_PORT = 8780
 PLIST_LABEL = "com.park.content-studio.daily-sync"
 
 
@@ -114,7 +114,14 @@ def run_add_account(args: argparse.Namespace) -> int:
     return 0
 
 
-def sync_everything(store: StudioStore, *, cookie_path: Path, creator_db: Path, enqueue: bool = True) -> dict:
+def sync_everything(
+    store: StudioStore,
+    *,
+    cookie_path: Path,
+    creator_db: Path,
+    enqueue: bool = True,
+    has_report=lambda _video_id: False,
+) -> dict:
     """One pass over every Douyin account. Stops the whole pass on risk control."""
     from .accounts import RiskControlStop
 
@@ -133,18 +140,23 @@ def sync_everything(store: StudioStore, *, cookie_path: Path, creator_db: Path, 
         except AccountError as exc:
             summary["accounts"].append({"id": account["id"], "status": "failed", "error": str(exc)})
     if store.self_account() is not None:
-        try:
-            cookies = load_cookie_file(cookie_path)
-            headers = {"Referer": CREATOR_MANAGE_URL, "User-Agent": DEFAULT_USER_AGENT}
-            with httpx.Client(cookies=cookies, headers=headers, follow_redirects=True, timeout=30.0) as client:
-                with CreatorMetricsStore(creator_db) as metrics_store:
-                    result = CreatorMetricsSyncer(client=client, store=metrics_store).sync(days=90, delay_seconds=1.5)
-            summary["creator_metrics"] = {"status": "ok", **result.__dict__}
-        except CreatorMetricsError as exc:
-            summary["creator_metrics"] = {"status": "failed", "error": str(exc)}
+        summary["creator_metrics"] = sync_creator_metrics(cookie_path=cookie_path, creator_db=creator_db)
     if enqueue:
-        summary["enqueued"] = len(auto_enqueue_outliers(store))
+        summary["enqueued"] = len(auto_enqueue_outliers(store, has_report=has_report))
     return summary
+
+
+def sync_creator_metrics(*, cookie_path: Path, creator_db: Path) -> dict:
+    """Snapshot creator-backend metrics for Park's own videos (last 90 days)."""
+    try:
+        cookies = load_cookie_file(cookie_path)
+        headers = {"Referer": CREATOR_MANAGE_URL, "User-Agent": DEFAULT_USER_AGENT}
+        with httpx.Client(cookies=cookies, headers=headers, follow_redirects=True, timeout=30.0) as client:
+            with CreatorMetricsStore(creator_db) as metrics_store:
+                result = CreatorMetricsSyncer(client=client, store=metrics_store).sync(days=90, delay_seconds=1.5)
+        return {"status": "ok", **result.__dict__}
+    except CreatorMetricsError as exc:
+        return {"status": "failed", "error": str(exc)}
 
 
 def run_sync(args: argparse.Namespace) -> int:

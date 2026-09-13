@@ -337,6 +337,13 @@ class StudioStore:
             )
         return cursor.rowcount
 
+    def cancel_job(self, job_id: int) -> None:
+        job = self.job(job_id)
+        if job["stage"] != "queued":
+            raise StoreError("只能取消还在排队的任务")
+        with self.tx() as conn:
+            conn.execute("DELETE FROM jobs WHERE id = ? AND stage = 'queued'", (job_id,))
+
     def retry_job(self, job_id: int) -> dict[str, Any]:
         job = self.job(job_id)
         if job["stage"] != "failed":
