@@ -22,4 +22,13 @@
 - **Evidence:** [`docs/spec.md`](docs/spec.md) 第 2、4、5、6 节；线上样稿 [Claude artifact](https://claude.ai/code/artifact/6d9672af-68eb-45cc-b65e-98fd07bea1dd)。
 - **Gotchas:** 爆款倍数必须除以账号自己的点赞中位数，默认门槛 5×；M1 闸门是 Park 读完三份样本报告并确认“说中了”，此前不开始 M2。
 
+## 2026-09-13 — M1 报告证据边界
+
+- **Context:** content-extractor 的可选 LLM 重构/摘要因本机 OAuth 不可用而降级，但 M1 要求仍能以转写文字完成结构拆解。
+- **Decision:** M1 报告使用 content-extractor 真实生成的带时间戳转写作为主材料；结构标签、跑题标记和“为什么爆/为什么散”由本地确定性规则生成，并在每条结论中保留原文时间点；LLM 摘要不是流水线依赖。
+- **Why:** 真实转写已成功（千雪AI 69 段、柱子哥 198 段、Park 898 段），而可选 LLM 服务返回 auth unavailable；把两者分开使报告仍可复验且不把未验证推断写成事实。
+- **Alternatives rejected:** 不用样稿里的静态报告数组冒充真实结果；不因摘要服务不可用而伪造“完成”；不把标签或四步结构检查作为爆款判定规则。
+- **Evidence:** M1-3 PR [#4](https://github.com/zinan92/content-studio/pull/4)；本机报告回执 `~/.config/content-studio/m1/pipeline-run.json`；[需求说明](docs/spec.md) 第 3、4、5 节。
+- **Gotchas:** 报告只在本机保存；每次结论必须能追到转写时间点；M1 三份报告必须由 Park 阅读确认后才允许进入 M2。
+
 ---
