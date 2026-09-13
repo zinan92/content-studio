@@ -1,0 +1,194 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from content_studio.accounts import (
+    AccountError,
+    RiskControlStop,
+    add_account,
+    auto_enqueue_outliers,
+    normalize_post,
+    parse_profile_url,
+    sync_account,
+)
+from content_studio.store import StoreError, StudioStore
+
+
+SEC = "MS4wLjABAAAAtest_sec-uid"
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> StudioStore:
+    value = StudioStore(tmp_path / "studio.sqlite3")
+    yield value
+    value.close()
+
+
+def _post(aweme_id: str, likes: int, *, top: bool = False, duration: int = 60000) -> dict:
+    return {
+        "aweme_id": aweme_id,
+        "desc": f"视频 {aweme_id}",
+        "create_time": 1780000000 + int(aweme_id),
+        "is_top": int(top),
+        "duration": duration,
+        "statistics": {"digg_count": likes, "comment_count": 1, "share_count": 2, "collect_count": 3, "play_count": 0},
+        "author": {"nickname": "作者"},
+    }
+
+
+class FakeClient:
+    def __init__(self, pages: list[dict], profile: dict | None = None, resolved: str | None = None) -> None:
+        self.pages = pages
+        self.profile_data = profile if profile is not None else {"nickname": "对标号", "follower_count": 1000}
+        self.resolved = resolved
+        self.calls: list[tuple] = []
+
+    async def __aenter__(self) -> "FakeClient":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def resolve_profile(self, url: str) -> str | None:
+        self.calls.append(("resolve", url))
+        return self.resolved
+
+    async def profile(self, sec_uid: str) -> dict:
+        self.calls.append(("profile", sec_uid))
+        return self.profile_data
+
+    async def posts(self, sec_uid: str, cursor: int) -> dict:
+        self.calls.append(("posts", cursor))
+        return self.pages[len([c for c in self.calls if c[0] == "posts"]) - 1]
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None
+
+
+@pytest.mark.parametrize(
+    ("url", "platform", "external_id"),
+    [
+        (f"https://www.douyin.com/user/{SEC}?from_tab_name=main", "抖音", SEC),
+        (f"看看这个 https://www.douyin.com/user/{SEC} 复制打开", "抖音", SEC),
+        ("https://www.xiaohongshu.com/user/profile/5f1a2b3c4d?xsec=1", "小红书", "5f1a2b3c4d"),
+        ("https://x.com/SamAltman/status/1", "X", "samaltman"),
+        ("twitter.com/karpathy", "X", "karpathy"),
+        ("https://channels.weixin.qq.com/abc", "视频号", None),
+    ],
+)
+def test_parse_profile_url_recognises_supported_platforms(url: str, platform: str, external_id: str | None) -> None:
+    parsed = parse_profile_url(url)
+    assert parsed.platform == platform
+    assert parsed.external_id == external_id
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["", "https://www.douyin.com/video/123", "https://x.com/home", "https://example.com/u/1"],
+)
+def test_parse_profile_url_rejects_non_profile_links_with_guidance(url: str) -> None:
+    with pytest.raises(AccountError):
+        parse_profile_url(url)
+
+
+def test_add_account_marks_other_platforms_pending_and_rejects_duplicates(store: StudioStore) -> None:
+    douyin = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    assert douyin["status"] == "active"
+    xhs = add_account(store, "https://www.xiaohongshu.com/user/profile/abc123")
+    assert xhs["status"] == "pending_platform"
+    with pytest.raises(AccountError, match="已经在库里"):
+        add_account(store, f"https://www.douyin.com/user/{SEC}?from=share")
+
+
+def test_short_link_is_resolved_to_profile(store: StudioStore) -> None:
+    client = FakeClient([], resolved=f"https://www.douyin.com/user/{SEC}?previous_page=app_code_link")
+    account = add_account(store, "https://v.douyin.com/AbCdEf/", client_factory=lambda: client)
+    assert account["external_id"] == SEC
+
+
+def test_sync_stores_profile_videos_and_median_excluding_pinned(store: StudioStore) -> None:
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    pages = [
+        {"items": [_post("1", 100000, top=True), _post("2", 1000), _post("3", 2000)], "has_more": True, "max_cursor": 9},
+        {"items": [_post("4", 3000), _post("5", 60000)], "has_more": False},
+    ]
+    client = FakeClient(pages)
+    result = sync_account(store, account["id"], client_factory=lambda: client, sleep=_no_sleep)
+    assert result["video_count"] == 5
+    assert result["account"]["nickname"] == "对标号"
+    assert result["account"]["follower_count"] == 1000
+    assert store.account_median(account["id"]) == 2500.0
+    assert ("posts", 9) in client.calls
+    outliers = store.outliers(5.0)
+    # Pinned posts are excluded from the median but can still be breakout samples.
+    assert [video["video_id"] for video in outliers] == ["1", "5"]
+    assert outliers[1]["multiple"] == 24.0
+
+
+def test_sync_respects_page_limit_and_delay_setting(store: StudioStore) -> None:
+    store.update_settings({"sync_pages": 2, "sync_delay_seconds": 2.0})
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    pages = [{"items": [_post(str(i), 10)], "has_more": True, "max_cursor": i} for i in range(1, 5)]
+    delays: list[float] = []
+
+    async def record(seconds: float) -> None:
+        delays.append(seconds)
+
+    sync_account(store, account["id"], client_factory=lambda: FakeClient(pages), sleep=record)
+    assert len(store.videos(account["id"])) == 2
+    assert delays == [2.0, 2.0]
+    with pytest.raises(StoreError):
+        store.update_settings({"sync_delay_seconds": 0.5})
+
+
+def test_risk_control_stops_sync_and_is_recorded_on_the_account(store: StudioStore) -> None:
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    pages = [{"items": [], "has_more": True, "risk_flags": {"verify_page": True}}, {"items": [_post("9", 1)]}]
+    client = FakeClient(pages)
+    with pytest.raises(RiskControlStop):
+        sync_account(store, account["id"], client_factory=lambda: client, sleep=_no_sleep)
+    assert len([c for c in client.calls if c[0] == "posts"]) == 1
+    refreshed = store.account(account["id"])
+    assert refreshed["status"] == "error"
+    assert "验证" in refreshed["last_error"]
+
+
+def test_pending_platform_accounts_cannot_sync(store: StudioStore) -> None:
+    account = add_account(store, "https://x.com/someone")
+    with pytest.raises(AccountError, match="待接入"):
+        sync_account(store, account["id"], client_factory=lambda: FakeClient([]), sleep=_no_sleep)
+
+
+def test_auto_enqueue_respects_threshold_cap_and_does_not_duplicate(store: StudioStore) -> None:
+    store.update_settings({"auto_enqueue_limit": 1})
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    store.upsert_videos(
+        account["id"],
+        [normalize_post(_post(str(i), likes)) for i, likes in enumerate([100, 100, 100, 900, 1200], start=1)],
+    )
+    first = auto_enqueue_outliers(store)
+    assert [job["video_id"] for job in first] == ["5"]
+    second = auto_enqueue_outliers(store)
+    assert [job["video_id"] for job in second] == ["4"]
+    assert auto_enqueue_outliers(store) == []
+
+
+def test_self_account_is_excluded_from_outliers_and_cannot_be_removed(store: StudioStore) -> None:
+    me = add_account(store, f"https://www.douyin.com/user/{SEC}", is_self=True)
+    store.upsert_videos(me["id"], [normalize_post(_post("1", 10)), normalize_post(_post("2", 1000))])
+    assert store.outliers(2.0) == []
+    with pytest.raises(StoreError):
+        store.delete_account(me["id"])
+
+
+def test_image_posts_are_flagged_and_not_breakouts(store: StudioStore) -> None:
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    store.upsert_videos(
+        account["id"],
+        [normalize_post(_post("1", 10)), normalize_post(_post("2", 10)), normalize_post(_post("3", 9999, duration=0))],
+    )
+    assert store.video("3")["is_image_post"] == 1
+    assert store.outliers(5.0) == []

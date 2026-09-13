@@ -34,6 +34,9 @@ def summarize_posts(posts: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 async def _fetch_posts(sec_uid: str, cookies: dict[str, str], pages: int, delay_seconds: float) -> list[dict]:
+    from .deps import ensure_content_downloader
+
+    ensure_content_downloader()
     try:
         from content_downloader.adapters.douyin.api_client import DouyinAPIClient
     except ImportError as exc:

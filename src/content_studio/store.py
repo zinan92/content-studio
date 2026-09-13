@@ -1,0 +1,344 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import sqlite3
+import statistics
+import threading
+from typing import Any, Iterator
+
+
+DEFAULT_STORE_PATH = Path("~/.config/content-studio/data/studio.sqlite3")
+
+JOB_STAGES = ("queued", "downloading", "transcribing", "analyzing", "done", "failed")
+ACTIVE_STAGES = ("downloading", "transcribing", "analyzing")
+
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "threshold": 5.0,
+    "auto_enqueue_limit": 8,
+    "sync_pages": 3,
+    "sync_delay_seconds": 1.5,
+}
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    profile_url TEXT NOT NULL,
+    external_id TEXT,
+    nickname TEXT,
+    follower_count INTEGER,
+    total_favorited INTEGER,
+    signature TEXT,
+    is_self INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    last_error TEXT,
+    added_at TEXT NOT NULL,
+    last_synced_at TEXT,
+    UNIQUE(platform, external_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS accounts_profile_url ON accounts(profile_url);
+CREATE TABLE IF NOT EXISTS videos (
+    platform TEXT NOT NULL,
+    video_id TEXT NOT NULL,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    published_at TEXT,
+    duration_seconds REAL,
+    is_top INTEGER NOT NULL DEFAULT 0,
+    is_image_post INTEGER NOT NULL DEFAULT 0,
+    likes INTEGER,
+    comments INTEGER,
+    shares INTEGER,
+    collects INTEGER,
+    views INTEGER,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (platform, video_id)
+);
+CREATE INDEX IF NOT EXISTS videos_account ON videos(account_id, published_at);
+CREATE TABLE IF NOT EXISTS jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    video_id TEXT,
+    source TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    error TEXT,
+    report_path TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS jobs_stage ON jobs(stage, id);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class StoreError(RuntimeError):
+    """A store operation violated a product rule (duplicate, missing row...)."""
+
+
+class StudioStore:
+    """SQLite-backed state for accounts, videos, teardown jobs and settings."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path.expanduser()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.parent.chmod(0o700)
+        except OSError:
+            pass
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.executescript(SCHEMA)
+        self._conn.commit()
+        try:
+            self.path.chmod(0o600)
+        except OSError:
+            pass
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    @contextmanager
+    def tx(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            try:
+                yield self._conn
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def _rows(self, sql: str, params: tuple = ()) -> list[dict[str, Any]]:
+        with self._lock:
+            return [dict(row) for row in self._conn.execute(sql, params).fetchall()]
+
+    def _row(self, sql: str, params: tuple = ()) -> dict[str, Any] | None:
+        rows = self._rows(sql, params)
+        return rows[0] if rows else None
+
+    # -- settings ---------------------------------------------------------
+
+    def settings(self) -> dict[str, Any]:
+        values = dict(DEFAULT_SETTINGS)
+        for row in self._rows("SELECT key, value FROM settings"):
+            if row["key"] in values:
+                values[row["key"]] = json.loads(row["value"])
+        return values
+
+    def update_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
+        current = self.settings()
+        cleaned: dict[str, Any] = {}
+        for key, value in changes.items():
+            if key not in DEFAULT_SETTINGS:
+                raise StoreError(f"未知设置项：{key}")
+            kind = type(DEFAULT_SETTINGS[key])
+            try:
+                cleaned[key] = kind(value)
+            except (TypeError, ValueError) as exc:
+                raise StoreError(f"设置项 {key} 的值无效") from exc
+        if "threshold" in cleaned and not 1 <= cleaned["threshold"] <= 100:
+            raise StoreError("爆款门槛需在 1× 到 100× 之间")
+        if "auto_enqueue_limit" in cleaned and not 0 <= cleaned["auto_enqueue_limit"] <= 50:
+            raise StoreError("自动入队上限需在 0 到 50 之间")
+        if "sync_pages" in cleaned and not 1 <= cleaned["sync_pages"] <= 5:
+            raise StoreError("同步页数需在 1 到 5 之间")
+        if "sync_delay_seconds" in cleaned and cleaned["sync_delay_seconds"] < 1.5:
+            raise StoreError("页间间隔不得小于 1.5 秒")
+        with self.tx() as conn:
+            for key, value in cleaned.items():
+                conn.execute(
+                    "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (key, json.dumps(value)),
+                )
+        current.update(cleaned)
+        return current
+
+    # -- accounts ---------------------------------------------------------
+
+    def add_account(
+        self,
+        *,
+        platform: str,
+        profile_url: str,
+        external_id: str | None,
+        status: str,
+        is_self: bool = False,
+    ) -> dict[str, Any]:
+        duplicate = self._row("SELECT id FROM accounts WHERE profile_url = ?", (profile_url,))
+        if duplicate is None and external_id:
+            duplicate = self._row(
+                "SELECT id FROM accounts WHERE platform = ? AND external_id = ?", (platform, external_id)
+            )
+        if duplicate is not None:
+            raise StoreError("这个账号已经在库里了")
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "INSERT INTO accounts(platform, profile_url, external_id, is_self, status, added_at) VALUES(?, ?, ?, ?, ?, ?)",
+                (platform, profile_url, external_id, int(is_self), status, now_iso()),
+            )
+            account_id = cursor.lastrowid
+        return self.account(account_id)
+
+    def account(self, account_id: int) -> dict[str, Any]:
+        row = self._row("SELECT * FROM accounts WHERE id = ?", (account_id,))
+        if row is None:
+            raise StoreError("账号不存在")
+        return row
+
+    def accounts(self) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM accounts ORDER BY is_self DESC, id")
+
+    def self_account(self) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM accounts WHERE is_self = 1 ORDER BY id LIMIT 1")
+
+    def update_account(self, account_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"nickname", "follower_count", "total_favorited", "signature", "status", "last_error", "last_synced_at", "external_id"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise StoreError(f"不可更新的账号字段：{sorted(unknown)}")
+        if fields:
+            assignments = ", ".join(f"{key} = ?" for key in fields)
+            with self.tx() as conn:
+                conn.execute(f"UPDATE accounts SET {assignments} WHERE id = ?", (*fields.values(), account_id))
+        return self.account(account_id)
+
+    def delete_account(self, account_id: int) -> None:
+        account = self.account(account_id)
+        if account["is_self"]:
+            raise StoreError("不能移除自己的账号")
+        with self.tx() as conn:
+            conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+
+    # -- videos -----------------------------------------------------------
+
+    def upsert_videos(self, account_id: int, videos: list[dict[str, Any]]) -> int:
+        fetched_at = now_iso()
+        with self.tx() as conn:
+            for video in videos:
+                conn.execute(
+                    """
+                    INSERT INTO videos(platform, video_id, account_id, title, published_at, duration_seconds, is_top,
+                                       is_image_post, likes, comments, shares, collects, views, fetched_at)
+                    VALUES(:platform, :video_id, :account_id, :title, :published_at, :duration_seconds, :is_top,
+                           :is_image_post, :likes, :comments, :shares, :collects, :views, :fetched_at)
+                    ON CONFLICT(platform, video_id) DO UPDATE SET
+                        account_id = excluded.account_id, title = excluded.title, published_at = excluded.published_at,
+                        duration_seconds = excluded.duration_seconds, is_top = excluded.is_top,
+                        is_image_post = excluded.is_image_post, likes = excluded.likes, comments = excluded.comments,
+                        shares = excluded.shares, collects = excluded.collects,
+                        views = COALESCE(NULLIF(excluded.views, 0), videos.views), fetched_at = excluded.fetched_at
+                    """,
+                    {**video, "account_id": account_id, "fetched_at": fetched_at},
+                )
+        return len(videos)
+
+    def videos(self, account_id: int) -> list[dict[str, Any]]:
+        return self._rows(
+            "SELECT * FROM videos WHERE account_id = ? ORDER BY published_at DESC", (account_id,)
+        )
+
+    def video(self, video_id: str) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM videos WHERE video_id = ?", (video_id,))
+
+    def account_median(self, account_id: int) -> float | None:
+        likes = [
+            row["likes"]
+            for row in self._rows(
+                "SELECT likes FROM videos WHERE account_id = ? AND is_top = 0 AND likes IS NOT NULL", (account_id,)
+            )
+        ]
+        return float(statistics.median(likes)) if likes else None
+
+    def outliers(self, threshold: float) -> list[dict[str, Any]]:
+        results = []
+        for account in self.accounts():
+            if account["is_self"]:
+                continue
+            median = self.account_median(account["id"])
+            if not median:
+                continue
+            for video in self.videos(account["id"]):
+                if video["likes"] is None or video["is_image_post"]:
+                    continue
+                multiple = video["likes"] / median
+                if multiple >= threshold:
+                    results.append({**video, "multiple": round(multiple, 1), "account_nickname": account["nickname"], "account_median": median})
+        results.sort(key=lambda item: item["multiple"], reverse=True)
+        return results
+
+    # -- jobs -------------------------------------------------------------
+
+    def enqueue(self, *, url: str, video_id: str | None, source: str) -> tuple[dict[str, Any], bool]:
+        """Queue a teardown unless the same video is already queued, running or done."""
+        if video_id:
+            existing = self._row(
+                "SELECT * FROM jobs WHERE video_id = ? AND stage != 'failed' ORDER BY id DESC LIMIT 1", (video_id,)
+            )
+            if existing is not None:
+                return existing, False
+        stamp = now_iso()
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "INSERT INTO jobs(url, video_id, source, stage, created_at, updated_at) VALUES(?, ?, ?, 'queued', ?, ?)",
+                (url, video_id, source, stamp, stamp),
+            )
+            job_id = cursor.lastrowid
+        return self.job(job_id), True
+
+    def job(self, job_id: int) -> dict[str, Any]:
+        row = self._row("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        if row is None:
+            raise StoreError("任务不存在")
+        return row
+
+    def jobs(self, limit: int = 200) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,))
+
+    def job_for_video(self, video_id: str) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM jobs WHERE video_id = ? ORDER BY id DESC LIMIT 1", (video_id,))
+
+    def update_job(self, job_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"stage", "error", "report_path", "video_id"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise StoreError(f"不可更新的任务字段：{sorted(unknown)}")
+        if "stage" in fields and fields["stage"] not in JOB_STAGES:
+            raise StoreError(f"未知任务阶段：{fields['stage']}")
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        with self.tx() as conn:
+            conn.execute(
+                f"UPDATE jobs SET {assignments}, updated_at = ? WHERE id = ?", (*fields.values(), now_iso(), job_id)
+            )
+        return self.job(job_id)
+
+    def next_queued_job(self) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM jobs WHERE stage = 'queued' ORDER BY id LIMIT 1")
+
+    def recover_interrupted_jobs(self) -> int:
+        """Jobs left mid-stage by a crash go back to the queue; finished work is kept."""
+        placeholders = ",".join("?" for _ in ACTIVE_STAGES)
+        with self.tx() as conn:
+            cursor = conn.execute(
+                f"UPDATE jobs SET stage = 'queued', updated_at = ? WHERE stage IN ({placeholders})",
+                (now_iso(), *ACTIVE_STAGES),
+            )
+        return cursor.rowcount
+
+    def retry_job(self, job_id: int) -> dict[str, Any]:
+        job = self.job(job_id)
+        if job["stage"] != "failed":
+            raise StoreError("只有失败的任务可以重试")
+        return self.update_job(job_id, stage="queued", error=None)
