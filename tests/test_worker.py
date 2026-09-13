@@ -110,3 +110,15 @@ def test_worker_uses_library_median_as_baseline(store: StudioStore, tmp_path: Pa
     store.enqueue(url="https://www.douyin.com/video/3", video_id="3", source="对标")
     TeardownWorker(store, _config(tmp_path), process_fn=process).drain()
     assert seen["baseline"]["median_likes"] == 300.0
+
+
+def test_only_queued_jobs_can_be_cancelled(store: StudioStore) -> None:
+    from content_studio.store import StoreError
+
+    queued, _ = store.enqueue(url="a", video_id="1", source="手动")
+    running, _ = store.enqueue(url="b", video_id="2", source="手动")
+    store.update_job(running["id"], stage="downloading")
+    store.cancel_job(queued["id"])
+    assert store.job_for_video("1") is None
+    with pytest.raises(StoreError):
+        store.cancel_job(running["id"])

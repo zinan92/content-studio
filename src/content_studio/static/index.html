@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>内容拆解台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;900&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><b>内容拆解台</b><span id="brandSub">本机 · 抖音</span></div>
+    <div class="plat" aria-label="平台">
+      <button class="on" type="button">抖音</button>
+      <button disabled type="button" title="小红书抓取待接入">小红书</button>
+      <button disabled type="button" title="X 抓取待接入">X</button>
+    </div>
+    <nav class="nav">
+      <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
+      <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
+      <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
+      <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
+    </nav>
+    <div class="rail-foot">
+      <button class="btn small" id="syncAllBtn" type="button">同步全部账号</button>
+      <div class="sync" id="syncState"><span class="dot"></span><span>—</span></div>
+      <button class="theme-btn" id="themeBtn" type="button">切换深浅色</button>
+    </div>
+  </aside>
+
+  <main>
+    <div id="globalBanner"></div>
+
+    <!-- MINE -->
+    <section class="view" id="v-mine">
+      <div class="head">
+        <div>
+          <div class="eyebrow">抖音 · 我的账号</div>
+          <h1>我的视频</h1>
+          <p id="mineIntro">倍数 = 点赞 ÷ 你账号非置顶作品的点赞中位数。涨粉、完播、跳出来自创作者后台（只保留 90 天）。</p>
+        </div>
+        <div class="topbar-actions" id="mineActions"></div>
+      </div>
+      <div id="mineBody"></div>
+    </section>
+
+    <!-- RADAR -->
+    <section class="view" id="v-radar">
+      <div class="head">
+        <div>
+          <div class="eyebrow">抖音 · 对标账号</div>
+          <h1>对标雷达</h1>
+          <p>每个账号用<b>自己的</b>点赞中位数做基准：平时 5000 赞的号突然一条 20 万赞，就是 40 倍样本。超过门槛的新爆款会自动进拆解队列。</p>
+        </div>
+      </div>
+      <div class="controls">
+        <label for="thr">爆款门槛</label>
+        <input type="range" id="thr" min="2" max="30" step="0.5" value="5">
+        <span class="thr" id="thrV">5×</span>
+        <span class="sync-note" id="thrSaved"></span>
+        <div class="seg-toggle" role="group" aria-label="排序">
+          <button class="on" data-sort="multiple" type="button">按倍数</button>
+          <button data-sort="likes" type="button">按点赞</button>
+          <button data-sort="published_at" type="button">按时间</button>
+        </div>
+      </div>
+      <div class="accounts" id="accts"></div>
+      <div class="panel">
+        <div class="panel-h"><h2>爆款样本 <span class="num" id="hotN"></span></h2><small>互动结构：<span style="color:var(--save)">■</span> 收藏 <span style="color:var(--share)">■</span> 转发 <span style="color:var(--talk)">■</span> 评论（相对点赞）</small></div>
+        <div class="outlist" id="outs"></div>
+      </div>
+    </section>
+
+    <!-- QUEUE -->
+    <section class="view" id="v-queue">
+      <div class="head">
+        <div>
+          <div class="eyebrow">下载 → 转文字 → 结构拆解 → 报告</div>
+          <h1>拆解队列</h1>
+          <p>粘贴任意抖音视频链接（或分享口令），或从对标雷达、我的视频把作品加进来。任务一条一条串行跑，关掉页面也会继续。</p>
+        </div>
+      </div>
+      <div class="panel">
+        <form class="linkbox" id="linkForm">
+          <input id="linkIn" placeholder="粘贴抖音视频链接，例如 https://www.douyin.com/video/… 或 v.douyin.com 分享链接" aria-label="视频链接" autocomplete="off">
+          <button class="btn primary" type="submit">加入拆解</button>
+        </form>
+        <div class="hint">长视频转文字需要几分钟；拆解调用本机模型，每条约 1–3 分钟。</div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>队列</h2><small id="qMeta"></small></div>
+        <div id="qList"></div>
+      </div>
+    </section>
+
+    <!-- REPORT -->
+    <section class="view" id="v-report">
+      <div class="rep-picker" id="repPick"></div>
+      <div id="repBody"></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="addDlg">
+  <form class="dlg" id="addForm">
+    <h2 id="addTitle">加入对标账号</h2>
+    <p id="addDesc">粘贴对方的主页链接。抖音账号加入后会立即同步近期作品、算出他自己的爆款基准。</p>
+    <input id="addIn" placeholder="例如 https://www.douyin.com/user/MS4wLjAB…" aria-label="主页链接" autocomplete="off">
+    <div class="plats" id="addPlats"><span>抖音</span><span>小红书</span><span>X</span><span>视频号</span></div>
+    <div class="detect" id="addDetect">支持以上四个平台的主页链接</div>
+    <div class="dlg-actions"><button type="button" class="btn" id="addCancel">取消</button><button class="btn primary" type="submit" id="addSubmit">加入</button></div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

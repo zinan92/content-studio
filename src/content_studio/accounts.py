@@ -292,18 +292,31 @@ async def _fetch_account(
     return profile, posts
 
 
-def auto_enqueue_outliers(store: StudioStore) -> list[dict[str, Any]]:
-    """Queue breakout videos that have never been torn down, up to the configured cap."""
+AUTO_SOURCE_PREFIX = "对标爆款"
+
+
+def auto_enqueue_outliers(
+    store: StudioStore,
+    has_report: Callable[[str], bool] = lambda _video_id: False,
+) -> list[dict[str, Any]]:
+    """Queue un-analysed breakouts, keeping at most N auto jobs waiting across all accounts."""
     settings = store.settings()
     limit = int(settings["auto_enqueue_limit"])
+    pending = sum(
+        1
+        for job in store.jobs(1000)
+        if job["source"].startswith(AUTO_SOURCE_PREFIX) and job["stage"] not in ("done", "failed")
+    )
     created = []
     for video in store.outliers(float(settings["threshold"])):
-        if len(created) >= limit:
+        if pending + len(created) >= limit:
             break
+        if has_report(video["video_id"]):
+            continue
         job, is_new = store.enqueue(
             url=f"https://www.douyin.com/video/{video['video_id']}",
             video_id=video["video_id"],
-            source=f"对标爆款 · {video['account_nickname'] or '未命名账号'} · {video['multiple']}×",
+            source=f"{AUTO_SOURCE_PREFIX} · {video['account_nickname'] or '未命名账号'} · {video['multiple']}×",
         )
         if is_new:
             created.append(job)

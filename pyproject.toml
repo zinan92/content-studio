@@ -9,6 +9,8 @@ description = "Local-first content monitoring and analysis for Park"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.scripts]
@@ -21,6 +23,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+content_studio = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
