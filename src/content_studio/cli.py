@@ -15,6 +15,8 @@ from .creator_metrics import (
     DEFAULT_USER_AGENT,
     load_cookie_file,
 )
+from .pipeline import DEFAULT_GLOSSARY_PATH, PipelineError, run_pipeline
+from .structure import ReportError
 
 
 DEFAULT_COOKIE_PATH = Path("~/.config/content-studio/douyin-cookies.json")
@@ -33,6 +35,17 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--days", type=int, default=90)
     sync.add_argument("--delay-seconds", type=float, default=1.0)
     sync.add_argument("--page-size", type=int, default=12)
+    pipeline = commands.add_parser(
+        "pipeline",
+        help="run Douyin links through download, transcription, structure, and report",
+    )
+    pipeline.add_argument("--url", dest="urls", action="append", required=True)
+    pipeline.add_argument("--cookies", type=Path, default=DEFAULT_COOKIE_PATH)
+    pipeline.add_argument("--data-dir", type=Path, default=Path("~/.config/content-studio"))
+    pipeline.add_argument("--downloads-dir", type=Path, default=None)
+    pipeline.add_argument("--whisper-model", default="turbo")
+    pipeline.add_argument("--creator-db", type=Path, default=DEFAULT_DB_PATH)
+    pipeline.add_argument("--glossary", type=Path, default=DEFAULT_GLOSSARY_PATH)
     return parser
 
 
@@ -59,13 +72,29 @@ def run_creator_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_pipeline_command(args: argparse.Namespace) -> int:
+    receipt = run_pipeline(
+        args.urls,
+        cookie_path=args.cookies,
+        data_dir=args.data_dir,
+        downloads_dir=args.downloads_dir,
+        whisper_model=args.whisper_model,
+        creator_db=args.creator_db,
+        glossary_path=args.glossary,
+    )
+    print(json.dumps(receipt, ensure_ascii=False))
+    return 0 if receipt["status"] == "ok" else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         if args.command == "creator-sync":
             return run_creator_sync(args)
-    except (CreatorMetricsError, OSError, ValueError) as exc:
+        if args.command == "pipeline":
+            return run_pipeline_command(args)
+    except (CreatorMetricsError, PipelineError, ReportError, OSError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"unknown command: {args.command}")
