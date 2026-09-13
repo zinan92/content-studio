@@ -309,3 +309,4 @@ td .acts{display:flex;gap:6px;justify-content:flex-end;align-items:center}
 .seg-body{max-width:66ch;min-width:0}
 .seg-body b{font-weight:600}
 .line details p{margin:6px 0 0}
+@media (max-width:760px){.rep-head{grid-template-columns:1fr}.facts{grid-template-columns:repeat(2,1fr)}.out{grid-template-columns:56px 1fr}.out>div:last-child{grid-column:1/-1;justify-content:flex-start!important}}
