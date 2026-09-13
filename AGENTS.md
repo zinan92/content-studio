@@ -16,3 +16,19 @@ project's local delta.
 
 Do not copy the company operating manual here. Update this local delta only
 when the project needs a durable exception or operating instruction.
+
+## Agent skills
+
+### Issue tracker
+
+Issues for this repo live on GitHub at `zinan92/content-studio`; use the `gh`
+CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical five labels mapped in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md` for the
+consumer rules.
