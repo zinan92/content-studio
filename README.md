@@ -9,7 +9,9 @@ cd ~/work/content-studio
 python3 -m content_studio serve
 ```
 
-打开 <http://127.0.0.1:8780>（只监听本机）。关掉终端即停止；数据保存在 `~/.config/content-studio/`，重启后都在。
+打开 <http://127.0.0.1:8780>（只监听本机）。关掉终端即停止；数据保存在 `~/.config/content-studio/`，重启后都在。如果提示端口被占用，说明已经有一个在后台跑：直接打开链接，或先 `pkill -f 'content_studio serve'` 再启动。
+
+报告文件在 `~/.config/content-studio/studio/reports/<视频编号>/`；M1 阶段生成的样本报告在 `~/.config/content-studio/m1/reports/`，网页会同时读取两处。
 
 四个页面：
 
