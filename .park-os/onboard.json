@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "project": {
+    "project_id": "content-studio",
+    "codex_project": "content-studio",
+    "repository": "zinan92/content-studio",
+    "local_path": "/Users/wendy/work/content-studio",
+    "tokenrouter_group": "content-studio",
+    "project_registry": "REGISTRY.md",
+    "state_authority": "project_registry",
+    "lifecycle": "active"
+  },
+  "created_by": "park-os onboard"
+}
