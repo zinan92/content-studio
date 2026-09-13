@@ -140,6 +140,15 @@ def test_invalid_judgement_is_retried_with_the_validation_error() -> None:
     assert report["why_boom"][0]["text"].startswith("收藏/赞")
 
 
+def test_scatter_reasons_may_be_structural_without_numbers() -> None:
+    report = build_report(
+        _item(),
+        TRANSCRIPT,
+        judge_fn=lambda _prompt: _judgement(why_scatter=[{"text": "三条路径之间缺少清晰的过渡", "evidence_start": 60}]),
+    )
+    assert report["why_scatter"][0]["text"] == "三条路径之间缺少清晰的过渡"
+
+
 def test_judgement_that_never_validates_raises() -> None:
     bad = _judgement(segments=[{"start": 0, "end": 150, "label": "跑题", "summary": "x", "serves_thesis": True, "reason": "x"}])
     with pytest.raises(ReportError):

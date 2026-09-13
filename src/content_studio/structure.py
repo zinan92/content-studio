@@ -227,7 +227,7 @@ def build_prompt(
    label 为“跑题”当且仅当 serves_thesis 为 false。判断标准要严格：假设删掉这一段，主线的论证会不会明显变弱？
    不会变弱（只是间接相关、铺垫过长、绕远路、重复已说过的内容、推荐别人、展示与论点无直接关系的个人素材），就是 serves_thesis=false；
    会变弱（提供了主线必需的论据、例子或结论），才是 true。不要因为话题本身判断，要看这段对主线的必要性。
-3. why_boom 与 why_scatter：各 2–4 条，每个列表至少有一条引用上面“数据”里的数字（能引用就尽量引用），每条都要落到转写里的具体做法；evidence_start 填支撑它的原文秒数。
+3. why_boom 与 why_scatter：各 2–4 条，每条都要落到转写里的具体做法。why_boom 至少有一条引用上面“数据”里的数字；why_scatter 能用数据支撑就引用，纯结构问题可以不带数字；evidence_start 填支撑它的原文秒数。
    text 里不要写任何时间点或秒数（报告会根据 evidence_start 自动附上原文和时间）。
    如果该视频相对账号中位数并不突出，why_boom 写“做对了什么”，不要硬说爆。why_scatter 写结构上让人听散、流失的原因。
    不要用空泛套话（如“内容优质”“节奏好”），不要把“5 类生态位”或“四步结构”当成判定规则。
@@ -284,7 +284,8 @@ def validate_judgement(raw: dict[str, Any], duration: float, needs_opening: bool
             if not text.strip():
                 problems.append(f"{key}[{index}].text 缺失")
             texts.append(text)
-        if texts and not any(_has_number(text) for text in texts):
+        # Why-it-worked must stand on data; why-it-scattered is often purely structural.
+        if key == "why_boom" and texts and not any(_has_number(text) for text in texts):
             problems.append(f"{key} 没有任何一条引用数据里的数字")
     if needs_opening:
         opening = raw.get("opening")
@@ -313,7 +314,7 @@ def judge_structure(
         if not problems:
             return raw
         error = "；".join(problems[:8])
-    raise ReportError(f"structure judgement failed validation: {error}")
+    raise ReportError(f"拆解结果连续 {attempts} 次没通过校验，可点重试：{error}")
 
 
 # ---------------------------------------------------------------------------
