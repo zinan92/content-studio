@@ -24,6 +24,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sync_delay_seconds": 1.5,
     "obsidian_vault": "~/park-hands",
     "yanxishi_admin_url": "",
+    "video_projects_root": "",
 }
 
 SCHEMA = """
@@ -151,7 +152,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT"}}
+        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -310,7 +311,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")
