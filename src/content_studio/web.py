@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 import logging
 from pathlib import Path
@@ -194,6 +194,7 @@ def create_app(
     brief_fn: Callable[[str], dict] | None = None,
     outline_fn: Callable[[str], str] | None = None,
     copy_fn: Callable[[str], dict] | None = None,
+    review_fn: Callable[[str], dict] | None = None,
 ) -> FastAPI:
     from . import writer
 
@@ -201,6 +202,7 @@ def create_app(
     store.recover_interrupted_writes()
     store.recover_interrupted_briefings()
     briefing_lock = threading.Lock()
+    review_lock = threading.Lock()
     drafts_root = (drafts_dir or writer.DEFAULT_DRAFTS_DIR).expanduser()
     writing: set[int] = set()
     writing_lock = threading.Lock()
@@ -621,6 +623,58 @@ def create_app(
             store.set_briefing(key, state="failed", error=str(exc)[:300] or type(exc).__name__)
         finally:
             briefing_lock.release()
+
+    def _load_report(video_id: str) -> dict[str, Any] | None:
+        path = report_file(video_id)
+        if path is None:
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if data.get("schema_version", 1) >= 2 else None
+
+    def _run_review(now_value: datetime) -> None:
+        from . import review
+
+        key = review.week_key(now_value)
+        try:
+            me = store.self_account()
+            if me is None:
+                raise review.ReviewError("还没有连接自己的抖音号")
+            own = store.videos(me["id"])
+            breakouts = store.outliers(float(store.settings()["threshold"]))
+            ids = [v["video_id"] for v in own] + [b["video_id"] for b in breakouts]
+            reports_by_id = {vid: data for vid in ids if (data := _load_report(vid))}
+            inputs = review.gather_inputs(
+                own_videos=own, median_likes=store.account_median(me["id"]), creator=_creator_rows(creator_db),
+                reports=reports_by_id, topics=store.topics(include_archived=True), breakouts=breakouts, now=now_value,
+            )
+            data = review.generate_review(inputs, **({"review_fn": review_fn} if review_fn else {}))
+            store.set_review(key, state="done", data=data)
+        except Exception as exc:  # noqa: BLE001 - shown on the review page
+            logger.warning("review %s failed: %s", key, exc)
+            store.set_review(key, state="failed", error=str(exc)[:300] or type(exc).__name__)
+        finally:
+            review_lock.release()
+
+    @app.get("/api/review")
+    def get_review() -> dict[str, Any]:
+        from . import review
+
+        key = review.week_key(datetime.now(timezone.utc))
+        return store.review(key) or {"week": key, "state": "missing", "error": None, "data": None}
+
+    @app.post("/api/review/generate")
+    def post_review() -> dict[str, Any]:
+        from . import review
+
+        now_value = datetime.now(timezone.utc)
+        if not review_lock.acquire(blocking=False):
+            return {"started": False, "message": "复盘正在生成"}
+        store.set_review(review.week_key(now_value), state="running")
+        threading.Thread(target=_run_review, args=(now_value,), name="review", daemon=True).start()
+        return {"started": True, "message": "开始复盘这一周，一般 1–3 分钟"}
 
     @app.get("/api/briefing")
     def get_briefing(day: str | None = None) -> dict[str, Any]:

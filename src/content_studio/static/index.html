@@ -32,6 +32,7 @@
       <div class="nav-group" data-group="review"><div class="nav-label">复盘</div>
         <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
         <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
+        <button data-view="weekly" type="button">每周复盘</button>
       </div>
       <div class="nav-group" data-group="tools"><div class="nav-label">工具</div>
         <button data-view="skills" type="button">Skills</button>
@@ -89,6 +90,12 @@
     <section class="view wide" id="v-video">
       <div class="head"><div><div class="eyebrow">加工 · 口播视频</div><h1>视频</h1><p>一个视频选题从提纲走到发出：拍摄提纲 → 剪辑进度（口播 workflow）→ 发出与数据 → 各平台文案。</p></div></div>
       <div id="videoBody"></div>
+    </section>
+
+    <!-- WEEKLY -->
+    <section class="view" id="v-weekly">
+      <div class="head"><div><div class="eyebrow">复盘</div><h1>每周复盘</h1><p>这 7 天发的视频、拆解报告和对标爆款放在一起看：做对了什么，问题在哪，下周改什么。数字由代码算，结论必须指向具体视频。</p></div></div>
+      <div id="weeklyBody"></div>
     </section>
 
     <!-- HOT -->
@@ -216,6 +223,7 @@
 <script src="/static/skills.js"></script>
 <script src="/static/hot.js"></script>
 <script src="/static/recent.js"></script>
+<script src="/static/review.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

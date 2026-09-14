@@ -129,6 +129,13 @@ CREATE TABLE IF NOT EXISTS publish_records (
     published_at TEXT NOT NULL,
     PRIMARY KEY (topic_id, platform)
 );
+CREATE TABLE IF NOT EXISTS reviews (
+    week TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    error TEXT,
+    data TEXT,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -297,10 +304,27 @@ class StudioStore:
             )
         return self.briefing(day)
 
+    def review(self, week: str) -> dict[str, Any] | None:
+        row = self._row("SELECT * FROM reviews WHERE week = ?", (week,))
+        return {**row, "data": json.loads(row["data"]) if row["data"] else None} if row else None
+
+    def set_review(self, week: str, *, state: str, error: str | None = None, data: dict[str, Any] | None = None) -> dict[str, Any]:
+        current = self.review(week)
+        payload = json.dumps(data, ensure_ascii=False) if data is not None else (json.dumps(current["data"], ensure_ascii=False) if current and current["data"] else None)
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO reviews(week, state, error, data, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(week) DO UPDATE SET state = excluded.state, error = excluded.error, data = excluded.data, updated_at = excluded.updated_at",
+                (week, state, error, payload, now_iso()),
+            )
+        return self.review(week)
+
     def recover_interrupted_briefings(self) -> int:
         with self.tx() as conn:
             cursor = conn.execute("UPDATE briefings SET state = 'failed', error = '上次生成被中断（服务重启），点重新生成' WHERE state = 'running'")
-        return cursor.rowcount
+            count = cursor.rowcount
+            cursor = conn.execute("UPDATE reviews SET state = 'failed', error = '上次生成被中断（服务重启），点重新生成' WHERE state = 'running'")
+        return count + cursor.rowcount
 
     def publish_records(self, topic_id: int) -> dict[str, dict[str, Any]]:
         return {r["platform"]: r for r in self._rows("SELECT * FROM publish_records WHERE topic_id = ?", (topic_id,))}
