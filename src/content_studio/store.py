@@ -112,6 +112,16 @@ CREATE TABLE IF NOT EXISTS briefings (
     data TEXT,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS video_snapshots (
+    video_id TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    likes INTEGER,
+    comments INTEGER,
+    shares INTEGER,
+    collects INTEGER,
+    views INTEGER,
+    PRIMARY KEY (video_id, fetched_at)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -152,7 +162,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT"}}
+        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -311,7 +321,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")
@@ -462,12 +472,20 @@ class StudioStore:
                     """,
                     {**video, "account_id": account_id, "fetched_at": fetched_at},
                 )
+                conn.execute(
+                    "INSERT OR IGNORE INTO video_snapshots(video_id, fetched_at, likes, comments, shares, collects, views) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (video["video_id"], fetched_at, video.get("likes"), video.get("comments"), video.get("shares"), video.get("collects"), video.get("views")),
+                )
         return len(videos)
 
     def videos(self, account_id: int) -> list[dict[str, Any]]:
         return self._rows(
             "SELECT * FROM videos WHERE account_id = ? ORDER BY published_at DESC", (account_id,)
         )
+
+    def snapshots(self, video_id: str) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM video_snapshots WHERE video_id = ? ORDER BY fetched_at", (video_id,))
 
     def video(self, video_id: str) -> dict[str, Any] | None:
         return self._row("SELECT * FROM videos WHERE video_id = ?", (video_id,))
