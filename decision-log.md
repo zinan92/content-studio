@@ -76,3 +76,11 @@
 **Why:** 用已签名客户端对 `/aweme/v1/web/search/item/` 发 1 次请求即返回 `antispam_check / hit_shark`。North Star 要求遇风控立即停止、不绕过；浏览器自动化抓搜索同样属于绕过。
 
 **Gotchas:** 同一条新闻会在日报的「快讯」「深读」「视频更新」重复出现，头条和话题计数都按标题前 16 个字去重；英文词过滤月份缩写等噪声。
+
+## 2026-09-14 — 文章线：卡兹克写作出草稿，研习室手动导入（#22）
+
+**Decision:** 选题「写文章」在后台调用本机 `claude -p --model opus`，允许 Skill/Read/Glob/Grep，提示词要求使用 khazix-writer 写法、作者是 Park；草稿存 `~/.config/content-studio/drafts/topic-<id>/`，不写回 Obsidian。「交给研习室」= 复制正文 + 打开设置里的研习室电脑后台地址 + 状态改待发；发布仍由 Park 在研习室完成。
+
+**Why:** 研习室的 device intake 接口（Obsidian 插件用的那条）真实环境验收仍未通过（wechat-xingqiu#207），现在接自动入草稿箱会建立在未验证的合同上。
+
+**Gotchas:** khazix-writer 默认会带卡兹克本人的署名、邮箱和固定结尾，提示词明确禁止，`extract_article` 再做一道检查（命中即重试）。launchd 下调用 claude CLI 需要环境里有 USER/LOGNAME。真实测试：一篇 2700 字的文章约 2 分钟。

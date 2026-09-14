@@ -61,12 +61,35 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         downloads_dir=tmp_path / "downloads",
         client_factory=FakeClient,
         start_worker=False,
+        drafts_dir=tmp_path / "drafts",
+        write_fn=_fake_writer,
     )
     app.state.worker.process_fn = process
     with TestClient(app) as test_client:
         test_client.processed = processed
         yield test_client
     app.state.store.close()
+
+
+ARTICLE = "# 为什么用了 AI 反而更累\n\n" + "我发现一件事。" * 60
+
+
+def _fake_writer(prompt: str) -> str:
+    assert "作者是 Park" in prompt
+    if "炸掉" in prompt:
+        raise RuntimeError("boom")
+    return f"好的\n<<<ARTICLE>>>\n{ARTICLE}\n<<<END>>>\n"
+
+
+def _wait_topic(client: TestClient, topic_id: int) -> dict:
+    import time
+
+    for _ in range(200):
+        topic = [t for t in client.get("/api/topics").json() if t["id"] == topic_id][0]
+        if topic["write_state"] != "running":
+            return topic
+        time.sleep(0.02)
+    raise AssertionError("writing did not finish")
 
 
 def _report(video_id: str) -> dict:
@@ -288,3 +311,38 @@ def test_hot_endpoint_without_vault_explains(client: TestClient, tmp_path: Path)
     data = client.get("/api/hot").json()
     assert data["douyin_search"]["available"] is False
     assert "找不到" in data["vault_error"] and data["benchmarks"]["items"] == []
+
+
+def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "vault3"
+    (root / "003_park原始输出").mkdir(parents=True)
+    (root / "003_park原始输出" / "a.md").write_text("# 预期落差\n人对 AI 预期太高", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    topic = client.post("/api/topics", json={"title": "用了 AI 更累", "note_paths": ["003_park原始输出/a.md"], "formats": "article"}).json()
+
+    assert client.get(f"/api/topics/{topic['id']}/article").status_code == 404
+    assert client.post(f"/api/topics/{topic['id']}/handoff").status_code == 400
+    assert client.post(f"/api/topics/{topic['id']}/write").json()["started"] is True
+    done = _wait_topic(client, topic["id"])
+    assert done["write_state"] is None and done["status"] == "drafting" and done["article_path"]
+    draft = client.get(f"/api/topics/{topic['id']}/article").json()
+    assert draft["markdown"].startswith("# 为什么") and draft["sources"][0]["path"] == "003_park原始输出/a.md"
+    assert str(tmp_path / "drafts") in done["article_path"]
+    assert (root / "003_park原始输出" / "a.md").read_text(encoding="utf-8").endswith("太高")
+
+    edited = client.put(f"/api/topics/{topic['id']}/article", json={"markdown": "# 改过的标题\n正文"}).json()
+    assert edited["markdown"] == "# 改过的标题\n正文\n"
+    download = client.get(f"/api/topics/{topic['id']}/article.md")
+    assert download.status_code == 200 and "attachment" in download.headers["content-disposition"]
+
+    assert client.put("/api/settings", json={"yanxishi_admin_url": "http://insecure"}).status_code == 400
+    client.put("/api/settings", json={"yanxishi_admin_url": "https://admin.example.com"})
+    handed = client.post(f"/api/topics/{topic['id']}/handoff").json()
+    assert handed["topic"]["status"] == "ready" and handed["admin_url"] == "https://admin.example.com"
+
+    video_only = client.post("/api/topics", json={"title": "只拍视频", "formats": "video"}).json()
+    assert client.post(f"/api/topics/{video_only['id']}/write").status_code == 400
+    broken = client.post("/api/topics", json={"title": "炸掉", "formats": "article"}).json()
+    client.post(f"/api/topics/{broken['id']}/write")
+    failed = _wait_topic(client, broken["id"])
+    assert failed["write_state"] == "failed" and "boom" in failed["write_error"]

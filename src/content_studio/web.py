@@ -68,12 +68,17 @@ class TopicBody(BaseModel):
     archived: bool | None = None
 
 
+class ArticleBody(BaseModel):
+    markdown: str
+
+
 class SettingsBody(BaseModel):
     threshold: float | None = None
     auto_enqueue_limit: int | None = None
     sync_pages: int | None = None
     sync_delay_seconds: float | None = None
     obsidian_vault: str | None = None
+    yanxishi_admin_url: str | None = None
 
 
 class BackgroundOps:
@@ -148,8 +153,16 @@ def create_app(
     creator_sync_fn: Callable[[], dict] | None = None,
     worker: TeardownWorker | None = None,
     start_worker: bool = True,
+    drafts_dir: Path | None = None,
+    write_fn: Callable[[str], str] | None = None,
 ) -> FastAPI:
+    from . import writer
+
     store = StudioStore(store_path)
+    store.recover_interrupted_writes()
+    drafts_root = (drafts_dir or writer.DEFAULT_DRAFTS_DIR).expanduser()
+    writing: set[int] = set()
+    writing_lock = threading.Lock()
     ops = BackgroundOps()
     if creator_sync_fn is None and client_factory is None and creator_db is not None:
         def creator_sync_fn() -> dict:
@@ -535,6 +548,84 @@ def create_app(
         if body.archived is not None:
             fields["archived_at"] = now_iso() if body.archived else None
         return store.update_topic(topic_id, **fields)
+
+    # -- article line ------------------------------------------------------
+
+    def _write_topic(topic_id: int) -> None:
+        try:
+            topic = store.topic(topic_id)
+            result = writer.write_article(
+                topic,
+                vault_raw=vault_path(),
+                drafts_dir=drafts_root,
+                **({"write_fn": write_fn} if write_fn else {}),
+            )
+            current = store.topic(topic_id)
+            store.update_topic(
+                topic_id,
+                article_path=result["article_path"],
+                write_state=None,
+                write_error=None,
+                status="drafting" if current["status"] == "todo" else current["status"],
+            )
+        except Exception as exc:  # noqa: BLE001 - shown on the topic card
+            logger.warning("writing topic %s failed: %s", topic_id, exc)
+            store.update_topic(topic_id, write_state="failed", write_error=str(exc)[:300] or type(exc).__name__)
+        finally:
+            with writing_lock:
+                writing.discard(topic_id)
+
+    @app.post("/api/topics/{topic_id}/write")
+    def start_write(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if topic["formats"] == "video":
+            raise ValueError("这个选题只做视频；先把形式改成「文章」或「文章 + 视频」")
+        with writing_lock:
+            if topic_id in writing:
+                return {"started": False, "message": "这篇正在写"}
+            writing.add(topic_id)
+        store.update_topic(topic_id, write_state="running", write_error=None)
+        threading.Thread(target=_write_topic, args=(topic_id,), name=f"write-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始写了，一般 1–5 分钟"}
+
+    @app.get("/api/topics/{topic_id}/article")
+    def get_article(topic_id: int) -> dict[str, Any]:
+        draft = writer.read_draft(store.topic(topic_id))
+        if draft is None:
+            raise HTTPException(status_code=404, detail="这个选题还没有文章草稿")
+        return draft
+
+    @app.put("/api/topics/{topic_id}/article")
+    def put_article(topic_id: int, body: ArticleBody) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if not body.markdown.strip():
+            raise ValueError("正文不能为空")
+        path = Path(topic["article_path"]) if topic.get("article_path") else drafts_root / f"topic-{topic_id}" / "article.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body.markdown if body.markdown.endswith("\n") else body.markdown + "\n", encoding="utf-8")
+        if not topic.get("article_path"):
+            store.update_topic(topic_id, article_path=str(path), status="drafting" if topic["status"] == "todo" else topic["status"])
+        return writer.read_draft(store.topic(topic_id)) or {}
+
+    @app.get("/api/topics/{topic_id}/article.md")
+    def download_article(topic_id: int) -> Response:
+        draft = writer.read_draft(store.topic(topic_id))
+        if draft is None:
+            raise HTTPException(status_code=404, detail="这个选题还没有文章草稿")
+        return Response(
+            draft["markdown"].encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''topic-{topic_id}.md", "Cache-Control": "no-store"},
+        )
+
+    @app.post("/api/topics/{topic_id}/handoff")
+    def handoff(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if writer.read_draft(topic) is None:
+            raise ValueError("还没有文章草稿，先写文章")
+        if topic["status"] in ("todo", "drafting"):
+            topic = store.update_topic(topic_id, status="ready")
+        return {"topic": topic, "admin_url": store.settings()["yanxishi_admin_url"] or None}
 
     @app.get("/api/today/plan")
     def get_plan(day: str | None = None) -> dict[str, Any]:

@@ -248,6 +248,8 @@ function renderSettings() {
   const st = S.state;
   const input = $('#setVault');
   if (document.activeElement !== input) input.value = st.settings.obsidian_vault;
+  const yx = $('#setYanxishi');
+  if (document.activeElement !== yx) yx.value = st.settings.yanxishi_admin_url || '';
   $('#setVaultNote').textContent = st.vault.ok ? '已找到这个库' : st.vault.message;
   $('#setVaultNote').className = st.vault.ok ? '' : 'bad';
   const mineList = st.my_accounts || [];
@@ -259,7 +261,7 @@ function renderSettings() {
 $('#settingsForm').onsubmit = async (e) => {
   e.preventDefault();
   try {
-    await api('/api/settings', { method: 'PUT', body: { obsidian_vault: $('#setVault').value } });
+    await api('/api/settings', { method: 'PUT', body: { obsidian_vault: $('#setVault').value, yanxishi_admin_url: $('#setYanxishi').value } });
     toast('已保存');
     await refreshAll();
   } catch (err) { toast(err.message); }

@@ -9,7 +9,8 @@ const FORMAT_NAME = { article: '文章', video: '视频', both: '文章 + 视频
 window.TOPIC_ACTIONS = window.TOPIC_ACTIONS || []; // later modules add buttons: (topic) => html
 
 async function loadTopics(force) {
-  if (!force && TP.topics && Date.now() - TP.loadedAt < 15000) return;
+  const writingNow = TP.topics && TP.topics.some((t) => t.write_state === 'running');
+  if (!force && TP.topics && Date.now() - TP.loadedAt < (writingNow ? 4000 : 15000)) return;
   TP.topics = await api('/api/topics');
   TP.loadedAt = Date.now();
 }
