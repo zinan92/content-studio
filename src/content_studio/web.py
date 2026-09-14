@@ -598,6 +598,15 @@ def create_app(
 
     # -- daily briefing ----------------------------------------------------
 
+    def latest_adjustments() -> list[str]:
+        row = store._row("SELECT data FROM reviews WHERE state IN ('done', 'failed') AND data IS NOT NULL ORDER BY week DESC LIMIT 1")
+        if not row:
+            return []
+        try:
+            return [str(item) for item in (json.loads(row["data"]).get("next_week") or [])][:3]
+        except (ValueError, AttributeError):
+            return []
+
     def own_recent_videos() -> list[dict[str, Any]]:
         me = store.self_account()
         if me is None:
@@ -615,7 +624,7 @@ def create_app(
 
         key = day_value.isoformat()
         try:
-            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics())
+            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics(), adjustments=latest_adjustments())
             data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
             store.set_briefing(key, state="done", data=data)
         except Exception as exc:  # noqa: BLE001 - shown on the briefing card
@@ -751,7 +760,8 @@ def create_app(
 
         try:
             result = outline.write_outline(
-                store.topic(topic_id), vault_raw=vault_path(), drafts_dir=drafts_root, **({"write_fn": outline_fn} if outline_fn else {})
+                store.topic(topic_id), vault_raw=vault_path(), drafts_dir=drafts_root, adjustments=latest_adjustments(),
+                **({"write_fn": outline_fn} if outline_fn else {})
             )
             store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card

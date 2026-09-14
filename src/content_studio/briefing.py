@@ -40,6 +40,7 @@ def gather_inputs(
     *,
     own_videos: list[dict[str, Any]] | None = None,
     existing_topics: list[dict[str, Any]] | None = None,
+    adjustments: list[str] | None = None,
 ) -> dict[str, Any]:
     root = vault.vault_root(vault_raw)
     dailies = []
@@ -67,6 +68,7 @@ def gather_inputs(
         "dailies": dailies,
         "notes": notes,
         "own_videos": own_videos or [],
+        "adjustments": [a for a in (adjustments or []) if a][:3],
         "existing_topics": [{"title": t["title"], "status": t["status"]} for t in (existing_topics or [])][:30],
         "allowed_paths": sorted({d["path"] for d in dailies} | {n["path"] for n in notes}),
         "allowed_urls": sorted(urls),
@@ -78,6 +80,7 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
     notes = "\n".join(
         f"- [{n['kind']}{'·已发' if n.get('published_mark') else ''}] {n['title']}（path: {n['path']}{'；url: ' + n['url'] if n['url'] else ''}）：{n['summary']}" for n in inputs["notes"]
     ) or "（没有新笔记）"
+    adjust = "\n".join(f"- {a}" for a in inputs.get("adjustments", [])) or "（还没有复盘）"
     status_name = {"todo": "待写", "drafting": "草稿中", "ready": "待发", "published": "已发出"}
     topics = "\n".join(f"- {t['title']}（{status_name.get(t['status'], t['status'])}）" for t in inputs.get("existing_topics", [])) or "（没有）"
     videos = "\n".join(
@@ -95,6 +98,9 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 
 ## Park 最近的视频表现（倍数 = 点赞 ÷ 账号点赞中位数）
 {videos}
+
+## 最近一次每周复盘定下的调整（选题和骨架要照着做）
+{adjust}
 
 ## 工作台里已经有的选题（不要重复推荐；已发出的可以做续集，但要说明和上一条的区别）
 {topics}

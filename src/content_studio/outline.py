@@ -23,16 +23,18 @@ DEFAULT_OUTLINE_COMMAND = (
 )
 
 
-def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None) -> str:
+def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None, adjustments: list[str] | None = None) -> str:
     material = "\n\n".join(
         f"### 素材 {i + 1}：{s['title']}\n来源：{s['url'] or s['path']}\n\n{s['body']}" for i, s in enumerate(sources)
     ) or "（没有附带素材，只根据选题和备注写。）"
     retry = f"\n\n上一次输出有问题：{error}。请修正后重新输出。" if error else ""
+    adjust = "\n".join(f"- {a}" for a in (adjustments or [])[:3])
+    adjust_block = f"\n\n最近一次每周复盘定下的调整，这份提纲要照着做：\n{adjust}" if adjust else ""
     return f"""你在帮 Park 准备一条抖音口播视频的拍摄提纲。Park 的号是「Park 的 AI 世界」（AI + 金融），他对着提纲即兴讲，不念逐字稿。
 
 两条硬约束来自他账号的真实数据和拆解：
 1. 他近期视频平均只被看 14–26 秒，所以「前 15 秒」必须直接说出这条视频的主线和观众为什么要听下去，不寒暄、不铺垫。
-2. 每一段都要为主线服务：假设删掉这一段主线会不会明显变弱？不会就不要这一段。
+2. 每一段都要为主线服务：假设删掉这一段主线会不会明显变弱？不会就不要这一段。{adjust_block}
 
 ## 选题
 {topic['title']}
@@ -97,13 +99,14 @@ def write_outline(
     write_fn: WriteFn | None = None,
     attempts: int = 2,
     now: datetime | None = None,
+    adjustments: list[str] | None = None,
 ) -> dict[str, Any]:
     fn = write_fn or (lambda prompt: cli_write(prompt, command=os.environ.get(OUTLINE_COMMAND_ENV) or DEFAULT_OUTLINE_COMMAND, timeout=900))
     sources = gather_sources(vault_raw, topic.get("note_paths") or [])
     error: str | None = None
     for _ in range(attempts):
         try:
-            outline = extract_outline(fn(build_prompt(topic, sources, error)))
+            outline = extract_outline(fn(build_prompt(topic, sources, error, adjustments)))
             break
         except JudgeLoginError:
             raise
