@@ -83,6 +83,11 @@ class VideoLinkBody(BaseModel):
     name: str | None = None
 
 
+class PublishJobBody(BaseModel):
+    platform: str
+    mode: str
+
+
 class ApproveBody(BaseModel):
     gate: str
     note: str | None = None
@@ -202,12 +207,14 @@ def create_app(
     review_fn: Callable[[str], dict] | None = None,
     runs_dir: Path | None = None,
     runner_command: str | None = None,
+    publishers: dict[str, dict[str, Any]] | None = None,
 ) -> FastAPI:
     from . import writer
 
     store = StudioStore(store_path)
     store.recover_interrupted_writes()
     store.recover_interrupted_briefings()
+    store.recover_interrupted_publishes()
     briefing_lock = threading.Lock()
     review_lock = threading.Lock()
     drafts_root = (drafts_dir or writer.DEFAULT_DRAFTS_DIR).expanduser()
@@ -254,6 +261,12 @@ def create_app(
         worker.stop()
 
     app = FastAPI(title="内容拆解台", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    from .publisher import PublishError
+
+    @app.exception_handler(PublishError)
+    async def _publish_error(_request: Any, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
 
     @app.exception_handler(VideoProjectError)
     async def _video_missing(_request: Any, exc: Exception) -> JSONResponse:
@@ -942,6 +955,85 @@ def create_app(
         record = workflow_runner.approve(path, body.gate, note=body.note)
         return {"approval": record, "project": video_project.inspect(video_root(), _topic["video_project"])}
 
+    # -- one-click publishing (Park confirms every job) --------------------
+
+    def publisher_specs() -> dict[str, dict[str, Any]]:
+        from . import publisher
+
+        return publishers if publishers is not None else publisher.PUBLISHERS
+
+    def final_video_path(topic: dict[str, Any]) -> Path | None:
+        if not topic.get("video_project"):
+            return None
+        try:
+            root = video_root()
+            info = video_project.inspect(root, topic["video_project"])
+        except VideoProjectError:
+            return None
+        if not info.get("final_video"):
+            return None
+        return video_project.safe_file(root, topic["video_project"], info["final_video"])
+
+    @app.get("/api/topics/{topic_id}/publish-jobs")
+    def list_publish_jobs(topic_id: int) -> dict[str, Any]:
+        from . import copypack, publisher
+
+        topic = store.topic(topic_id)
+        video = final_video_path(topic)
+        copy = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms")
+        return {
+            "platforms": publisher.readiness(publisher_specs()),
+            "video": {"path": str(video), "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
+            "has_copy": bool(copy),
+            "jobs": store.publish_jobs(topic_id),
+        }
+
+    @app.post("/api/topics/{topic_id}/publish-jobs")
+    def prepare_publish(topic_id: int, body: PublishJobBody) -> dict[str, Any]:
+        from . import copypack, publisher
+
+        topic = store.topic(topic_id)
+        video = final_video_path(topic)
+        if video is None:
+            raise publisher.PublishError("这个选题还没有成片：先关联视频项目并完成剪辑")
+        copy = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms")
+        payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs())
+        return {"job": store.create_publish_job(topic_id, payload)}
+
+    def _run_publish(job_id: int) -> None:
+        from . import publisher
+
+        job = store.publish_job(job_id)
+        try:
+            result = publisher.run(job["payload"], publishers=publisher_specs())
+        except Exception as exc:  # noqa: BLE001 - shown on the job
+            result = {"ok": False, "status": "error", "message": str(exc)}
+        ok = bool(result.get("ok"))
+        store.update_publish_job(job_id, state="done" if ok else "failed", result=result, message=None if ok else publisher.explain(result), finished_at=now_iso())
+        if ok:
+            copy_platform = publisher_specs()[job["platform"]]["copy_key"]
+            try:
+                store.set_publish_record(job["topic_id"], copy_platform, published=True, url=publisher.result_url(result))
+            except StoreError:
+                pass
+
+    @app.post("/api/publish-jobs/{job_id}/confirm")
+    def confirm_publish(job_id: int) -> dict[str, Any]:
+        from . import publisher
+
+        job = store.publish_job(job_id)
+        publisher.confirmable(job)
+        job = store.update_publish_job(job_id, state="running", confirmed_at=now_iso())
+        threading.Thread(target=_run_publish, args=(job_id,), name=f"publish-{job_id}", daemon=True).start()
+        return {"job": job, "message": f"已确认，开始发布到{job['payload']['platform_label']}"}
+
+    @app.delete("/api/publish-jobs/{job_id}")
+    def cancel_publish(job_id: int) -> dict[str, Any]:
+        job = store.publish_job(job_id)
+        if job["state"] != "awaiting_confirm":
+            raise ValueError("只能取消还没确认的发布")
+        return {"job": store.update_publish_job(job_id, state="cancelled", finished_at=now_iso())}
+
     @app.get("/api/video-projects/{name}/file")
     def video_project_file(name: str, path: str) -> Response:
         target = video_project.safe_file(video_root(), name, path)
@@ -1190,6 +1282,22 @@ def create_app(
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+    @app.middleware("http")
+    async def _block_cross_site_writes(request: Any, call_next: Any) -> Any:
+        # The app is reachable through a password proxy, so a browser holding those credentials must not
+        # let another site trigger writes (start an agent run, confirm a publish). A custom header forces a
+        # CORS preflight that this app never grants; the Origin, when sent, must be this host.
+        if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+            if request.headers.get("x-content-studio") != "1":
+                return JSONResponse(status_code=403, content={"error": "请求缺少工作台标识，已拒绝"})
+            origin = request.headers.get("origin")
+            if origin:
+                from urllib.parse import urlparse
+
+                if urlparse(origin).netloc != request.headers.get("host", ""):
+                    return JSONResponse(status_code=403, content={"error": "跨站请求，已拒绝"})
+        return await call_next(request)
 
     @app.middleware("http")
     async def _revalidate_static(request: Any, call_next: Any) -> Any:

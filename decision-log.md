@@ -108,3 +108,11 @@
 **Why:** Park 在外面也要能推进剪辑；三个审批门仍然由 Park 本人决定。
 
 **Gotchas:** H1 批准要求 worktable.json 已导入；旧版目录（无 project.json）不能代跑。
+
+## 2026-09-14 — 一键发布必须 Park 确认；堵住跨站写请求（#57）
+
+**Decision:** 发布分两段：准备（冻结成片路径、平台文案、草稿/公开方式）→ Park 在工作台点「确认发布」才执行，确认窗口 30 分钟，服务端没有确认不执行。通道复用 content-ops 的视频号 / B 站 / YouTube 脚本（视频号 headless），登录只看凭据文件日期，不代登录。所有非 GET 的 `/api` 请求要求 `X-Content-Studio: 1` 且 Origin 同源；后台代跑额外禁用 WebFetch/WebSearch。
+
+**Why:** Park 授权「替我做决策，每次发布需要我确认」。安全复查指出：工作台经密码代理暴露在外网，浏览器缓存的 Basic Auth 会让其他网站能用简单表单 POST 触发代跑或确认发布。
+
+**Gotchas:** 2026-09 时视频号、B 站 cookie 与 YouTube token 都是 5 月的，第一次发布大概率需要 Park 在电脑上重新登录。

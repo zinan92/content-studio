@@ -68,7 +68,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n预计时长：10 分钟\n## 前 15 秒\n- a\n## 主线\nb\n## 第 1 段：x\n- y\n## 第 2 段：x\n- y\n## 第 3 段：x\n- y\n## 结尾\n- z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as test_client:
         test_client.processed = processed
         yield test_client
     app.state.store.close()
@@ -495,7 +495,7 @@ def test_workflow_run_gate_and_approve(tmp_path: Path) -> None:
     app = web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
                                 downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False,
                                 runs_dir=tmp_path / "runs", runner_command="sh -c 'sleep 0.3; cat' _")
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
         c.put("/api/settings", json={"video_projects_root": str(root)})
         topic = c.post("/api/topics", json={"title": "t", "formats": "video"}).json()
         c.put(f"/api/topics/{topic['id']}/video-project", json={"name": "p"})
@@ -521,3 +521,63 @@ def test_workflow_run_gate_and_approve(tmp_path: Path) -> None:
         approved = c.post(f"/api/topics/{topic['id']}/video-project/approve", json={"gate": "H1"}).json()
         assert approved["project"]["current_step"] == 6 and approved["project"]["gate"] is None
     app.state.store.close()
+
+
+def test_publish_requires_confirmation(tmp_path: Path) -> None:
+    import sys
+    import time
+    from content_studio import web as web_module
+
+    root = tmp_path / "videos"
+    (root / "p" / "final").mkdir(parents=True)
+    (root / "p" / "final" / "video.mp4").write_bytes(b"0" * 1024)
+    marker = tmp_path / "published.txt"
+    cred = tmp_path / "cookie.json"
+    cred.write_text("{}")
+    script = f"import json,pathlib,sys; pathlib.Path({str(marker)!r}).write_text(sys.argv[1]); print(json.dumps({{'ok': True, 'url': 'https://x/1'}}))"
+    specs = {"channels": {"label": "视频号", "copy_key": "channels", "credential": cred, "login_hint": "",
+                          "modes": {"draft": {"label": "草稿", "argv": [sys.executable, "-c", script, "{title}"]}}}}
+    cookie = tmp_path / "cookies.json"
+    cookie.write_text(json.dumps({"sessionid": "x"}))
+    cookie.chmod(0o600)
+    app = web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
+                                downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False, drafts_dir=tmp_path / "drafts",
+                                publishers=specs)
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
+        c.put("/api/settings", json={"video_projects_root": str(root)})
+        topic = c.post("/api/topics", json={"title": "t", "formats": "video"}).json()
+        assert c.post(f"/api/topics/{topic['id']}/publish-jobs", json={"platform": "channels", "mode": "draft"}).status_code == 400
+        c.put(f"/api/topics/{topic['id']}/video-project", json={"name": "p"})
+        info = c.get(f"/api/topics/{topic['id']}/publish-jobs").json()
+        assert info["video"]["mb"] >= 0 and info["platforms"]["channels"]["credential"]
+        assert "标题" in c.post(f"/api/topics/{topic['id']}/publish-jobs", json={"platform": "channels", "mode": "draft"}).json()["error"]
+        c.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"channels": {"title": "发布标题", "body": "b", "tags": []}}})
+        job = c.post(f"/api/topics/{topic['id']}/publish-jobs", json={"platform": "channels", "mode": "draft"}).json()["job"]
+        assert job["state"] == "awaiting_confirm" and job["payload"]["title"] == "发布标题"
+        time.sleep(0.3)
+        assert not marker.exists()
+        c.post(f"/api/publish-jobs/{job['id']}/confirm")
+        assert c.post(f"/api/publish-jobs/{job['id']}/confirm").status_code == 400
+        for _ in range(100):
+            current = c.get(f"/api/topics/{topic['id']}/publish-jobs").json()["jobs"][0]
+            if current["state"] not in ("running",):
+                break
+            time.sleep(0.05)
+        assert current["state"] == "done" and marker.read_text() == "发布标题"
+        records = c.get(f"/api/topics/{topic['id']}/copy").json()["records"]
+        assert records["channels"]["url"] == "https://x/1"
+        again = c.post(f"/api/topics/{topic['id']}/publish-jobs", json={"platform": "channels", "mode": "draft"}).json()["job"]
+        assert c.delete(f"/api/publish-jobs/{again['id']}").json()["job"]["state"] == "cancelled"
+        assert c.post(f"/api/publish-jobs/{again['id']}/confirm").status_code == 400
+    app.state.store.close()
+
+
+def test_cross_site_writes_are_blocked(client: TestClient) -> None:
+    from fastapi.testclient import TestClient as _TC
+
+    bare = _TC(client.app)
+    assert bare.post("/api/topics", json={"title": "x"}).status_code == 403
+    assert bare.get("/api/topics").status_code == 200
+    evil = client.post("/api/topics", json={"title": "x"}, headers={"Origin": "https://evil.example"})
+    assert evil.status_code == 403
+    assert client.post("/api/topics", json={"title": "ok"}, headers={"Origin": "http://testserver"}).status_code == 200

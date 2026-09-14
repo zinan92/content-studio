@@ -147,6 +147,19 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     started_at TEXT NOT NULL,
     finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS publish_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_id INTEGER NOT NULL,
+    platform TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    state TEXT NOT NULL,
+    result TEXT,
+    message TEXT,
+    created_at TEXT NOT NULL,
+    confirmed_at TEXT,
+    finished_at TEXT
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -378,6 +391,46 @@ class StudioStore:
             where.append("state IN ('starting', 'running')")
         clause = f"WHERE {' AND '.join(where)}" if where else ""
         return self._rows(f"SELECT * FROM workflow_runs {clause} ORDER BY id DESC", tuple(params))
+
+    def _publish_job(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {**row, "payload": json.loads(row["payload"]), "result": json.loads(row["result"]) if row["result"] else None}
+
+    def create_publish_job(self, topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        with self.tx() as conn:
+            conn.execute("UPDATE publish_jobs SET state = 'superseded' WHERE topic_id = ? AND platform = ? AND state = 'awaiting_confirm'", (topic_id, payload["platform"]))
+            cursor = conn.execute(
+                "INSERT INTO publish_jobs(topic_id, platform, mode, payload, state, created_at) VALUES (?, ?, ?, ?, 'awaiting_confirm', ?)",
+                (topic_id, payload["platform"], payload["mode"], json.dumps(payload, ensure_ascii=False), now_iso()),
+            )
+        return self.publish_job(int(cursor.lastrowid))
+
+    def publish_job(self, job_id: int) -> dict[str, Any]:
+        job = self._publish_job(self._row("SELECT * FROM publish_jobs WHERE id = ?", (job_id,)))
+        if job is None:
+            raise StoreError("发布任务不存在")
+        return job
+
+    def publish_jobs(self, topic_id: int) -> list[dict[str, Any]]:
+        return [self._publish_job(r) for r in self._rows("SELECT * FROM publish_jobs WHERE topic_id = ? AND state != 'superseded' ORDER BY id DESC LIMIT 20", (topic_id,))]
+
+    def update_publish_job(self, job_id: int, **fields: Any) -> dict[str, Any]:
+        if set(fields) - {"state", "result", "message", "confirmed_at", "finished_at"}:
+            raise StoreError("不可更新的发布字段")
+        if "result" in fields and fields["result"] is not None:
+            fields["result"] = json.dumps(fields["result"], ensure_ascii=False)
+        assignments = ", ".join(f"{k} = ?" for k in fields)
+        with self.tx() as conn:
+            conn.execute(f"UPDATE publish_jobs SET {assignments} WHERE id = ?", (*fields.values(), job_id))
+        return self.publish_job(job_id)
+
+    def recover_interrupted_publishes(self) -> int:
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "UPDATE publish_jobs SET state = 'unknown', message = '服务重启时发布还在进行，结果不确定：去平台后台确认' WHERE state = 'running'"
+            )
+        return cursor.rowcount
 
     def topic_for_note(self, path: str) -> dict[str, Any] | None:
         for topic in self.topics(include_archived=True):
