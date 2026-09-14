@@ -48,6 +48,9 @@ def test_extract_outline_checks_structure() -> None:
 def test_prompt_carries_constraints_and_memo(tmp_path: Path) -> None:
     prompt = outline.build_prompt({"title": "t", "memo": "Hook：累的不是活"}, [])
     assert "14–26 秒" in prompt and "删掉这一段" in prompt and "Hook：累的不是活" in prompt
+    assert "每周复盘" not in prompt
+    adjusted = outline.build_prompt({"title": "t"}, [], adjustments=["前 15 秒说结论", "跑题控制在 8% 以下"])
+    assert "最近一次每周复盘" in adjusted and "跑题控制在 8% 以下" in adjusted
 
 
 def test_write_outline_saves_and_reads_back(tmp_path: Path) -> None:
