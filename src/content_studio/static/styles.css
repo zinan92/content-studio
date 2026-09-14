@@ -436,3 +436,20 @@ td .acts{display:flex;gap:6px;justify-content:flex-end;align-items:center}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
 .chip:hover{border-color:var(--accent);color:var(--accent)}
 .chip.own{border-color:var(--hot);color:var(--hot)}
+/* ===== hot ===== */
+.hot-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 18px;border-bottom:1px solid var(--line-soft)}
+.hot-main{display:flex;flex-direction:column;min-width:0}
+.hot-main b{font-weight:500}
+.hot-main a{color:var(--ink);text-decoration:none}
+.hot-main a:hover{color:var(--accent)}
+.hot-main small{color:var(--ink-3);font-size:12px}
+.hot-row .acts{display:flex;gap:6px;align-items:center}
+.two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.terms{display:flex;flex-direction:column}
+.term{border-bottom:1px solid var(--line-soft);padding:8px 18px}
+.term summary{display:flex;justify-content:space-between;cursor:pointer;list-style:none}
+.term summary::-webkit-details-marker{display:none}
+.term-ex{font-size:12.5px;color:var(--ink-2);padding:3px 0}
+.term-ex a{color:var(--ink-2)}
+.term .btn{margin-top:6px}
+@media (max-width:900px){.two-col{grid-template-columns:1fr}.hot-row{grid-template-columns:auto 1fr}.hot-row .acts{grid-column:1/-1}}

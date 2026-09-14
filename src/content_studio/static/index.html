@@ -19,6 +19,7 @@
       </div>
       <div class="nav-group" data-group="plan"><div class="nav-label">选题</div>
         <button data-view="topics" type="button">选题 <span class="count" id="navTopics"></span></button>
+        <button data-view="hot" type="button">热点</button>
         <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
       </div>
       <div class="nav-group" data-group="make"><div class="nav-label">加工</div>
@@ -67,6 +68,12 @@
     <section class="view wide" id="v-topics">
       <div class="head"><div><div class="eyebrow">选题</div><h1>选题</h1><p>一个选题可以同时出文章和视频。没做完的会一直留在今天的主线里。</p></div></div>
       <div id="topicsBody"></div>
+    </section>
+
+    <!-- HOT -->
+    <section class="view" id="v-hot">
+      <div class="head"><div><div class="eyebrow">选题</div><h1>热点</h1><p>近两天什么在火：对标账号的爆款、你日报里的头条、剪藏里反复出现的话题。每条都能直接做成选题。</p></div></div>
+      <div id="hotBody"></div>
     </section>
 
     <!-- SKILLS -->
@@ -178,6 +185,7 @@
 <script src="/static/collect.js"></script>
 <script src="/static/topics.js"></script>
 <script src="/static/skills.js"></script>
+<script src="/static/hot.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

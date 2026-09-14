@@ -281,3 +281,10 @@ def test_skills_endpoint_lists_registry(client: TestClient) -> None:
     data = client.get("/api/skills").json()
     assert [s["key"] for s in data["stages"]] == ["collect", "plan", "make", "ship", "review"]
     assert any(s["name"] == "khazix-writer" and s["author"] == "数字生命卡兹克" for s in data["skills"])
+
+
+def test_hot_endpoint_without_vault_explains(client: TestClient, tmp_path: Path) -> None:
+    client.put("/api/settings", json={"obsidian_vault": str(tmp_path / "missing")})
+    data = client.get("/api/hot").json()
+    assert data["douyin_search"]["available"] is False
+    assert "找不到" in data["vault_error"] and data["benchmarks"]["items"] == []

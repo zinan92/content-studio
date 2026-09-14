@@ -480,6 +480,31 @@ def create_app(
                 topic = store.create_topic(note["title"], note_paths=[body.path], account_id=me["id"] if me else None)
         return {"path": body.path, "triage": body.status, "topic": topic}
 
+    # -- hot ----------------------------------------------------------------
+
+    @app.get("/api/hot")
+    def hot_now() -> dict[str, Any]:
+        from . import hot
+
+        threshold = float(store.settings()["threshold"])
+        result: dict[str, Any] = {
+            "benchmarks": {
+                **hot.benchmark_breakouts(store, threshold=threshold),
+                "items": [{**v, **teardown_state(v["video_id"])} for v in hot.benchmark_breakouts(store, threshold=threshold)["items"]],
+            },
+            "threshold": threshold,
+            "douyin_search": {"available": False, "reason": "抖音站内搜索接口返回反作弊拦截，按规则不绕过"},
+        }
+        try:
+            today = date.today()
+            headlines = hot.daily_headlines(vault_path(), today)
+            result["headlines"] = headlines
+            result["topics"] = hot.frequent_topics(vault_path(), today=today)
+            result["vault_error"] = None
+        except vault.VaultError as exc:
+            result.update(headlines=[], topics=[], vault_error=str(exc))
+        return result
+
     # -- skills -----------------------------------------------------------
 
     @app.get("/api/skills")
