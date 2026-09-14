@@ -140,6 +140,13 @@ def test_invalid_judgement_is_retried_with_the_validation_error() -> None:
     assert report["why_boom"][0]["text"].startswith("收藏/赞")
 
 
+@pytest.mark.parametrize("baseline", [{"median_likes": 4, "post_count": 40}, {"median_likes": 500, "post_count": 11}])
+def test_multiple_is_withheld_when_the_account_baseline_is_too_small(baseline: dict) -> None:
+    report = build_report(_item(), TRANSCRIPT, judge_fn=lambda _prompt: _judgement(), baseline=baseline)
+    assert "multiple_of_median" not in report["facts"]
+    assert report["facts"]["baseline_too_small"] is True
+
+
 def test_scatter_reasons_may_be_structural_without_numbers() -> None:
     report = build_report(
         _item(),

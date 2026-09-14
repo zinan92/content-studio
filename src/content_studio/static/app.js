@@ -573,6 +573,7 @@ function renderReport() {
         ${r.source_url ? `<a class="btn" href="${esc(r.source_url)}" target="_blank" rel="noopener">在抖音打开 ↗</a>` : ''}
       </div>
       <div class="facts">${facts}</div>
+      ${r.facts.baseline_too_small ? `<p class="hint">这个账号近期作品太少或点赞普遍很低（${fmt(r.facts.account_post_count || 0)} 条，中位数 ${fmt(r.facts.account_median_likes || 0)}），倍数没有参考意义，所以不算。</p>` : ''}
     </div>
     ${r.opening ? `<div class="panel"><div class="panel-h"><h2>观众平均看到的前 ${Math.round(r.opening.seconds)} 秒</h2><small>来自创作者后台的平均观看时长</small></div>
       <div class="opening"><p>${esc(r.opening.analysis)}</p><blockquote>${esc(r.opening.transcript)}</blockquote></div></div>` : ''}
