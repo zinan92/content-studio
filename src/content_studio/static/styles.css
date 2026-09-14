@@ -413,3 +413,26 @@ td .acts{display:flex;gap:6px;justify-content:flex-end;align-items:center}
 .plan .manual{font-size:12.5px;color:var(--ink-2);display:flex;gap:4px;align-items:center;cursor:pointer}
 @media (max-width:1100px){.kanban{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:640px){.kanban{grid-template-columns:1fr}.plan li{grid-template-columns:28px 1fr}.plan .acts{grid-column:2}}
+/* ===== skills ===== */
+.skill-stage h2{font-family:var(--serif);font-size:18px;margin:8px 0 10px}
+.skill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.skill{padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.skill.flash{outline:2px solid var(--accent)}
+.skill-h{display:flex;gap:8px;align-items:center}
+.skill-h b{font-size:15px}
+.skill-state{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+.skill-state.ok{color:var(--accent)}
+.skill-name{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.skill p{margin:0;color:var(--ink-2);font-size:13px}
+.skill-by{font-size:12px;color:var(--ink-3)}
+.skill-by a{color:var(--accent)}
+.invoke{border:1px dashed var(--line);background:var(--sunk);border-radius:6px;padding:6px 8px;text-align:left;font-size:12px;color:var(--ink-2);cursor:copy;font-family:var(--mono);overflow-wrap:anywhere}
+.skill details{font-size:12px;color:var(--ink-3)}
+.skill details p{font-size:12px}
+.toolbar{display:flex;flex-direction:column;padding:6px 0}
+.toolbar-row{display:grid;grid-template-columns:44px 1fr;gap:10px;align-items:center;padding:6px 18px}
+.toolbar-row>span{font-size:12px;color:var(--ink-3)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip.own{border-color:var(--hot);color:var(--hot)}

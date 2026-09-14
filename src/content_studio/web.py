@@ -480,6 +480,14 @@ def create_app(
                 topic = store.create_topic(note["title"], note_paths=[body.path], account_id=me["id"] if me else None)
         return {"path": body.path, "triage": body.status, "topic": topic}
 
+    # -- skills -----------------------------------------------------------
+
+    @app.get("/api/skills")
+    def list_skills() -> dict[str, Any]:
+        from .skills import load_skills
+
+        return load_skills()
+
     # -- topics & today plan ---------------------------------------------
 
     @app.get("/api/topics")

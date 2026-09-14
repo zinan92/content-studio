@@ -30,6 +30,7 @@
         <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
       </div>
       <div class="nav-group" data-group="tools"><div class="nav-label">工具</div>
+        <button data-view="skills" type="button">Skills</button>
         <button data-view="settings" type="button">设置</button>
       </div>
     </nav>
@@ -66,6 +67,12 @@
     <section class="view wide" id="v-topics">
       <div class="head"><div><div class="eyebrow">选题</div><h1>选题</h1><p>一个选题可以同时出文章和视频。没做完的会一直留在今天的主线里。</p></div></div>
       <div id="topicsBody"></div>
+    </section>
+
+    <!-- SKILLS -->
+    <section class="view wide" id="v-skills">
+      <div class="head"><div><div class="eyebrow">工具</div><h1>Skills</h1><p>你做内容时在用的 skill，按生产阶段放。点灰色那行复制调用方式，贴到 Claude 或 Codex 里用。</p></div></div>
+      <div id="skillsBody"></div>
     </section>
 
     <!-- SETTINGS -->
@@ -170,6 +177,7 @@
 <script src="/static/today.js"></script>
 <script src="/static/collect.js"></script>
 <script src="/static/topics.js"></script>
+<script src="/static/skills.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
