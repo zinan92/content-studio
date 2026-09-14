@@ -571,3 +571,4 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .plan li.attention{background:var(--hot-soft)}
 .plan li.attention .plan-body span{color:var(--hot);font-weight:600}
 .idea-foot .acts{display:flex;gap:6px;flex-wrap:wrap}
+.vp-import{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}

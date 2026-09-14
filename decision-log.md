@@ -92,3 +92,11 @@
 **Why:** 口播 workflow 是长任务、要改媒体文件、有三个人工审批门，由 Claude/Codex 在前台跑更安全；工作台负责让 Park 随时知道剪到哪、下一步做什么。后台代跑列为 P3-2，需 Park 确认。
 
 **Gotchas:** 现有项目在外接硬盘 `/Volumes/Phone SSD/视频/exports`，都是 v2.6 之前的目录（无 project.json，成片叫 final-video.mp4 或 delivery/final-video.mp4），按旧版只识别是否有成片；硬盘没接时页面提示而不报错。worktable.html 以 `CSP: sandbox allow-scripts allow-downloads` 返回，能用但碰不到工作台 API。
+
+## 2026-09-14 — worktable 导入由浏览器读文件（#40 后续）
+
+**Decision:** H1 阶段在工作台里「选择导出的 worktable.json」或粘贴 JSON 导入到 `analysis/worktable.json`，校验 schema `park-video-worktable/v1` 与项目名，不默认覆盖。`analysis/worktable.html` 不加沙箱返回。
+
+**Why:** worktable 把 Park 的选择存在 localStorage，沙箱源里不可用，刷新会丢；该页面由 Park 自己的 skill 生成，可信。
+
+**Gotchas:** launchd 下的 Python 读 `~/Downloads` 会触发 macOS 隐私授权弹窗并阻塞请求（实测卡死），所以服务端永远不扫描「下载」文件夹。

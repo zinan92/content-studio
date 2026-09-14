@@ -83,6 +83,12 @@ class VideoLinkBody(BaseModel):
     name: str | None = None
 
 
+class WorktableBody(BaseModel):
+    text: str
+    filename: str | None = None
+    overwrite: bool = False
+
+
 class PublishBody(BaseModel):
     video_id: str | None = None
 
@@ -779,11 +785,23 @@ def create_app(
         store.update_topic(topic_id, video_project=name)
         return video_project.inspect(video_root(), name)
 
+    @app.post("/api/topics/{topic_id}/video-project/worktable")
+    def import_worktable(topic_id: int, body: WorktableBody) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if not topic.get("video_project"):
+            raise ValueError("这个选题还没有关联视频项目")
+        return video_project.import_worktable(
+            video_root(), topic["video_project"], text=body.text, source=(body.filename or "粘贴")[:80], overwrite=body.overwrite
+        )
+
     @app.get("/api/video-projects/{name}/file")
     def video_project_file(name: str, path: str) -> Response:
         target = video_project.safe_file(video_root(), name, path)
         headers = {"Cache-Control": "no-store"}
-        if target.suffix.lower() == ".html":
+        if path == "analysis/worktable.html":
+            # The skill's own worktable keeps Park's picks in localStorage, which a sandboxed origin cannot use.
+            pass
+        elif target.suffix.lower() == ".html":
             # Worktable pages need their own scripts and JSON export, but must not reach this app's API.
             headers["Content-Security-Policy"] = "sandbox allow-scripts allow-downloads allow-popups"
         return FileResponse(target, headers=headers)

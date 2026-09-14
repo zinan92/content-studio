@@ -61,7 +61,8 @@ window.VIDEO_TABS.push({
     el.innerHTML = `<div class="vp">
       <div class="vp-head"><div><b>${esc(info.name)}</b><small>${esc(info.path)} · 更新于 ${esc(info.modified_at.replace('T', ' '))}</small></div>
         <div class="acts"><button class="btn small" type="button" id="vpRefresh">刷新</button><button class="btn small ghost" type="button" id="vpUnlink">取消关联</button></div></div>
-      ${info.gate ? `<div class="banner warn vp-gate"><div><b>${esc(info.gate.key)} · ${esc(info.gate.title)}</b><br>${esc(info.gate.action)}</div></div>` : ''}
+      ${info.gate ? `<div class="banner warn vp-gate"><div><b>${esc(info.gate.key)} · ${esc(info.gate.title)}</b><br>${esc(info.gate.action)}
+        ${info.gate.key === 'H1' && a['analysis/worktable.html'] && !a['analysis/worktable.json'] ? `<div class="vp-import"><a class="btn small primary" href="${fileUrl(info.name, 'analysis/worktable.html')}" target="_blank" rel="noopener">打开 worktable ↗</a><label class="btn small">选完了：选择导出的 worktable.json<input type="file" accept=".json,application/json" id="wtFile" hidden></label><button class="btn small ghost" type="button" id="wtPaste">粘贴 JSON 导入</button></div>` : ''}</div></div>` : ''}
       ${info.blocked_reason ? `<div class="banner warn"><div><b>卡住了：</b>${esc(info.blocked_reason)}</div></div>` : ''}
       <div class="vp-summary"><span class="pill ${info.delivered ? 'hot' : 'mid'}">${esc(info.summary)}</span>${info.layout !== 'v2.6' ? '<span class="muted">（按旧版目录识别）</span>' : ''}</div>
       ${info.stages.length ? `<div class="vp-stages">${info.stages.map((s) => `<div class="vp-stage ${s.state}"><b>${s.key} ${esc(s.label)}</b><span>${s.passed}/${s.total}</span></div>`).join('')}</div>
@@ -76,6 +77,23 @@ window.VIDEO_TABS.push({
       ${info.log.length ? `<div class="vp-log"><h3>最近的过程记录</h3><ul>${info.log.map((l) => `<li><span class="pill ${l.status === 'pass' ? 'hot' : 'low'}">${esc(l.status || '—')}</span>${esc(l.title)}</li>`).join('')}</ul></div>` : ''}
       <div class="vp-cmd"><span>在 Claude 或 Codex 里继续：</span><button class="invoke" type="button" id="vpCmd">${esc(info.continue_command)}</button></div>
     </div>`;
+    const importWorktable = async (body) => {
+      try {
+        const r = await api(`/api/topics/${topic.id}/video-project/worktable`, { method: 'POST', body });
+        toast(`已导入 ${r.hooks} 个 Hook、${r.visual_notes} 条画面备注${r.needs_review ? `，${r.needs_review} 条需要核对位置` : ''}`);
+        delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView();
+      } catch (err) { toast(err.message); }
+    };
+    const wtf = $('#wtFile');
+    if (wtf) wtf.onchange = async () => {
+      const file = wtf.files && wtf.files[0];
+      if (file) importWorktable({ text: await file.text(), filename: file.name });
+    };
+    const wtp = $('#wtPaste');
+    if (wtp) wtp.onclick = () => {
+      const text = prompt('在 worktable 里点「复制 JSON」，粘贴到这里');
+      if (text && text.trim()) importWorktable({ text });
+    };
     $('#vpRefresh').onclick = async () => { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); };
     $('#vpUnlink').onclick = async () => { try { await api(`/api/topics/${topic.id}/video-project`, { method: 'PUT', body: { name: null } }); toast('已取消关联'); await refreshVideoTab(); } catch (err) { toast(err.message); } };
     $('#vpCmd').onclick = () => navigator.clipboard.writeText(info.continue_command).then(() => toast('已复制，贴到 Claude 或 Codex'), () => toast(info.continue_command));
