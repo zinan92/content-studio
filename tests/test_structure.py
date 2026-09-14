@@ -184,6 +184,15 @@ def test_cli_judge_explains_expired_login() -> None:
         cli_judge("x", command="sh -c 'echo \"Failed to authenticate: OAuth session expired\"; exit 1'")
 
 
+def test_cli_judge_surfaces_stdout_and_limits() -> None:
+    from content_studio.judge import cli_judge
+
+    with pytest.raises(JudgeError, match="something broke"):
+        cli_judge("x", command="sh -c 'echo something broke; exit 1'")
+    with pytest.raises(JudgeError, match="额度"):
+        cli_judge("x", command="sh -c 'echo Claude usage limit reached; exit 1'")
+
+
 def test_expired_login_fails_fast_without_retries() -> None:
     from content_studio.judge import JudgeLoginError
 
