@@ -9,7 +9,9 @@ cd ~/work/content-studio
 python3 -m content_studio serve
 ```
 
-打开 <http://127.0.0.1:8780>（只监听本机）。关掉终端即停止；数据保存在 `~/.config/content-studio/`，重启后都在。如果提示端口被占用，说明已经有一个在后台跑：直接打开链接，或先 `pkill -f 'content_studio serve'` 再启动。
+打开 <http://127.0.0.1:8780>（只监听本机）。关掉终端即停止；数据保存在 `~/.config/content-studio/`，重启后都在。如果提示端口被占用，说明常驻服务已经在跑，直接打开链接即可。
+
+在 Park 的 Mac 上它作为常驻服务运行（launchd `com.wendy.content-studio`，开机自启、崩溃自动拉起），并通过带密码的 `https://studio.park-ai-intel.com`（网站入口 `park-ai-intel.com/studio`）从外网访问；接入方式见 park-ai-intel 仓库 `deploy/content-studio/README.md`。改完代码后重启：`launchctl kickstart -k gui/$(id -u)/com.wendy.content-studio`。拆解需要本机 `claude` 命令行处于登录状态。
 
 报告文件在 `~/.config/content-studio/studio/reports/<视频编号>/`；M1 阶段生成的样本报告在 `~/.config/content-studio/m1/reports/`，网页会同时读取两处。
 
