@@ -177,6 +177,27 @@ def test_source_url_drops_tracking_parameters() -> None:
     assert "did=" not in render_markdown(report)
 
 
+def test_cli_judge_explains_expired_login() -> None:
+    from content_studio.judge import cli_judge
+
+    with pytest.raises(JudgeError, match="重新登录"):
+        cli_judge("x", command="sh -c 'echo \"Failed to authenticate: OAuth session expired\"; exit 1'")
+
+
+def test_expired_login_fails_fast_without_retries() -> None:
+    from content_studio.judge import JudgeLoginError
+
+    calls = []
+
+    def judge(_prompt):
+        calls.append(1)
+        raise JudgeLoginError("本机 Claude 命令行登录已过期")
+
+    with pytest.raises(ReportError, match="登录已过期"):
+        build_report(_item(), TRANSCRIPT, judge_fn=judge)
+    assert len(calls) == 1
+
+
 def test_parse_json_object_tolerates_fences_and_rejects_prose() -> None:
     assert parse_json_object('```json\n{"a": 1}\n```') == {"a": 1}
     with pytest.raises(JudgeError):
