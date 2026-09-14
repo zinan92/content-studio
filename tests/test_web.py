@@ -477,3 +477,47 @@ def test_copy_pack_and_platform_records(client: TestClient) -> None:
     assert records["xiaohongshu"]["url"].startswith("https://")
     assert client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "x", "published": True, "url": "ftp://x"}).status_code == 400
     assert client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "xiaohongshu", "published": False}).json() == {}
+
+
+def test_workflow_run_gate_and_approve(tmp_path: Path) -> None:
+    import time
+    from content_studio import web as web_module
+
+    root = tmp_path / "videos"
+    project = root / "p"
+    (project / "subtitles").mkdir(parents=True)
+    (project / "analysis").mkdir()
+    presets = {"media": "m", "audio": "a", "caption_style": "c", "caption_layout": "l"}
+    (project / "project.json").write_text(json.dumps({"presets": presets, "step_status": {"2": "pass", "3": "pass"}, "approvals": {}}), encoding="utf-8")
+    cookie = tmp_path / "cookies.json"
+    cookie.write_text(json.dumps({"sessionid": "x"}))
+    cookie.chmod(0o600)
+    app = web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
+                                downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False,
+                                runs_dir=tmp_path / "runs", runner_command="sh -c 'sleep 0.3; cat' _")
+    with TestClient(app) as c:
+        c.put("/api/settings", json={"video_projects_root": str(root)})
+        topic = c.post("/api/topics", json={"title": "t", "formats": "video"}).json()
+        c.put(f"/api/topics/{topic['id']}/video-project", json={"name": "p"})
+        started = c.post(f"/api/topics/{topic['id']}/video-project/run").json()
+        assert started["run"]["state"] == "running"
+        other = c.post("/api/topics", json={"title": "t2", "formats": "video"}).json()
+        c.put(f"/api/topics/{other['id']}/video-project", json={"name": "p"})
+        assert c.post(f"/api/topics/{other['id']}/video-project/run").status_code == 400
+        for _ in range(100):
+            run = c.get(f"/api/topics/{topic['id']}/video-project/run").json()["run"]
+            if run["state"] != "running":
+                break
+            time.sleep(0.05)
+        assert run["state"] == "done" and "ask-park-video" in run["log_tail"]
+
+        for rel in ("subtitles/source.srt", "subtitles/transcript.sentences.json", "analysis/worktable.html"):
+            (project / rel).write_text("x", encoding="utf-8")
+        assert "H1" in c.post(f"/api/topics/{topic['id']}/video-project/run").json()["error"]
+        assert c.post(f"/api/topics/{topic['id']}/video-project/approve", json={"gate": "H1"}).status_code == 400
+        (project / "analysis" / "worktable.json").write_text(json.dumps({"hooks": [{"order": 1, "text": "h"}]}), encoding="utf-8")
+        assert c.get(f"/api/topics/{topic['id']}/video-project/gate").json()["review"]["hooks"][0]["text"] == "h"
+        assert c.post(f"/api/topics/{topic['id']}/video-project/approve", json={"gate": "H2"}).status_code == 400
+        approved = c.post(f"/api/topics/{topic['id']}/video-project/approve", json={"gate": "H1"}).json()
+        assert approved["project"]["current_step"] == 6 and approved["project"]["gate"] is None
+    app.state.store.close()

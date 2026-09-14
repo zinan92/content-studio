@@ -1,0 +1,150 @@
+"""Run ask-park-video in the background until its next human gate, and record Park's approvals.
+
+The run is a detached process group (a service restart does not kill it). The shell
+wrapper writes the exit code next to the log so the result survives restarts too.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import shlex
+import signal
+import subprocess
+from typing import Any
+
+RUNNER_COMMAND_ENV = "CONTENT_STUDIO_WORKFLOW_CMD"
+DEFAULT_RUNNER_COMMAND = (
+    "claude -p --model opus --output-format text "
+    '--allowedTools "Skill Bash Read Write Edit Glob Grep"'
+)
+DEFAULT_RUNS_DIR = Path("~/.config/content-studio/runs")
+GATE_APPROVAL_KEYS = {"H1": "hook", "H2": "visual_spec", "H3": "final"}
+
+
+def build_prompt(project_path: Path) -> str:
+    return f"""用 ask-park-video skill 继续这个口播项目：{project_path}
+
+规则：
+- 按 skill 的 14 步和完成证据，从最早没完成的一步继续，连续执行，直到遇到人工审批门（H1 Hook、H2 视觉规格、H3 终审）、真实阻塞或全部完成就停下。
+- 这是后台运行，没有人能即时回答问题：需要 Park 决定的事情，把审查产物准备好、写进 process-log.md，然后停下，不要自己替 Park 批准。
+- 不删除、不覆盖原始素材和剪映粗剪；所有新产物只写在这个项目目录里。
+- 结束时用中文输出四行：当前 Step、当前审批门（没有写「无」）、这次完成了什么、下一步需要 Park 做什么。"""
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def start(project_path: Path, *, run_id: int, runs_dir: Path = DEFAULT_RUNS_DIR, command: str | None = None) -> dict[str, Any]:
+    folder = runs_dir.expanduser() / f"run-{run_id}"
+    folder.mkdir(parents=True, exist_ok=True)
+    log_path, exit_path, prompt_path = folder / "log.txt", folder / "exit_code", folder / "prompt.txt"
+    prompt_path.write_text(build_prompt(project_path), encoding="utf-8")
+    base = command or os.environ.get(RUNNER_COMMAND_ENV) or DEFAULT_RUNNER_COMMAND
+    script = f"{base} --add-dir {shlex.quote(str(project_path))} < {shlex.quote(str(prompt_path))} > {shlex.quote(str(log_path))} 2>&1; echo $? > {shlex.quote(str(exit_path))}"
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", script],
+        cwd=str(project_path),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return {"pid": process.pid, "log_path": str(log_path), "exit_path": str(exit_path), "started_at": _now()}
+
+
+def _alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    try:
+        waited, _ = os.waitpid(pid, os.WNOHANG)  # reap our own finished child
+        return waited == 0
+    except ChildProcessError:
+        return True
+
+
+def status(run: dict[str, Any], tail_lines: int = 40) -> dict[str, Any]:
+    log_path = Path(run["log_path"])
+    exit_path = Path(run["exit_path"])
+    tail = ""
+    if log_path.is_file():
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        tail = "\n".join(lines[-tail_lines:])
+    exit_code = None
+    if exit_path.is_file():
+        try:
+            exit_code = int(exit_path.read_text().strip() or "-1")
+        except ValueError:
+            exit_code = -1
+    if run.get("state") == "cancelled":
+        state = "cancelled"
+    elif exit_code is not None:
+        state = "done" if exit_code == 0 else "failed"
+    elif _alive(run.get("pid")):
+        state = "running"
+    else:
+        state = "failed"
+    return {**run, "state": state, "exit_code": exit_code, "log_tail": tail}
+
+
+def cancel(run: dict[str, Any]) -> None:
+    pid = run.get("pid")
+    if not pid:
+        return
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def approve(project_path: Path, gate: str, *, note: str | None = None) -> dict[str, Any]:
+    key = GATE_APPROVAL_KEYS.get(gate)
+    if key is None:
+        raise ValueError("审批门只能是 H1、H2、H3")
+    contract_path = project_path / "project.json"
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError("项目没有可用的 project.json") from exc
+    approvals = contract.setdefault("approvals", {})
+    record = {"by": "Park", "at": _now(), "via": "content-studio"}
+    if note:
+        record["note"] = note[:500]
+    approvals[key] = record
+    contract_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with (project_path / "process-log.md").open("a", encoding="utf-8") as log:
+        log.write(f"\n## 审批 {gate}（{key}）\n\n- status: approved\n- by: Park（内容工作台）\n- at: {record['at']}\n" + (f"- note: {note[:500]}\n" if note else ""))
+    return record
+
+
+def gate_review(project_path: Path, gate: str) -> dict[str, Any]:
+    """What Park should look at before approving a gate."""
+    def load(rel: str) -> Any:
+        try:
+            return json.loads((project_path / rel).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    if gate == "H1":
+        candidates = load("analysis/hook-candidates.json")
+        worktable = load("analysis/worktable.json") or {}
+        hooks = (candidates.get("hooks") if isinstance(candidates, dict) else candidates) or worktable.get("hooks") or []
+        return {"gate": "H1", "hooks": [{"order": h.get("order"), "text": h.get("text") or h.get("quote"), "status": h.get("anchor_status") or h.get("status")} for h in hooks if isinstance(h, dict)][:8],
+                "from": "analysis/hook-candidates.json" if candidates else "analysis/worktable.json"}
+    if gate == "H2":
+        plan = load("part-b-body/visual-plan.json") or {}
+        shots = plan.get("shots") if isinstance(plan, dict) else plan
+        return {"gate": "H2", "coverage": plan.get("coverage") if isinstance(plan, dict) else None,
+                "shots": [{"id": s.get("id"), "start": s.get("start"), "end": s.get("end"), "visual_type": s.get("visual_type"), "purpose": s.get("purpose") or s.get("communication_purpose"),
+                           "disposition": s.get("disposition")} for s in (shots or []) if isinstance(s, dict)][:40]}
+    if gate == "H3":
+        return {"gate": "H3", "qa": load("final/qa.json"), "video": "final/video.mp4"}
+    raise ValueError("审批门只能是 H1、H2、H3")

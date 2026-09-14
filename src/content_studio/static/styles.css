@@ -589,3 +589,16 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .rv-exp p{margin:2px 0}
 .rv-table{min-width:720px}
 @media (max-width:900px){.rv-grid{grid-template-columns:1fr}.rv-grid>div+div{border-left:0;border-top:1px solid var(--line-soft)}}
+/* ===== workflow runner & gates ===== */
+.vp-run{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.vp-run.running{border-color:var(--accent);background:var(--accent-soft)}
+.vp-run.gate{border-color:var(--hot);background:var(--hot-soft)}
+.vp-run-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.vp-run-h .spacer{flex:1}
+.vp-run p{margin:0;font-size:13px}
+.vp-run textarea{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--surface);color:var(--ink);font:inherit}
+.vp-run .acts{display:flex;gap:8px;align-items:center}
+.vp-log-tail{white-space:pre-wrap;font-family:var(--mono);font-size:12px;max-height:260px;overflow:auto;background:var(--surface);border:1px solid var(--line-soft);border-radius:6px;padding:8px;margin:0}
+.vp-last summary{cursor:pointer;color:var(--ink-2);font-size:13px}
+.gate-hooks{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:4px}
+.gate-table{min-width:560px}

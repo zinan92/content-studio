@@ -83,6 +83,11 @@ class VideoLinkBody(BaseModel):
     name: str | None = None
 
 
+class ApproveBody(BaseModel):
+    gate: str
+    note: str | None = None
+
+
 class WorktableBody(BaseModel):
     text: str
     filename: str | None = None
@@ -195,6 +200,8 @@ def create_app(
     outline_fn: Callable[[str], str] | None = None,
     copy_fn: Callable[[str], dict] | None = None,
     review_fn: Callable[[str], dict] | None = None,
+    runs_dir: Path | None = None,
+    runner_command: str | None = None,
 ) -> FastAPI:
     from . import writer
 
@@ -857,6 +864,83 @@ def create_app(
         return video_project.import_worktable(
             video_root(), topic["video_project"], text=body.text, source=(body.filename or "粘贴")[:80], overwrite=body.overwrite
         )
+
+    # -- background workflow runs & gate approvals -----------------------
+
+    def run_view(run: dict[str, Any]) -> dict[str, Any]:
+        from . import workflow_runner
+
+        if not run.get("log_path"):
+            return {**run, "log_tail": ""}
+        current = workflow_runner.status(run)
+        if current["state"] != run["state"] and run["state"] in ("starting", "running"):
+            store.update_run(run["id"], state=current["state"], finished_at=None if current["state"] == "running" else now_iso())
+        return current
+
+    def linked_project(topic_id: int) -> tuple[dict[str, Any], Path, dict[str, Any]]:
+        topic = store.topic(topic_id)
+        if not topic.get("video_project"):
+            raise ValueError("这个选题还没有关联视频项目")
+        root = video_root()
+        info = video_project.inspect(root, topic["video_project"])
+        return topic, video_project.project_dir(root, topic["video_project"]), info
+
+    @app.get("/api/topics/{topic_id}/video-project/run")
+    def get_run(topic_id: int) -> dict[str, Any]:
+        runs = store.runs(topic_id=topic_id)
+        active_elsewhere = [r for r in store.runs(active_only=True) if r["topic_id"] != topic_id]
+        return {"run": run_view(runs[0]) if runs else None, "busy_elsewhere": bool(active_elsewhere and run_view(active_elsewhere[0])["state"] == "running")}
+
+    @app.post("/api/topics/{topic_id}/video-project/run")
+    def start_run(topic_id: int) -> dict[str, Any]:
+        from . import workflow_runner
+
+        topic, path, info = linked_project(topic_id)
+        for active in store.runs(active_only=True):
+            if run_view(active)["state"] == "running":
+                raise ValueError("已经有一个口播项目在后台跑，等它停下或先中止")
+        if info["layout"] == "legacy":
+            raise ValueError("这是旧版目录，没有 project.json，不能按 14 步继续")
+        if info.get("delivered"):
+            raise ValueError("这个项目已经交付了")
+        if info.get("gate"):
+            raise ValueError(f"项目停在 {info['gate']['key']}：{info['gate']['title']}。先处理审批门再继续")
+        run_id = store.create_run(topic_id, topic["video_project"])
+        started = workflow_runner.start(path, run_id=run_id, runs_dir=runs_dir or workflow_runner.DEFAULT_RUNS_DIR, command=runner_command)
+        run = store.update_run(run_id, state="running", **started)
+        return {"run": run_view(run), "message": "开始在后台跑口播 workflow，停在下一个审批门会提醒你"}
+
+    @app.delete("/api/topics/{topic_id}/video-project/run")
+    def cancel_run(topic_id: int) -> dict[str, Any]:
+        from . import workflow_runner
+
+        runs = [r for r in store.runs(topic_id=topic_id, active_only=True)]
+        if not runs:
+            raise ValueError("没有正在跑的任务")
+        workflow_runner.cancel(runs[0])
+        return {"run": run_view(store.update_run(runs[0]["id"], state="cancelled", finished_at=now_iso()))}
+
+    @app.get("/api/topics/{topic_id}/video-project/gate")
+    def gate_review(topic_id: int) -> dict[str, Any]:
+        from . import workflow_runner
+
+        _topic, path, info = linked_project(topic_id)
+        if not info.get("gate"):
+            raise ValueError("现在没有等待你的审批门")
+        return {"gate": info["gate"], "review": workflow_runner.gate_review(path, info["gate"]["key"])}
+
+    @app.post("/api/topics/{topic_id}/video-project/approve")
+    def approve_gate(topic_id: int, body: ApproveBody) -> dict[str, Any]:
+        from . import workflow_runner
+
+        _topic, path, info = linked_project(topic_id)
+        gate = info.get("gate")
+        if not gate or gate["key"] != body.gate:
+            raise ValueError("这个审批门现在不在等待批准")
+        if body.gate == "H1" and not (path / "analysis" / "worktable.json").is_file():
+            raise ValueError("先在 worktable 里选 Hook 并导入，再批准")
+        record = workflow_runner.approve(path, body.gate, note=body.note)
+        return {"approval": record, "project": video_project.inspect(video_root(), _topic["video_project"])}
 
     @app.get("/api/video-projects/{name}/file")
     def video_project_file(name: str, path: str) -> Response:
