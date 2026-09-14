@@ -97,3 +97,35 @@ def test_paths_are_confined(tmp_path: Path, name: str, rel: str) -> None:
 def test_missing_root_explains_external_drive(tmp_path: Path) -> None:
     with pytest.raises(vp.VideoProjectError, match="外接硬盘"):
         vp.resolve_root("/Volumes/Nope/视频")
+
+
+def _worktable(project="demo", **extra):
+    data = {"schema": "park-video-worktable/v1", "project": project,
+            "hooks": [{"slot": 1, "order": 1, "text": "h", "anchor_status": "ok"}, {"slot": 2, "order": 2, "text": "h2", "anchor_status": "stale"}],
+            "visual_notes": [{"marker": 1, "intent": "图", "anchor_status": "ok"}]}
+    data.update(extra)
+    return json.dumps(data)
+
+
+def test_import_worktable_validates_and_saves(tmp_path: Path) -> None:
+    root = tmp_path / "videos"
+    base = _project(root, "p", project="demo")
+    _touch(base, "analysis/worktable.html")
+    result = vp.import_worktable(root.resolve(), "p", text=_worktable(), source="worktable (1).json")
+    assert result["hooks"] == 2 and result["needs_review"] == 1 and result["source"] == "worktable (1).json"
+    assert json.loads((base / "analysis/worktable.json").read_text())["project"] == "demo"
+    with pytest.raises(ValueError, match="已经存在"):
+        vp.import_worktable(root.resolve(), "p", text=_worktable())
+    assert vp.import_worktable(root.resolve(), "p", text=_worktable(), overwrite=True)["source"] == "粘贴"
+    with pytest.raises(ValueError, match="属于"):
+        vp.import_worktable(root.resolve(), "p", text=_worktable(project="other"), overwrite=True)
+    with pytest.raises(ValueError, match="schema"):
+        vp.import_worktable(root.resolve(), "p", text=json.dumps({"hooks": []}), overwrite=True)
+    with pytest.raises(ValueError, match="有效的 JSON"):
+        vp.import_worktable(root.resolve(), "p", text="{", overwrite=True)
+
+
+def test_import_requires_worktable_page(tmp_path: Path) -> None:
+    _project(tmp_path, "p")
+    with pytest.raises(vp.VideoProjectError, match="还没有 worktable"):
+        vp.import_worktable(tmp_path.resolve(), "p", text="{}")

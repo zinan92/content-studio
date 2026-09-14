@@ -270,3 +270,34 @@ def create_project(root: Path, *, title: str, today: str, outline_markdown: str 
     if outline_markdown:
         (base / "拍摄提纲.md").write_text(outline_markdown, encoding="utf-8")
     return candidate
+
+
+WORKTABLE_SCHEMA = "park-video-worktable/v1"
+def import_worktable(root: Path, name: str, *, text: str, source: str = "粘贴", overwrite: bool = False) -> dict[str, Any]:
+    """Save Park's worktable export into analysis/worktable.json.
+
+    The browser reads the exported file; the service never scans ~/Downloads, because a
+    launchd process touching Downloads triggers a macOS privacy prompt and blocks.
+    """
+    base = project_dir(root, name)
+    page = base / "analysis" / "worktable.html"
+    if not page.is_file():
+        raise VideoProjectError("这个项目还没有 worktable（Step 4 之后才有）")
+    target = base / "analysis" / "worktable.json"
+    if target.exists() and not overwrite:
+        raise ValueError("analysis/worktable.json 已经存在；确认要覆盖再导入")
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise ValueError("不是有效的 JSON") from exc
+    if not isinstance(data, dict) or data.get("schema") != WORKTABLE_SCHEMA:
+        raise ValueError(f"不是 worktable 导出的文件（schema 应为 {WORKTABLE_SCHEMA}）")
+    contract = _json(base / "project.json") or {}
+    expected = contract.get("project") or contract.get("name")
+    if expected and data.get("project") and data["project"] != expected:
+        raise ValueError(f"这份 worktable 属于「{data['project']}」，不是这个项目「{expected}」")
+    hooks = data.get("hooks") or []
+    notes = data.get("visual_notes") or []
+    target.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    flagged = [h for h in hooks if h.get("anchor_status") != "ok"] + [n for n in notes if n.get("anchor_status") != "ok"]
+    return {"source": source, "hooks": len(hooks), "visual_notes": len(notes), "needs_review": len(flagged), "path": str(target)}
