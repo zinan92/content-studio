@@ -48,6 +48,7 @@ class SettingsBody(BaseModel):
     auto_enqueue_limit: int | None = None
     sync_pages: int | None = None
     sync_delay_seconds: float | None = None
+    obsidian_vault: str | None = None
 
 
 class BackgroundOps:
@@ -86,6 +87,13 @@ class BackgroundOps:
 
         threading.Thread(target=target, name=f"sync-{key}", daemon=True).start()
         return True
+
+
+def vault_status(raw: str) -> dict[str, Any]:
+    path = Path(raw).expanduser()
+    if not path.is_dir():
+        return {"path": raw, "ok": False, "message": f"找不到 Obsidian 库：{raw}。在设置里改成你的库所在文件夹"}
+    return {"path": raw, "ok": True, "message": None}
 
 
 def _creator_rows(creator_db: Path | None) -> dict[str, dict[str, Any]]:
@@ -216,6 +224,10 @@ def create_app(
         return {
             "settings": store.settings(),
             "self_account": store.self_account(),
+            "my_accounts": [
+                {k: a[k] for k in ("id", "platform", "nickname", "profile_url", "follower_count")} for a in store.my_accounts()
+            ],
+            "vault": vault_status(store.settings()["obsidian_vault"]),
             "cookies": cookies,
             "creator_metrics_available": bool(_creator_rows(creator_db)),
             "full_sync_running": ops.full_sync_running,
@@ -236,8 +248,8 @@ def create_app(
     # -- my videos ----------------------------------------------------------
 
     @app.get("/api/mine")
-    def mine() -> dict[str, Any]:
-        me = store.self_account()
+    def mine(account_id: int | None = None) -> dict[str, Any]:
+        me = store.self_account(account_id) or store.self_account()
         if me is None:
             return {"account": None, "videos": []}
         creator = _creator_rows(creator_db)

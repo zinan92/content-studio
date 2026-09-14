@@ -193,3 +193,24 @@ def test_reports_can_be_archived_and_restored(client: TestClient, tmp_path: Path
     assert client.delete("/api/reports/321/archive").json()["archived_at"] is None
     assert client.get("/api/reports").json()[0]["archived_at"] is None
     assert client.post("/api/reports/999/archive").status_code == 404
+
+
+def test_multiple_own_accounts_and_vault_setting(client: TestClient, tmp_path: Path) -> None:
+    first = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True}).json()
+    _wait_sync(client)
+    second = client.post("/api/accounts", json={"url": "https://www.douyin.com/user/MS4wLjABAAAAsecond", "is_self": True}).json()
+    _wait_sync(client)
+    state = client.get("/api/state").json()
+    assert [a["id"] for a in state["my_accounts"]] == [first["account"]["id"], second["account"]["id"]]
+    assert client.get(f"/api/mine?account_id={second['account']['id']}").json()["account"]["id"] == second["account"]["id"]
+    assert client.get("/api/mine?account_id=99999").json()["account"]["id"] == first["account"]["id"]
+    assert client.get("/api/accounts").json() == []
+
+    assert state["vault"]["path"] == "~/park-hands"
+    assert client.put("/api/settings", json={"obsidian_vault": "  "}).status_code == 400
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    client.put("/api/settings", json={"obsidian_vault": str(vault)})
+    assert client.get("/api/state").json()["vault"]["ok"] is True
+    client.put("/api/settings", json={"obsidian_vault": str(tmp_path / "missing")})
+    assert "找不到 Obsidian 库" in client.get("/api/state").json()["vault"]["message"]
