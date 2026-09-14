@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>内容拆解台</title>
+<title>内容工作台</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;900&display=swap">
 <link rel="stylesheet" href="/static/styles.css">
@@ -11,19 +11,27 @@
 <body>
 <div class="app">
   <aside class="rail">
-    <div class="brand"><b>内容拆解台</b><span id="brandSub">本机 · 抖音</span></div>
-    <div class="plat" aria-label="平台">
-      <button class="on" type="button">抖音</button>
-      <button disabled type="button" title="小红书抓取待接入">小红书</button>
-      <button disabled type="button" title="X 抓取待接入">X</button>
-    </div>
-    <nav class="nav">
-      <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
-      <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
-      <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
-      <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
+    <div class="brand"><b>内容工作台</b><span id="brandSub">Park · 本机</span></div>
+    <nav class="nav" id="nav">
+      <button data-view="today" type="button" class="nav-today">今天 <span class="count" id="navToday"></span></button>
+      <div class="nav-group" data-group="collect"><div class="nav-label">收集</div></div>
+      <div class="nav-group" data-group="plan"><div class="nav-label">选题</div>
+        <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
+      </div>
+      <div class="nav-group" data-group="make"><div class="nav-label">加工</div>
+        <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
+      </div>
+      <div class="nav-group" data-group="ship"><div class="nav-label">发出</div></div>
+      <div class="nav-group" data-group="review"><div class="nav-label">复盘</div>
+        <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
+        <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
+      </div>
+      <div class="nav-group" data-group="tools"><div class="nav-label">工具</div>
+        <button data-view="settings" type="button">设置</button>
+      </div>
     </nav>
     <div class="rail-foot">
+      <label class="acct-switch" id="acctSwitchWrap"><span>当前账号</span><select id="acctSwitch" aria-label="当前账号"></select></label>
       <button class="btn small" id="syncAllBtn" type="button">同步全部账号</button>
       <div class="sync" id="syncState"><span class="dot"></span><span>—</span></div>
       <button class="theme-btn" id="themeBtn" type="button">切换深浅色</button>
@@ -32,6 +40,34 @@
 
   <main>
     <div id="globalBanner"></div>
+
+    <!-- TODAY -->
+    <section class="view" id="v-today">
+      <div class="head">
+        <div>
+          <div class="eyebrow" id="todayDate">今天</div>
+          <h1 id="todayTitle">今天做什么</h1>
+          <p id="todayIntro">收集 → 选题 → 加工 → 发出 → 复盘。下面每一块都来自你的 Obsidian、对标账号和发出记录。</p>
+        </div>
+      </div>
+      <div class="today-grid" id="todayGrid"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="v-settings">
+      <div class="head"><div><div class="eyebrow">工具</div><h1>设置</h1><p>只保存在本机。</p></div></div>
+      <div class="panel">
+        <form class="settings" id="settingsForm">
+          <label><span>Obsidian 库路径</span><input id="setVault" autocomplete="off" placeholder="~/park-hands"><small id="setVaultNote"></small></label>
+          <div><button class="btn primary" type="submit">保存</button></div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>我的账号</h2><small>「我的视频」和选题按账号区分；加第二个号直接粘贴主页链接</small></div>
+        <div id="myAccounts"></div>
+        <form class="linkbox" id="myAcctForm"><input id="myAcctIn" placeholder="我的另一个抖音主页链接 https://www.douyin.com/user/…" aria-label="我的主页链接" autocomplete="off"><button class="btn" type="submit">添加我的账号</button></form>
+      </div>
+    </section>
 
     <!-- MINE -->
     <section class="view" id="v-mine">
@@ -114,6 +150,7 @@
   </form>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/static/today.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

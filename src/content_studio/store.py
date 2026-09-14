@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "auto_enqueue_limit": 8,
     "sync_pages": 3,
     "sync_delay_seconds": 1.5,
+    "obsidian_vault": "~/park-hands",
 }
 
 SCHEMA = """
@@ -171,6 +172,10 @@ class StudioStore:
                 cleaned[key] = kind(value)
             except (TypeError, ValueError) as exc:
                 raise StoreError(f"设置项 {key} 的值无效") from exc
+        if "obsidian_vault" in cleaned:
+            cleaned["obsidian_vault"] = cleaned["obsidian_vault"].strip()
+            if not cleaned["obsidian_vault"]:
+                raise StoreError("Obsidian 库路径不能为空")
         if "threshold" in cleaned and not 1 <= cleaned["threshold"] <= 100:
             raise StoreError("爆款门槛需在 1× 到 100× 之间")
         if "auto_enqueue_limit" in cleaned and not 0 <= cleaned["auto_enqueue_limit"] <= 50:
@@ -223,8 +228,13 @@ class StudioStore:
     def accounts(self) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM accounts ORDER BY is_self DESC, id")
 
-    def self_account(self) -> dict[str, Any] | None:
+    def self_account(self, account_id: int | None = None) -> dict[str, Any] | None:
+        if account_id is not None:
+            return self._row("SELECT * FROM accounts WHERE is_self = 1 AND id = ?", (account_id,))
         return self._row("SELECT * FROM accounts WHERE is_self = 1 ORDER BY id LIMIT 1")
+
+    def my_accounts(self) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM accounts WHERE is_self = 1 ORDER BY id")
 
     def update_account(self, account_id: int, **fields: Any) -> dict[str, Any]:
         allowed = {"nickname", "follower_count", "total_favorited", "signature", "status", "last_error", "last_synced_at", "external_id"}

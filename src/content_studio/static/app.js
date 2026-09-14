@@ -96,8 +96,12 @@ function bindTeardownButtons(root) {
 }
 
 /* ================= state & routing ================= */
+window.VIEWS = window.VIEWS || {};
+window.TODAY_CARDS = window.TODAY_CARDS || [];
+const CORE_VIEWS = ['today', 'mine', 'radar', 'queue', 'report', 'settings'];
 const S = {
-  view: 'mine',
+  view: 'today',
+  accountId: (() => { try { return Number(localStorage.getItem('cs-account')) || null; } catch (_) { return null; } })(),
   state: null,
   mine: null,
   accounts: [],
@@ -126,10 +130,12 @@ function go(view, { push = true } = {}) {
 function readHash() {
   const [view, id] = location.hash.replace(/^#/, '').split('/');
   if (view === 'report' && id) S.reportId = id;
-  return ['mine', 'radar', 'queue', 'report'].includes(view) ? view : 'mine';
+  return [...CORE_VIEWS, ...Object.keys(window.VIEWS)].includes(view) ? view : 'today';
 }
 
-$$('.nav button').forEach((b) => (b.onclick = () => go(b.dataset.view)));
+function bindNav() {
+  $$('.nav button').forEach((b) => (b.onclick = () => go(b.dataset.view)));
+}
 window.addEventListener('popstate', () => go(readHash(), { push: false }));
 
 $('#themeBtn').onclick = () => {
@@ -145,7 +151,7 @@ async function refreshAll() {
   const threshold = S.state ? S.state.settings.threshold : undefined;
   const [state, mine, accounts, jobs, reports] = await Promise.all([
     api('/api/state'),
-    api('/api/mine'),
+    api('/api/mine' + (S.accountId ? `?account_id=${S.accountId}` : '')),
     api('/api/accounts'),
     api('/api/jobs'),
     api('/api/reports'),
@@ -170,6 +176,12 @@ function renderChrome() {
   if (stopped) banner.push(`<div class="banner warn"><div><b>上次同步中断：</b>${esc(stopped)}</div></div>`);
   $('#globalBanner').innerHTML = banner.length ? `<div style="display:flex;flex-direction:column;gap:10px;margin:0 0 18px;max-width:1180px">${banner.join('')}</div>` : '';
   $('#navMine').textContent = S.mine.videos.length || '—';
+  const mineList = st.my_accounts || [];
+  $('#acctSwitchWrap').hidden = mineList.length < 2;
+  const sel = $('#acctSwitch');
+  const current = S.mine.account ? S.mine.account.id : null;
+  sel.innerHTML = mineList.map((a) => `<option value="${a.id}" ${a.id === current ? 'selected' : ''}>${esc(a.nickname || a.profile_url)}</option>`).join('');
+  $('#brandSub').textContent = S.mine.account && S.mine.account.nickname ? `${S.mine.account.nickname} · 本机` : 'Park · 本机';
   $('#navHot').textContent = S.outliers.length;
   $('#navQ').textContent = st.active_jobs || S.jobs.length || '—';
   $('#navR').textContent = S.reports.filter((r) => !r.archived_at).length || '—';
@@ -186,6 +198,12 @@ function renderChrome() {
   }
 }
 
+$('#acctSwitch').onchange = async (e) => {
+  S.accountId = Number(e.target.value);
+  try { localStorage.setItem('cs-account', String(S.accountId)); } catch (_) { /* ignore */ }
+  await refreshAll();
+};
+
 $('#syncAllBtn').onclick = async () => {
   try {
     const res = await api('/api/sync', { method: 'POST' });
@@ -196,11 +214,68 @@ $('#syncAllBtn').onclick = async () => {
 
 function renderView() {
   if (!S.state) return;
+  if (window.VIEWS[S.view]) window.VIEWS[S.view].render();
+  if (S.view === 'today') renderToday();
+  if (S.view === 'settings') renderSettings();
   if (S.view === 'mine') renderMine();
   if (S.view === 'radar') renderRadar();
   if (S.view === 'queue') renderQueue();
   if (S.view === 'report') renderReport();
 }
+
+/* ================= TODAY ================= */
+function renderToday() {
+  const now = new Date();
+  const week = '日一二三四五六'[now.getDay()];
+  $('#todayDate').textContent = `${now.getMonth() + 1} 月 ${now.getDate()} 日 · 星期${week}`;
+  const grid = $('#todayGrid');
+  const cards = window.TODAY_CARDS.slice().sort((a, b) => a.order - b.order);
+  // Keep existing card nodes so async card content survives re-renders during polling.
+  cards.forEach((card) => {
+    let el = grid.querySelector(`[data-card="${card.id}"]`);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = `panel today-card ${card.wide ? 'wide' : ''}`;
+      el.dataset.card = card.id;
+      grid.appendChild(el);
+    }
+    try { card.render(el); } catch (err) { el.innerHTML = `<div class="empty"><b>${esc(card.title || '')}加载失败</b><span>${esc(err.message)}</span></div>`; }
+  });
+}
+
+/* ================= SETTINGS ================= */
+function renderSettings() {
+  const st = S.state;
+  const input = $('#setVault');
+  if (document.activeElement !== input) input.value = st.settings.obsidian_vault;
+  $('#setVaultNote').textContent = st.vault.ok ? '已找到这个库' : st.vault.message;
+  $('#setVaultNote').className = st.vault.ok ? '' : 'bad';
+  const mineList = st.my_accounts || [];
+  $('#myAccounts').innerHTML = mineList.length
+    ? `<div class="acct-list">${mineList.map((a) => `<div class="acct-row"><b>${esc(a.nickname || '同步中…')}</b><span>${esc(a.platform)} · 粉丝 ${fmt(a.follower_count)}</span></div>`).join('')}</div>`
+    : '<div class="empty"><span>还没有连接自己的账号，去「我的视频」连接。</span></div>';
+}
+
+$('#settingsForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/settings', { method: 'PUT', body: { obsidian_vault: $('#setVault').value } });
+    toast('已保存');
+    await refreshAll();
+  } catch (err) { toast(err.message); }
+};
+
+$('#myAcctForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const res = await api('/api/accounts', { method: 'POST', body: { url: $('#myAcctIn').value, is_self: true } });
+    $('#myAcctIn').value = '';
+    S.accountId = res.account.id;
+    try { localStorage.setItem('cs-account', String(S.accountId)); } catch (_) { /* ignore */ }
+    toast('已添加，正在同步这个账号的作品');
+    await refreshAll();
+  } catch (err) { toast(err.message); }
+};
 
 /* ================= MY VIDEOS ================= */
 function renderMine() {
@@ -680,6 +755,7 @@ function drawPace(pace) {
 
 /* ================= boot & polling ================= */
 async function boot() {
+  bindNav();
   S.view = readHash();
   $$('.nav button').forEach((b) => b.classList.toggle('on', b.dataset.view === S.view));
   $$('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + S.view));
