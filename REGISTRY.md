@@ -18,7 +18,9 @@ P1（文章线）和 P2（视频线与全流程）都已交付并在真实数据
 
 运行：launchd `com.wendy.content-studio` 常驻 `127.0.0.1:8780`，外网经密码代理访问（见 [docs/operations.md](docs/operations.md)）。
 
-仍待 Park：① 读拆解报告确认「说中了」；② 设置里填研习室电脑后台地址；③ 是否启用每日同步；④ P3：是否让工作台后台代跑口播 workflow、是否接自动发布。
+P3（Park 2026-09-14 授权）：后台代跑口播 workflow（审批门在工作台里批准）和一键发布（视频号 / B 站 / YouTube，每次 Park 确认）已上线；研习室后台地址已设为企业环境 cloudbase-d4gdgx5av17643e5c。所有写请求要求工作台请求头且同源。
+
+仍待 Park：① 读拆解报告确认「说中了」；② 第一次发布前在电脑上重新登录视频号 / B 站 / YouTube（凭据是 5 月的）；③ 是否启用每日同步。
 
 ## Milestone position
 
@@ -27,7 +29,8 @@ P1（文章线）和 P2（视频线与全流程）都已交付并在真实数据
 | M1–M3 拆解台 | built | PR #4 #7 #8 #9 |
 | P1 内容生产工作台 | built | PR #24–#35 |
 | P2 视频线与全流程 | built | PR #44–#53，Issue #38–#43 |
-| P3 研习室自动草稿 / 后台代跑 / 自动发布 | not started | #31；后两项待 Park 确认 |
+| P3 后台代跑 + 审批 · 一键发布 | built | PR #58 #59，Issue #56 #57 |
+| P3-1 研习室自动草稿 | waiting | #31（依赖 wechat-xingqiu#207） |
 | M4 扩平台数据 | not started | 抖音站内搜索因反作弊不做（#20） |
 
 ## Next
