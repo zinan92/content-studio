@@ -104,6 +104,13 @@ CREATE TABLE IF NOT EXISTS topics (
     updated_at TEXT NOT NULL,
     archived_at TEXT
 );
+CREATE TABLE IF NOT EXISTS briefings (
+    day TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    error TEXT,
+    data TEXT,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -245,6 +252,28 @@ class StudioStore:
             cursor = conn.execute(
                 "UPDATE topics SET write_state = 'failed', write_error = '上次写作被中断（服务重启），点重试' WHERE write_state = 'running'"
             )
+        return cursor.rowcount
+
+    def briefing(self, day: str) -> dict[str, Any] | None:
+        row = self._row("SELECT * FROM briefings WHERE day = ?", (day,))
+        if row is None:
+            return None
+        return {**row, "data": json.loads(row["data"]) if row["data"] else None}
+
+    def set_briefing(self, day: str, *, state: str, error: str | None = None, data: dict[str, Any] | None = None) -> dict[str, Any]:
+        current = self.briefing(day)
+        payload = json.dumps(data, ensure_ascii=False) if data is not None else (json.dumps(current["data"], ensure_ascii=False) if current and current["data"] else None)
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO briefings(day, state, error, data, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(day) DO UPDATE SET state = excluded.state, error = excluded.error, data = excluded.data, updated_at = excluded.updated_at",
+                (day, state, error, payload, now_iso()),
+            )
+        return self.briefing(day)
+
+    def recover_interrupted_briefings(self) -> int:
+        with self.tx() as conn:
+            cursor = conn.execute("UPDATE briefings SET state = 'failed', error = '上次生成被中断（服务重启），点重新生成' WHERE state = 'running'")
         return cursor.rowcount
 
     def topic_for_note(self, path: str) -> dict[str, Any] | None:

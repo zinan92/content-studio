@@ -63,6 +63,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         start_worker=False,
         drafts_dir=tmp_path / "drafts",
         write_fn=_fake_writer,
+        brief_fn=_fake_brief,
     )
     app.state.worker.process_fn = process
     with TestClient(app) as test_client:
@@ -79,6 +80,22 @@ def _fake_writer(prompt: str) -> str:
     if "炸掉" in prompt:
         raise RuntimeError("boom")
     return f"好的\n<<<ARTICLE>>>\n{ARTICLE}\n<<<END>>>\n"
+
+
+def _fake_brief(prompt: str) -> dict:
+    import re as _re
+
+    paths = _re.findall(r"path: ([^；）]+)", prompt)
+    note = [p for p in paths if p.startswith("003_")][0]
+    daily = [p for p in paths if p.startswith("006_")][0]
+    return {
+        "known": ["今天 AI 日报在讲 Codex"], "unknown": ["Park 今天能拍多久"],
+        "reads": [{"title": "Codex 新功能", "why": "和你的方向相关", "source": {"path": daily}}],
+        "videos": [{"title": "为什么用了 AI 反而更累", "hook": "累的不是活，是落差", "claim": "预期落差让人累",
+                    "outline": ["一", "二", "三"], "sources": [{"path": note}, {"path": daily}], "why_today": "日报在讲",
+                    "effort": "低", "caution": "", "primary": True}],
+        "prep": "打开录制窗口",
+    }
 
 
 def _wait_topic(client: TestClient, topic_id: int) -> dict:
@@ -346,3 +363,29 @@ def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: 
     client.post(f"/api/topics/{broken['id']}/write")
     failed = _wait_topic(client, broken["id"])
     assert failed["write_state"] == "failed" and "boom" in failed["write_error"]
+
+
+def test_daily_briefing_generate_and_make_topic(client: TestClient, tmp_path: Path) -> None:
+    import time
+    from datetime import date as _date
+
+    root = tmp_path / "vault4"
+    today = _date.today()
+    (root / "006_ai daily newsletter").mkdir(parents=True)
+    (root / "006_ai daily newsletter" / f"{today.strftime('%y-%m-%d')}.md").write_text("- **A** | [Codex 新功能](https://x.com/1)", encoding="utf-8")
+    (root / "003_park原始输出").mkdir()
+    (root / "003_park原始输出" / "累.md").write_text("# 用了 AI 更累\n落差", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+
+    assert client.get("/api/briefing").json()["state"] == "missing"
+    assert client.post("/api/briefing/generate", json={}).json()["started"] is True
+    for _ in range(200):
+        record = client.get("/api/briefing").json()
+        if record["state"] != "running":
+            break
+        time.sleep(0.02)
+    assert record["state"] == "done", record
+    assert record["data"]["videos"][0]["primary"] is True and record["data"]["input_counts"]["notes"] == 1
+    topic = client.post("/api/briefing/topic", json={"day": record["day"], "index": 0}).json()["topic"]
+    assert topic["formats"] == "video" and topic["note_paths"] == ["003_park原始输出/累.md"] and "Hook：累的不是活" in topic["memo"]
+    assert client.post("/api/briefing/topic", json={"day": record["day"], "index": 5}).status_code == 400

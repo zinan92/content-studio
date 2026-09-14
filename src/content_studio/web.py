@@ -68,6 +68,15 @@ class TopicBody(BaseModel):
     archived: bool | None = None
 
 
+class BriefingBody(BaseModel):
+    day: str | None = None
+
+
+class BriefTopicBody(BaseModel):
+    day: str
+    index: int
+
+
 class ArticleBody(BaseModel):
     markdown: str
 
@@ -155,11 +164,14 @@ def create_app(
     start_worker: bool = True,
     drafts_dir: Path | None = None,
     write_fn: Callable[[str], str] | None = None,
+    brief_fn: Callable[[str], dict] | None = None,
 ) -> FastAPI:
     from . import writer
 
     store = StudioStore(store_path)
     store.recover_interrupted_writes()
+    store.recover_interrupted_briefings()
+    briefing_lock = threading.Lock()
     drafts_root = (drafts_dir or writer.DEFAULT_DRAFTS_DIR).expanduser()
     writing: set[int] = set()
     writing_lock = threading.Lock()
@@ -548,6 +560,65 @@ def create_app(
         if body.archived is not None:
             fields["archived_at"] = now_iso() if body.archived else None
         return store.update_topic(topic_id, **fields)
+
+    # -- daily briefing ----------------------------------------------------
+
+    def own_recent_videos() -> list[dict[str, Any]]:
+        me = store.self_account()
+        if me is None:
+            return []
+        median = store.account_median(me["id"])
+        rows = [v for v in store.videos(me["id"]) if not v["is_image_post"]][:8]
+        return [
+            {"title": v["title"] or "", "published_at": v["published_at"] or "", "likes": v["likes"],
+             "multiple": round(v["likes"] / median, 1) if median and v["likes"] is not None else None}
+            for v in rows
+        ]
+
+    def _run_briefing(day_value: date) -> None:
+        from . import briefing
+
+        key = day_value.isoformat()
+        try:
+            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos())
+            data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
+            store.set_briefing(key, state="done", data=data)
+        except Exception as exc:  # noqa: BLE001 - shown on the briefing card
+            logger.warning("briefing %s failed: %s", key, exc)
+            store.set_briefing(key, state="failed", error=str(exc)[:300] or type(exc).__name__)
+        finally:
+            briefing_lock.release()
+
+    @app.get("/api/briefing")
+    def get_briefing(day: str | None = None) -> dict[str, Any]:
+        target = parse_day(day)
+        return store.briefing(target.isoformat()) or {"day": target.isoformat(), "state": "missing", "error": None, "data": None}
+
+    @app.post("/api/briefing/generate")
+    def post_briefing(body: BriefingBody) -> dict[str, Any]:
+        target = parse_day(body.day)
+        vault.vault_root(vault_path())
+        if not briefing_lock.acquire(blocking=False):
+            return {"started": False, "message": "统筹正在生成"}
+        store.set_briefing(target.isoformat(), state="running")
+        threading.Thread(target=_run_briefing, args=(target,), name="briefing", daemon=True).start()
+        return {"started": True, "message": "开始统筹，一般 1–3 分钟"}
+
+    @app.post("/api/briefing/topic")
+    def briefing_topic(body: BriefTopicBody) -> dict[str, Any]:
+        record = store.briefing(parse_day(body.day).isoformat())
+        videos = ((record or {}).get("data") or {}).get("videos") or []
+        if not 0 <= body.index < len(videos):
+            raise ValueError("这条视频建议不存在")
+        video = videos[body.index]
+        memo = "\n".join(
+            [f"Hook：{video['hook']}", f"主张：{video['claim']}", "骨架：", *[f"{i + 1}. {line}" for i, line in enumerate(video["outline"])]]
+            + ([f"注意：{video['caution']}"] if video.get("caution") else [])
+        )
+        note_paths = [s["path"] for s in video.get("sources", []) if s.get("path") and not s["path"].startswith(("006_", "007_", "009_"))]
+        me = store.self_account()
+        topic = store.create_topic(video["title"], note_paths=note_paths, formats="video", memo=memo, account_id=me["id"] if me else None)
+        return {"topic": topic}
 
     # -- article line ------------------------------------------------------
 
