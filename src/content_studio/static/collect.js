@@ -32,7 +32,8 @@ async function setTriage(path, status) {
     await api('/api/vault/triage', { method: 'PUT', body: { path, status } });
     const item = (C.items || []).find((i) => i.path === path);
     if (item) item.triage = status;
-    toast(status === 'topic' ? '已标为选题' : status === 'ignored' ? '已忽略' : '已恢复');
+    toast(status === 'topic' ? '已做成选题，在「选题」里继续' : status === 'ignored' ? '已忽略' : '已恢复');
+    if (window.refreshTopics) { await window.refreshTopics(); return; }
     renderView();
   } catch (err) { toast(err.message); }
 }

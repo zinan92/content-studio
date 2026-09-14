@@ -24,8 +24,9 @@ from .accounts import (
     sync_account,
 )
 from .creator_metrics import CookieFileError, load_cookie_file
+from . import today as today_plan
 from . import vault
-from .store import StoreError, StudioStore
+from .store import StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
 
@@ -54,6 +55,17 @@ class CheckBody(BaseModel):
 class TriageBody(BaseModel):
     path: str
     status: str | None = None
+
+
+class TopicBody(BaseModel):
+    title: str | None = None
+    note_paths: list[str] | None = None
+    formats: str | None = None
+    status: str | None = None
+    memo: str | None = None
+    published_url: str | None = None
+    account_id: int | None = None
+    archived: bool | None = None
 
 
 class SettingsBody(BaseModel):
@@ -456,9 +468,59 @@ def create_app(
 
     @app.put("/api/vault/triage")
     def put_triage(body: TriageBody) -> dict[str, Any]:
-        vault.safe_path(vault.vault_root(vault_path()), body.path)
+        root = vault.vault_root(vault_path())
+        vault.safe_path(root, body.path)
         store.set_triage(body.path, body.status)
-        return {"path": body.path, "triage": body.status}
+        topic = None
+        if body.status == "topic":
+            topic = store.topic_for_note(body.path)
+            if topic is None:
+                note = vault.read_note(vault_path(), body.path)
+                me = store.self_account()
+                topic = store.create_topic(note["title"], note_paths=[body.path], account_id=me["id"] if me else None)
+        return {"path": body.path, "triage": body.status, "topic": topic}
+
+    # -- topics & today plan ---------------------------------------------
+
+    @app.get("/api/topics")
+    def list_topics(archived: bool = False) -> list[dict[str, Any]]:
+        return store.topics(include_archived=archived)
+
+    @app.post("/api/topics")
+    def post_topic(body: TopicBody) -> dict[str, Any]:
+        return store.create_topic(
+            body.title or "",
+            note_paths=body.note_paths,
+            formats=body.formats or "both",
+            account_id=body.account_id,
+            memo=body.memo,
+        )
+
+    @app.patch("/api/topics/{topic_id}")
+    def patch_topic(topic_id: int, body: TopicBody) -> dict[str, Any]:
+        fields = {k: v for k, v in body.model_dump(exclude={"archived"}).items() if v is not None}
+        if body.archived is not None:
+            fields["archived_at"] = now_iso() if body.archived else None
+        return store.update_topic(topic_id, **fields)
+
+    @app.get("/api/today/plan")
+    def get_plan(day: str | None = None) -> dict[str, Any]:
+        target = parse_day(day)
+        try:
+            dailies = [{**d, "checked_at": store.daily_checks(target.isoformat()).get(d["key"])} for d in vault.dailies(vault_path(), target)]
+            triage = store.triage()
+            inbox = [{**i, "triage": (triage.get(i["path"]) or {}).get("status")} for i in vault.inbox(vault_path(), since=vault.window_start(1))]
+        except vault.VaultError:
+            dailies = inbox = None
+        steps = today_plan.build_plan(
+            today=target,
+            dailies=dailies,
+            inbox=inbox,
+            topics=store.topics(include_archived=True),
+            reports=reports(),
+            checks=store.daily_checks(target.isoformat()),
+        )
+        return {"day": target.isoformat(), "steps": steps, "done": sum(1 for s in steps if s["done"])}
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:
