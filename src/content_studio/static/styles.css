@@ -541,3 +541,18 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .vp-log li{display:flex;gap:8px;align-items:center}
 .vp-cmd{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-3)}
 @media (max-width:900px){.vp-start{grid-template-columns:1fr}.vp-stages{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* ===== publish ===== */
+.pub{padding:16px 22px;display:flex;flex-direction:column;gap:14px}
+.pub-sync{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--ink-3)}
+.pub-block h3{font-size:12px;letter-spacing:.1em;color:var(--ink-3);margin:0 0 6px}
+.pub-block .linkbox{padding:0}
+.pub-block .hot-row{padding:8px 0}
+.pub-title{display:flex;flex-direction:column;gap:2px}
+.pub-title a{font-family:var(--serif);font-size:18px;color:var(--ink);text-decoration:none}
+.pub-title small{color:var(--ink-3)}
+.pub-facts{border:1px solid var(--line-soft);border-radius:8px}
+.perf-chart{width:100%;max-width:560px;height:auto}
+.milestones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+.milestones div{border:1px solid var(--line-soft);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;font-size:12.5px}
+.milestones b{font-family:var(--mono);font-size:14px}
+.pub-actions{display:flex;gap:8px;flex-wrap:wrap}

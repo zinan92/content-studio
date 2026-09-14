@@ -438,3 +438,19 @@ def test_video_project_link_create_inspect_and_files(client: TestClient, tmp_pat
     created = client.post(f"/api/topics/{other['id']}/video-project").json()
     assert created["layout"] == "fresh" and (root / created["name"] / "README.md").is_file()
     assert client.post(f"/api/topics/{other['id']}/video-project").status_code == 400
+
+
+def test_publish_link_performance_and_snapshots(client: TestClient) -> None:
+    me = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True}).json()["account"]
+    _wait_sync(client)
+    topic = client.post("/api/topics", json={"title": "作品5", "formats": "video", "account_id": me["id"]}).json()
+    data = client.get(f"/api/topics/{topic['id']}/publish").json()
+    assert data["account"]["id"] == me["id"] and len(data["recent"]) == 5
+    assert client.put(f"/api/topics/{topic['id']}/publish", json={"video_id": "nope"}).status_code == 400
+    linked = client.put(f"/api/topics/{topic['id']}/publish", json={"video_id": "5"}).json()
+    assert linked["status"] == "published" and linked["published_url"].endswith("/video/5")
+    perf = client.get(f"/api/topics/{topic['id']}/publish").json()["video"]
+    assert perf["likes"] == 5000 and perf["multiple"] and len(perf["series"]) == 1
+    other = client.post("/api/topics", json={"title": "别的", "formats": "video"}).json()
+    assert "5" not in [v["video_id"] for v in client.get(f"/api/topics/{other['id']}/publish").json()["recent"]]
+    assert client.put(f"/api/topics/{topic['id']}/publish", json={"video_id": None}).json()["published_video_id"] is None

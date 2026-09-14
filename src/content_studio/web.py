@@ -83,6 +83,10 @@ class VideoLinkBody(BaseModel):
     name: str | None = None
 
 
+class PublishBody(BaseModel):
+    video_id: str | None = None
+
+
 class ArticleBody(BaseModel):
     markdown: str
 
@@ -772,6 +776,55 @@ def create_app(
             # Worktable pages need their own scripts and JSON export, but must not reach this app's API.
             headers["Content-Security-Policy"] = "sandbox allow-scripts allow-downloads allow-popups"
         return FileResponse(target, headers=headers)
+
+    # -- publish & performance -------------------------------------------
+
+    @app.get("/api/topics/{topic_id}/publish")
+    def topic_publish(topic_id: int) -> dict[str, Any]:
+        from . import publish
+
+        topic = store.topic(topic_id)
+        me = store.self_account(topic.get("account_id")) or store.self_account()
+        if me is None:
+            return {"account": None, "video": None, "suggestions": [], "recent": [], "stale_sync": False}
+        videos = [v for v in store.videos(me["id"]) if not v["is_image_post"]]
+        taken = {t["published_video_id"] for t in store.topics(include_archived=True) if t.get("published_video_id") and t["id"] != topic_id}
+        result: dict[str, Any] = {
+            "account": {"id": me["id"], "nickname": me["nickname"], "last_synced_at": me["last_synced_at"], "syncing": me["id"] in ops.syncing or ops.full_sync_running},
+            "stale_sync": publish.sync_is_stale(me["last_synced_at"]),
+            "video": None,
+            "suggestions": [],
+            "recent": [{k: v[k] for k in ("video_id", "title", "published_at", "likes")} for v in videos if v["video_id"] not in taken][:15],
+        }
+        linked = store.video(topic["published_video_id"]) if topic.get("published_video_id") else None
+        if linked:
+            result["video"] = publish.performance(
+                linked,
+                median_likes=store.account_median(linked["account_id"]),
+                snapshots=store.snapshots(linked["video_id"]),
+                creator=_creator_rows(creator_db).get(linked["video_id"]),
+                has_report=report_file(linked["video_id"]) is not None,
+            ) | {"job": job_view(store.job_for_video(linked["video_id"]))}
+        else:
+            result["suggestions"] = [
+                {k: v[k] for k in ("video_id", "title", "published_at", "likes", "score")} for v in publish.suggest_matches(topic, videos, taken)
+            ]
+        return result
+
+    @app.put("/api/topics/{topic_id}/publish")
+    def link_publish(topic_id: int, body: PublishBody) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if not body.video_id:
+            return store.update_topic(topic_id, published_video_id=None)
+        video = store.video(body.video_id)
+        if video is None or not store.account(video["account_id"])["is_self"]:
+            raise ValueError("只能关联你自己账号里已同步的视频")
+        fields: dict[str, Any] = {"published_video_id": body.video_id}
+        if topic["status"] != "published":
+            fields["status"] = "published"
+        if not topic.get("published_url"):
+            fields["published_url"] = f"https://www.douyin.com/video/{body.video_id}"
+        return store.update_topic(topic_id, **fields)
 
     @app.get("/api/topics/{topic_id}/article")
     def get_article(topic_id: int) -> dict[str, Any]:
