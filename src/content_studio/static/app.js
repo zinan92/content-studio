@@ -172,7 +172,7 @@ function renderChrome() {
   $('#navMine').textContent = S.mine.videos.length || '—';
   $('#navHot').textContent = S.outliers.length;
   $('#navQ').textContent = st.active_jobs || S.jobs.length || '—';
-  $('#navR').textContent = S.reports.length || '—';
+  $('#navR').textContent = S.reports.filter((r) => !r.archived_at).length || '—';
   const syncBtn = $('#syncAllBtn');
   syncBtn.disabled = st.full_sync_running;
   syncBtn.textContent = st.full_sync_running ? '同步中…' : '同步全部账号';
@@ -520,6 +520,31 @@ const FACTS = [
   ['creator_homepage_visit_count', '主页访问', fmt], ['creator_cover_click_rate', '封面点击率', pct],
 ];
 
+async function toggleArchive(videoId, isArchived) {
+  const btn = $('#archiveBtn');
+  btn.disabled = true;
+  try {
+    await api(`/api/reports/${videoId}/archive`, { method: isArchived ? 'DELETE' : 'POST' });
+    if (isArchived) {
+      toast('已取消归档');
+    } else {
+      const unread = S.reports.filter((x) => !x.archived_at && x.video_id !== videoId);
+      toast(unread.length ? `已归档，还剩 ${unread.length} 份没看` : '已归档，报告都看完了');
+      if (!S.showArchived) {
+        S.reportId = unread.length ? unread[0].video_id : null;
+        S.report = null;
+        history.replaceState(null, '', S.reportId ? `#report/${S.reportId}` : '#report');
+      }
+    }
+    S.reports = await api('/api/reports');
+    renderChrome();
+    renderReport();
+  } catch (err) {
+    toast(err.message);
+    btn.disabled = false;
+  }
+}
+
 async function openReport(videoId) {
   S.reportId = videoId;
   S.report = null;
@@ -537,14 +562,24 @@ async function loadReport(videoId) {
 
 function renderReport() {
   const pick = $('#repPick');
-  pick.innerHTML = S.reports.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('');
+  const unread = S.reports.filter((r) => !r.archived_at);
+  const archivedCount = S.reports.length - unread.length;
+  const shown = S.showArchived ? S.reports : unread;
+  pick.innerHTML = shown.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('')
+    + (archivedCount ? `<button type="button" class="toggle-archived" id="toggleArchived">${S.showArchived ? '收起已归档' : `已归档 ${archivedCount}`}</button>` : '');
   $$('[data-rid]', pick).forEach((b) => (b.onclick = () => openReport(b.dataset.rid)));
+  if ($('#toggleArchived')) $('#toggleArchived').onclick = () => { S.showArchived = !S.showArchived; renderReport(); };
   const body = $('#repBody');
   if (!S.reports.length && !S.reportId) {
     body.innerHTML = '<div class="panel empty rep-empty"><b>还没有拆解报告</b><span>去「拆解队列」粘贴视频链接，或在对标雷达里点「拆解」。</span></div>';
     return;
   }
-  if (!S.reportId) { S.reportId = S.reports[0].video_id; history.replaceState(null, '', `#report/${S.reportId}`); }
+  if (!S.reportId && !unread.length) {
+    body.innerHTML = `<div class="panel empty rep-empty"><b>报告都看完了</b><span>已归档 ${archivedCount} 份，点上面的「已归档 ${archivedCount}」可以再翻出来看。</span></div>`;
+    body.dataset.rendered = '';
+    return;
+  }
+  if (!S.reportId) { S.reportId = unread[0].video_id; history.replaceState(null, '', `#report/${S.reportId}`); }
   if (!S.report || (S.report.content_id && S.report.content_id !== S.reportId)) {
     if (!S.report || S.report.content_id !== S.reportId) {
       body.innerHTML = '<div class="panel empty rep-empty"><span class="spin"></span><span>正在读取报告…</span></div>';
@@ -554,8 +589,10 @@ function renderReport() {
   }
   const r = S.report;
   if (r.error) { body.innerHTML = `<div class="panel empty rep-empty"><b>${esc(r.error)}</b></div>`; body.dataset.rendered = ''; return; }
-  if (body.dataset.rendered === r.content_id + r.generated_at) return; // keep scroll and open sections during polling
-  body.dataset.rendered = r.content_id + r.generated_at;
+  const entry = S.reports.find((x) => x.video_id === r.content_id);
+  const isArchived = Boolean(entry && entry.archived_at);
+  if (body.dataset.rendered === r.content_id + r.generated_at + isArchived) return; // keep scroll and open sections during polling
+  body.dataset.rendered = r.content_id + r.generated_at + isArchived;
   const total = r.transcript.duration_seconds || (r.segments.length ? r.segments[r.segments.length - 1].end : 1);
   const facts = FACTS.filter(([k]) => r.facts[k] !== null && r.facts[k] !== undefined)
     .map(([k, l, f, hot]) => `<div><div class="l">${l}</div><div class="v ${hot && r.facts[k] >= S.state.settings.threshold ? 'hot' : ''}">${f(r.facts[k])}</div></div>`).join('');
@@ -570,7 +607,10 @@ function renderReport() {
           <h2 title="${esc(r.title)}">${esc(cleanTitle(r.title))}</h2>
           <div class="by">时长 ${mmss(total)} · 生成于 ${day(r.generated_at)}</div>
         </div>
-        ${r.source_url ? `<a class="btn" href="${esc(r.source_url)}" target="_blank" rel="noopener">在抖音打开 ↗</a>` : ''}
+        <div class="rep-actions">
+          <button type="button" class="btn ${isArchived ? '' : 'primary'}" id="archiveBtn">${isArchived ? '取消归档' : '看完了，归档'}</button>
+          ${r.source_url ? `<a class="btn" href="${esc(r.source_url)}" target="_blank" rel="noopener">在抖音打开 ↗</a>` : ''}
+        </div>
       </div>
       <div class="facts">${facts}</div>
       ${r.facts.baseline_too_small ? `<p class="hint">这个账号近期作品太少或点赞普遍很低（${fmt(r.facts.account_post_count || 0)} 条，中位数 ${fmt(r.facts.account_median_likes || 0)}），倍数没有参考意义，所以不算。</p>` : ''}
@@ -609,6 +649,7 @@ function renderReport() {
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); const d = $('details', el); if (d) d.open = true; }
   };
   $$('#rTl button').forEach((b) => (b.onclick = () => seek(Number(b.dataset.i))));
+  $('#archiveBtn').onclick = () => toggleArchive(r.content_id, isArchived);
   $$('[data-seek]', body).forEach((b) => (b.onclick = () => {
     const t = Number(b.dataset.seek);
     let idx = 0;

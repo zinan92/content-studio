@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS jobs_stage ON jobs(stage, id);
+CREATE TABLE IF NOT EXISTS report_archive (
+    video_id TEXT PRIMARY KEY,
+    archived_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -128,6 +132,24 @@ class StudioStore:
     def _row(self, sql: str, params: tuple = ()) -> dict[str, Any] | None:
         rows = self._rows(sql, params)
         return rows[0] if rows else None
+
+    # -- report archive ---------------------------------------------------
+
+    def archived_reports(self) -> dict[str, str]:
+        return {row["video_id"]: row["archived_at"] for row in self._rows("SELECT video_id, archived_at FROM report_archive")}
+
+    def archive_report(self, video_id: str) -> str:
+        archived_at = now_iso()
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO report_archive(video_id, archived_at) VALUES (?, ?) ON CONFLICT(video_id) DO NOTHING",
+                (video_id, archived_at),
+            )
+        return self.archived_reports()[video_id]
+
+    def unarchive_report(self, video_id: str) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM report_archive WHERE video_id = ?", (video_id,))
 
     # -- settings ---------------------------------------------------------
 

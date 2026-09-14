@@ -341,6 +341,7 @@ def create_app(
 
     @app.get("/api/reports")
     def reports() -> list[dict[str, Any]]:
+        archived = store.archived_reports()
         seen: dict[str, dict[str, Any]] = {}
         for base in report_dirs:
             for path in sorted((base / "reports").glob("*/report.json")):
@@ -360,6 +361,7 @@ def create_app(
                     "generated_at": data.get("generated_at"),
                     "multiple": (data.get("facts") or {}).get("multiple_of_median"),
                     "is_self": bool((data.get("facts") or {}).get("creator_avg_view_second")),
+                    "archived_at": archived.get(video_id),
                 }
         return sorted(seen.values(), key=lambda r: r.get("generated_at") or "", reverse=True)
 
@@ -372,6 +374,19 @@ def create_app(
         if data.get("schema_version", 1) < 2:
             raise HTTPException(status_code=404, detail="这是旧版报告，请重新拆解这条视频")
         return data
+
+    @app.post("/api/reports/{video_id}/archive")
+    def archive_report(video_id: str) -> dict[str, Any]:
+        if report_file(video_id) is None:
+            raise HTTPException(status_code=404, detail="这条视频还没有拆解报告")
+        return {"video_id": video_id, "archived_at": store.archive_report(video_id)}
+
+    @app.delete("/api/reports/{video_id}/archive")
+    def unarchive_report(video_id: str) -> dict[str, Any]:
+        if report_file(video_id) is None:
+            raise HTTPException(status_code=404, detail="这条视频还没有拆解报告")
+        store.unarchive_report(video_id)
+        return {"video_id": video_id, "archived_at": None}
 
     # -- frontend -----------------------------------------------------------
 

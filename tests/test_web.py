@@ -179,3 +179,17 @@ def test_report_404_for_missing_and_legacy_reports(client: TestClient, tmp_path:
     (legacy / "report.json").write_text(json.dumps({"schema_version": 1}))
     assert client.get("/api/reports/777").status_code == 404
     assert client.get("/api/reports/../../etc").status_code == 404
+
+
+def test_reports_can_be_archived_and_restored(client: TestClient, tmp_path: Path) -> None:
+    report_dir = tmp_path / "data" / "reports" / "321"
+    report_dir.mkdir(parents=True)
+    (report_dir / "report.json").write_text(json.dumps(_report("321")), encoding="utf-8")
+    assert client.get("/api/reports").json()[0]["archived_at"] is None
+    assert client.post("/api/reports/321/archive").json()["archived_at"]
+    assert client.post("/api/reports/321/archive").status_code == 200
+    assert client.get("/api/reports").json()[0]["archived_at"]
+    assert client.get("/api/reports/321").status_code == 200
+    assert client.delete("/api/reports/321/archive").json()["archived_at"] is None
+    assert client.get("/api/reports").json()[0]["archived_at"] is None
+    assert client.post("/api/reports/999/archive").status_code == 404
