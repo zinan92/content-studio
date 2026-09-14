@@ -38,13 +38,17 @@ def _good(inputs):
 
 
 def test_inputs_collect_dailies_notes_and_allowed_sources(tmp_path: Path) -> None:
-    inputs = briefing.gather_inputs(str(_vault(tmp_path)), DAY, own_videos=[{"title": "我的", "likes": 10, "multiple": 1.2}])
+    _vault(tmp_path)
+    (tmp_path / "003_park原始输出" / "已发 老观点.md").write_text("# 老观点\n讲过了", encoding="utf-8")
+    inputs = briefing.gather_inputs(str(tmp_path), DAY, own_videos=[{"title": "我的", "likes": 10, "multiple": 1.2}],
+                                    existing_topics=[{"title": "为什么用了 AI 更累", "status": "published"}])
     assert [d["label"] for d in inputs["dailies"]] == ["AI 日报", "晨报"]
     assert "黄金" in inputs["dailies"][1]["text"] and "x{}" not in inputs["dailies"][1]["text"]
-    assert {n["path"] for n in inputs["notes"]} == {"Clippings/c.md", "003_park原始输出/r.md"}
+    assert {n["path"] for n in inputs["notes"]} == {"Clippings/c.md", "003_park原始输出/r.md", "003_park原始输出/已发 老观点.md"}
     assert "https://x.com/1" in inputs["allowed_urls"] and "https://y.com/2" in inputs["allowed_urls"]
     prompt = briefing.build_prompt(inputs)
     assert "AI + 金融" in prompt and "我的" in prompt and "003_park原始输出/r.md" in prompt
+    assert "[原始输出·已发] 老观点" in prompt and "为什么用了 AI 更累（已发出）" in prompt and "不要重复推荐" in prompt
 
 
 def test_generate_fills_source_titles_and_validates(tmp_path: Path) -> None:

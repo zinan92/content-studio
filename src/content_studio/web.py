@@ -613,7 +613,7 @@ def create_app(
 
         key = day_value.isoformat()
         try:
-            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos())
+            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics())
             data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
             store.set_briefing(key, state="done", data=data)
         except Exception as exc:  # noqa: BLE001 - shown on the briefing card

@@ -34,7 +34,13 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def gather_inputs(vault_raw: str, day: date, *, own_videos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def gather_inputs(
+    vault_raw: str,
+    day: date,
+    *,
+    own_videos: list[dict[str, Any]] | None = None,
+    existing_topics: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     root = vault.vault_root(vault_raw)
     dailies = []
     for item in vault.dailies(vault_raw, day):
@@ -47,7 +53,8 @@ def gather_inputs(vault_raw: str, day: date, *, own_videos: list[dict[str, Any]]
     recent = vault.inbox(vault_raw, since=datetime.combine(day - timedelta(days=2), datetime.min.time()), sources=("clipping", "saved"))
     raw_outputs = vault.inbox(vault_raw, since=datetime.combine(day - timedelta(days=7), datetime.min.time()), sources=("raw",))
     notes = [
-        {"kind": i["source_label"], "path": i["path"], "title": i["title"], "url": i["url"], "summary": i["summary"]}
+        {"kind": i["source_label"], "path": i["path"], "title": i["title"], "url": i["url"], "summary": i["summary"],
+         "published_mark": "已发" in i["path"]}
         for i in (recent[:25] + raw_outputs[:15])
         if max(i["created_at"], i["modified_at"]) <= now.isoformat()
     ]
@@ -60,6 +67,7 @@ def gather_inputs(vault_raw: str, day: date, *, own_videos: list[dict[str, Any]]
         "dailies": dailies,
         "notes": notes,
         "own_videos": own_videos or [],
+        "existing_topics": [{"title": t["title"], "status": t["status"]} for t in (existing_topics or [])][:30],
         "allowed_paths": sorted({d["path"] for d in dailies} | {n["path"] for n in notes}),
         "allowed_urls": sorted(urls),
     }
@@ -68,8 +76,10 @@ def gather_inputs(vault_raw: str, day: date, *, own_videos: list[dict[str, Any]]
 def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
     dailies = "\n\n".join(f"### {d['label']}（path: {d['path']}）\n{d['text']}" for d in inputs["dailies"]) or "（今天的日报还没出）"
     notes = "\n".join(
-        f"- [{n['kind']}] {n['title']}（path: {n['path']}{'；url: ' + n['url'] if n['url'] else ''}）：{n['summary']}" for n in inputs["notes"]
+        f"- [{n['kind']}{'·已发' if n.get('published_mark') else ''}] {n['title']}（path: {n['path']}{'；url: ' + n['url'] if n['url'] else ''}）：{n['summary']}" for n in inputs["notes"]
     ) or "（没有新笔记）"
+    status_name = {"todo": "待写", "drafting": "草稿中", "ready": "待发", "published": "已发出"}
+    topics = "\n".join(f"- {t['title']}（{status_name.get(t['status'], t['status'])}）" for t in inputs.get("existing_topics", [])) or "（没有）"
     videos = "\n".join(
         f"- {v['title'][:40]} · {v.get('published_at', '')[:10]} · 点赞 {v.get('likes')} · 倍数 {v.get('multiple')}" for v in inputs["own_videos"]
     ) or "（没有数据）"
@@ -86,6 +96,9 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 ## Park 最近的视频表现（倍数 = 点赞 ÷ 账号点赞中位数）
 {videos}
 
+## 工作台里已经有的选题（不要重复推荐；已发出的可以做续集，但要说明和上一条的区别）
+{topics}
+
 ## 要求
 - 只输出一个 JSON 对象，不要任何其他文字。字符串里需要引号时用「」。
 - known：从材料里能确定的事实，2–4 条；unknown：做判断还缺的信息，1–3 条。不要编造 Park 的数据、经历或态度。
@@ -95,6 +108,7 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
   outline（口播骨架 3–5 条，每条一句），sources（1–3 个，只能是上面出现过的 path 或 url，每个 {{"path"或"url": "...", "title": "..."}}），
   why_today（为什么是今天拍），effort（拍摄负担：低/中/高），caution（不能讲过头的地方，没有就写空字符串）。
   优先用 Park 自己的原始输出做主线、用日报和剪藏做由头；不要只是复述新闻。
+  标了「已发」的原始输出、最近视频里已经讲过的主题、工作台里已有的选题，不要当成新选题重复推荐。
 - prep：今日最小准备，一两句话。
 
 ## 输出格式
