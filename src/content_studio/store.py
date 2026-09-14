@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "sync_pages": 3,
     "sync_delay_seconds": 1.5,
     "obsidian_vault": "~/park-hands",
+    "yanxishi_admin_url": "",
 }
 
 SCHEMA = """
@@ -134,11 +135,21 @@ class StudioStore:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
         try:
             self.path.chmod(0o600)
         except OSError:
             pass
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
+        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT"}}
+        for table, columns in wanted.items():
+            existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns.items():
+                if name not in existing:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
     def close(self) -> None:
         with self._lock:
@@ -229,6 +240,13 @@ class StudioStore:
         where = "" if include_archived else "WHERE archived_at IS NULL"
         return [self._topic_row(r) for r in self._rows(f"SELECT * FROM topics {where} ORDER BY updated_at DESC, id DESC")]
 
+    def recover_interrupted_writes(self) -> int:
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "UPDATE topics SET write_state = 'failed', write_error = '上次写作被中断（服务重启），点重试' WHERE write_state = 'running'"
+            )
+        return cursor.rowcount
+
     def topic_for_note(self, path: str) -> dict[str, Any] | None:
         for topic in self.topics(include_archived=True):
             if path in topic["note_paths"]:
@@ -259,7 +277,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")
@@ -303,6 +321,10 @@ class StudioStore:
                 cleaned[key] = kind(value)
             except (TypeError, ValueError) as exc:
                 raise StoreError(f"设置项 {key} 的值无效") from exc
+        if cleaned.get("yanxishi_admin_url"):
+            cleaned["yanxishi_admin_url"] = cleaned["yanxishi_admin_url"].strip()
+            if not cleaned["yanxishi_admin_url"].startswith("https://"):
+                raise StoreError("研习室后台地址需要以 https:// 开头")
         if "obsidian_vault" in cleaned:
             cleaned["obsidian_vault"] = cleaned["obsidian_vault"].strip()
             if not cleaned["obsidian_vault"]:
