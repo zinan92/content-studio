@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import date
 import json
 import logging
 from pathlib import Path
@@ -9,7 +10,7 @@ import threading
 from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -23,6 +24,7 @@ from .accounts import (
     sync_account,
 )
 from .creator_metrics import CookieFileError, load_cookie_file
+from . import vault
 from .store import StoreError, StudioStore
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
@@ -41,6 +43,17 @@ class JobBody(BaseModel):
     url: str | None = None
     video_id: str | None = None
     source: str | None = None
+
+
+class CheckBody(BaseModel):
+    day: str
+    key: str
+    checked: bool
+
+
+class TriageBody(BaseModel):
+    path: str
+    status: str | None = None
 
 
 class SettingsBody(BaseModel):
@@ -166,6 +179,10 @@ def create_app(
         worker.stop()
 
     app = FastAPI(title="内容拆解台", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    @app.exception_handler(vault.VaultError)
+    async def _vault_missing(_request: Any, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
 
     @app.exception_handler(StoreError)
     @app.exception_handler(AccountError)
@@ -400,11 +417,77 @@ def create_app(
         store.unarchive_report(video_id)
         return {"video_id": video_id, "archived_at": None}
 
+    # -- vault (read-only Obsidian) ----------------------------------------
+
+    def vault_path() -> str:
+        return store.settings()["obsidian_vault"]
+
+    def parse_day(raw: str | None) -> date:
+        if not raw:
+            return date.today()
+        try:
+            return date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError("日期格式应为 YYYY-MM-DD") from exc
+
+    @app.get("/api/today/dailies")
+    def today_dailies(day: str | None = None) -> dict[str, Any]:
+        target = parse_day(day)
+        checks = store.daily_checks(target.isoformat())
+        items = vault.dailies(vault_path(), target)
+        return {"day": target.isoformat(), "items": [{**item, "checked_at": checks.get(item["key"])} for item in items]}
+
+    @app.put("/api/today/checks")
+    def put_check(body: CheckBody) -> dict[str, Any]:
+        parse_day(body.day)
+        if body.key not in {s.key for s in vault.DAILY_SOURCES} | {"video_shot"}:
+            raise ValueError("未知的勾选项")
+        return {"day": body.day, "checks": store.set_daily_check(body.day, body.key, body.checked)}
+
+    @app.get("/api/vault/inbox")
+    def vault_inbox(days: int = 1, source: str | None = None) -> dict[str, Any]:
+        since = vault.window_start(min(max(days, 1), 30))
+        triage = store.triage()
+        items = vault.inbox(vault_path(), since=since, sources=(source,) if source else None)
+        return {
+            "since": since.isoformat(timespec="minutes"),
+            "items": [{**item, "triage": (triage.get(item["path"]) or {}).get("status")} for item in items],
+        }
+
+    @app.put("/api/vault/triage")
+    def put_triage(body: TriageBody) -> dict[str, Any]:
+        vault.safe_path(vault.vault_root(vault_path()), body.path)
+        store.set_triage(body.path, body.status)
+        return {"path": body.path, "triage": body.status}
+
+    @app.get("/api/vault/note")
+    def vault_note(path: str) -> dict[str, Any]:
+        return vault.read_note(vault_path(), path)
+
+    @app.get("/api/vault/raw")
+    def vault_raw(path: str) -> Response:
+        target = vault.safe_path(vault.vault_root(vault_path()), path)
+        media = "text/html; charset=utf-8" if target.suffix.lower() == ".html" else "text/markdown; charset=utf-8"
+        # Sandboxed: vault HTML can render but cannot run scripts against this app's API.
+        return Response(
+            target.read_bytes(),
+            media_type=media,
+            headers={"Content-Security-Policy": "sandbox allow-popups", "Cache-Control": "no-store"},
+        )
+
     # -- frontend -----------------------------------------------------------
 
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+    @app.middleware("http")
+    async def _revalidate_static(request: Any, call_next: Any) -> Any:
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            # Local app that changes often: always revalidate so a restart never serves stale JS.
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.store = store

@@ -214,3 +214,37 @@ def test_multiple_own_accounts_and_vault_setting(client: TestClient, tmp_path: P
     assert client.get("/api/state").json()["vault"]["ok"] is True
     client.put("/api/settings", json={"obsidian_vault": str(tmp_path / "missing")})
     assert "找不到 Obsidian 库" in client.get("/api/state").json()["vault"]["message"]
+
+
+def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_path: Path) -> None:
+    from datetime import date as _date
+
+    root = tmp_path / "vault"
+    (root / "Clippings").mkdir(parents=True)
+    (root / "Clippings" / "a.md").write_text("---\ntitle: 剪藏A\n---\n正文", encoding="utf-8")
+    (root / "009_morning brief").mkdir()
+    today = _date.today().isoformat()
+    (root / "009_morning brief" / f"{today}.html").write_text("<script>alert(1)</script>", encoding="utf-8")
+    (root / "_secrets").mkdir()
+    (root / "_secrets" / "k.md").write_text("secret", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+
+    inbox = client.get("/api/vault/inbox").json()["items"]
+    assert [i["title"] for i in inbox] == ["剪藏A"] and inbox[0]["triage"] is None
+    assert client.put("/api/vault/triage", json={"path": "Clippings/a.md", "status": "ignored"}).status_code == 200
+    assert client.get("/api/vault/inbox").json()["items"][0]["triage"] == "ignored"
+    assert client.put("/api/vault/triage", json={"path": "_secrets/k.md", "status": "topic"}).status_code == 404
+    assert client.put("/api/vault/triage", json={"path": "Clippings/a.md", "status": "bogus"}).status_code == 400
+
+    assert client.get("/api/vault/note", params={"path": "Clippings/a.md"}).json()["body"] == "正文"
+    assert client.get("/api/vault/note", params={"path": "_secrets/k.md"}).status_code == 404
+    raw = client.get("/api/vault/raw", params={"path": f"009_morning brief/{today}.html"})
+    assert raw.status_code == 200 and "sandbox" in raw.headers["content-security-policy"]
+
+    dailies = client.get("/api/today/dailies").json()["items"]
+    brief = [d for d in dailies if d["key"] == "morning_brief"][0]
+    assert brief["path"] and brief["checked_at"] is None
+    client.put("/api/today/checks", json={"day": today, "key": "morning_brief", "checked": True})
+    assert [d for d in client.get("/api/today/dailies").json()["items"] if d["key"] == "morning_brief"][0]["checked_at"]
+    assert client.put("/api/today/checks", json={"day": today, "key": "nope", "checked": True}).status_code == 400
+    assert (root / "Clippings" / "a.md").read_text(encoding="utf-8").endswith("正文")

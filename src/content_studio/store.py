@@ -75,6 +75,17 @@ CREATE TABLE IF NOT EXISTS report_archive (
     video_id TEXT PRIMARY KEY,
     archived_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS daily_checks (
+    day TEXT NOT NULL,
+    key TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (day, key)
+);
+CREATE TABLE IF NOT EXISTS inbox_triage (
+    path TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -151,6 +162,38 @@ class StudioStore:
     def unarchive_report(self, video_id: str) -> None:
         with self.tx() as conn:
             conn.execute("DELETE FROM report_archive WHERE video_id = ?", (video_id,))
+
+    # -- daily checks & inbox triage --------------------------------------
+
+    def daily_checks(self, day: str) -> dict[str, str]:
+        return {row["key"]: row["checked_at"] for row in self._rows("SELECT key, checked_at FROM daily_checks WHERE day = ?", (day,))}
+
+    def set_daily_check(self, day: str, key: str, checked: bool) -> dict[str, str]:
+        with self.tx() as conn:
+            if checked:
+                conn.execute(
+                    "INSERT INTO daily_checks(day, key, checked_at) VALUES (?, ?, ?) ON CONFLICT(day, key) DO NOTHING",
+                    (day, key, now_iso()),
+                )
+            else:
+                conn.execute("DELETE FROM daily_checks WHERE day = ? AND key = ?", (day, key))
+        return self.daily_checks(day)
+
+    def triage(self) -> dict[str, dict[str, str]]:
+        return {row["path"]: dict(row) for row in self._rows("SELECT path, status, updated_at FROM inbox_triage")}
+
+    def set_triage(self, path: str, status: str | None) -> None:
+        if status not in (None, "topic", "ignored"):
+            raise StoreError("处理状态只能是 做成选题 或 忽略")
+        with self.tx() as conn:
+            if status is None:
+                conn.execute("DELETE FROM inbox_triage WHERE path = ?", (path,))
+            else:
+                conn.execute(
+                    "INSERT INTO inbox_triage(path, status, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(path) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at",
+                    (path, status, now_iso()),
+                )
 
     # -- settings ---------------------------------------------------------
 

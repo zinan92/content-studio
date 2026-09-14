@@ -14,7 +14,9 @@
     <div class="brand"><b>内容工作台</b><span id="brandSub">Park · 本机</span></div>
     <nav class="nav" id="nav">
       <button data-view="today" type="button" class="nav-today">今天 <span class="count" id="navToday"></span></button>
-      <div class="nav-group" data-group="collect"><div class="nav-label">收集</div></div>
+      <div class="nav-group" data-group="collect"><div class="nav-label">收集</div>
+        <button data-view="collect" type="button">素材库 <span class="count" id="navCollect"></span></button>
+      </div>
       <div class="nav-group" data-group="plan"><div class="nav-label">选题</div>
         <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
       </div>
@@ -51,6 +53,12 @@
         </div>
       </div>
       <div class="today-grid" id="todayGrid"></div>
+    </section>
+
+    <!-- COLLECT -->
+    <section class="view wide" id="v-collect">
+      <div class="head"><div><div class="eyebrow">收集 · Obsidian</div><h1>素材库</h1><p>你的剪藏、收藏和原始输出。值得做的点「做成选题」，不做的点「忽略」，今天的主线会跟着更新。</p></div></div>
+      <div id="collectBody"></div>
     </section>
 
     <!-- SETTINGS -->
@@ -150,7 +158,10 @@
   </form>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <script src="/static/today.js"></script>
+<script src="/static/collect.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
