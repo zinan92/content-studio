@@ -100,7 +100,7 @@ def _wait_sync(client: TestClient) -> None:
 
 
 def test_index_and_state_load_on_an_empty_library(client: TestClient) -> None:
-    assert "内容拆解台" in client.get("/").text
+    assert "内容工作台" in client.get("/").text
     state = client.get("/api/state").json()
     assert state["cookies"]["ok"] is True
     assert state["self_account"] is None
