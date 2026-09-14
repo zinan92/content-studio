@@ -107,10 +107,10 @@ window.TODAY_CARDS.push({
     const p = TP.plan;
     const firstOpen = p.steps.findIndex((s) => !s.done);
     el.innerHTML = `<div class="panel-h"><h2>今日主线</h2><small>${p.done}/${p.steps.length} 完成</small></div>
-      <ol class="plan">${p.steps.map((s, i) => `<li class="${s.done ? 'done' : i === firstOpen ? 'now' : ''}">
+      <ol class="plan">${p.steps.map((s, i) => `<li class="${s.done ? 'done' : i === firstOpen ? 'now' : ''} ${s.attention ? 'attention' : ''}">
         <span class="plan-dot">${s.done ? '✓' : i + 1}</span>
         <div class="plan-body"><b>${esc(s.title)}</b><span>${esc(s.detail)}</span></div>
-        <div class="acts">${s.manual ? `<label class="manual"><input type="checkbox" data-manual="${s.key}" ${s.done ? 'checked' : ''}> 拍完了</label>` : ''}${s.go && s.go !== 'today' ? `<button class="btn small ${i === firstOpen ? 'primary' : ''}" type="button" data-go="${s.go}">去做</button>` : ''}</div>
+        <div class="acts">${s.manual ? `<label class="manual"><input type="checkbox" data-manual="${s.key}" ${s.done ? 'checked' : ''}> 拍完了</label>` : ''}${s.go && s.go !== 'today' ? `<button class="btn small ${i === firstOpen || s.attention ? 'primary' : ''}" type="button" data-go="${s.go}">${s.attention ? '去处理' : '去做'}</button>` : ''}</div>
       </li>`).join('')}</ol>`;
     $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
     $$('[data-manual]', el).forEach((box) => (box.onchange = async () => {

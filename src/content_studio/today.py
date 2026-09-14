@@ -27,7 +27,12 @@ def build_plan(
     topics: list[dict[str, Any]],
     reports: list[dict[str, Any]],
     checks: dict[str, str],
+    briefing: dict[str, Any] | None = None,
+    video_states: dict[int, dict[str, Any]] | None = None,
+    followups: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    """video_states: topic_id → inspected project summary; followups: published videos needing attention."""
+    video_states = video_states or {}
     day = today.isoformat()
     steps: list[dict[str, Any]] = []
 
@@ -43,6 +48,16 @@ def build_plan(
         else:
             detail = f"{len(ready)} 份都看完了"
         steps.append({"key": "read", "title": "看日报", "done": bool(ready) and not unread, "detail": detail, "go": "today"})
+
+    record = briefing or {}
+    if record.get("state") == "done" and record.get("data"):
+        primary = next((v for v in record["data"].get("videos", []) if v.get("primary")), None)
+        steps.append({"key": "brief", "title": "看今日统筹", "done": True, "detail": f"首选：{primary['title'][:28]}" if primary else "今天的统筹已生成", "go": "brief"})
+    elif record.get("state") == "running":
+        steps.append({"key": "brief", "title": "看今日统筹", "done": False, "detail": "正在统筹今天的内容", "go": "brief"})
+    else:
+        detail = f"上次生成失败：{(record.get('error') or '')[:40]}" if record.get("state") == "failed" else "还没生成：读日报和笔记，告诉你今天拍什么"
+        steps.append({"key": "brief", "title": "看今日统筹", "done": False, "detail": detail, "go": "brief"})
 
     if inbox is None:
         steps.append({"key": "triage", "title": "回顾进项", "done": False, "detail": "没连上 Obsidian 库", "go": "settings"})
@@ -74,16 +89,44 @@ def build_plan(
 
     shot = checks.get("video_shot")
     video_topics = [t for t in active if t["formats"] in ("video", "both")]
-    steps.append(
-        {
-            "key": "video",
-            "title": "拍视频 → 抖音",
-            "done": bool(shot),
-            "manual": True,
-            "detail": "今天拍完了" if shot else (f"可以拍：{video_topics[0]['title'][:24]}" if video_topics else "拍完手动勾上"),
-            "go": "topics",
-        }
-    )
+    video_published_today = [t for t in topics if t["formats"] in ("video", "both") and t.get("published_video_id") and _day(t.get("published_at")) == day]
+    gated = [(t, video_states[t["id"]]) for t in video_topics if video_states.get(t["id"], {}).get("gate")]
+    video_step: dict[str, Any] = {"key": "video", "title": "拍视频 → 剪辑", "manual": True, "go": "video", "done": bool(shot) or bool(video_published_today)}
+    if gated:
+        topic, state = gated[0]
+        video_step.update(detail=f"需要你：{state['gate']['key']} {state['gate']['title']}（{topic['title'][:16]}）", attention=True, done=False)
+    elif video_published_today:
+        video_step["detail"] = f"今天已发出：{video_published_today[0]['title'][:24]}"
+    elif shot:
+        video_step["detail"] = "今天拍完了"
+    elif not video_topics:
+        video_step["detail"] = "还没有视频选题：从今日统筹里挑一条"
+    else:
+        topic = video_topics[0]
+        state = video_states.get(topic["id"])
+        if state and state.get("delivered"):
+            video_step["detail"] = f"成片好了，去发：{topic['title'][:24]}"
+        elif state and state.get("current_step"):
+            video_step["detail"] = f"剪辑中 · {state['summary']}（{topic['title'][:14]}）"
+        elif topic.get("video_project"):
+            video_step["detail"] = f"录完把粗剪和字幕放进项目文件夹：{topic['title'][:20]}"
+        elif topic.get("outline_path"):
+            video_step["detail"] = f"提纲写好了，可以录：{topic['title'][:24]}"
+        else:
+            video_step["detail"] = f"先写拍摄提纲：{topic['title'][:24]}"
+    steps.append(video_step)
+
+    pending = [f for f in (followups or []) if f.get("suggest_teardown")]
+    watching = [f for f in (followups or []) if not f.get("suggest_teardown")]
+    if pending:
+        steps.append({"key": "data", "title": "发出后看数据", "done": False, "go": "video", "attention": False,
+                      "detail": f"《{pending[0]['title'][:18]}》发出满 48 小时，拆解看看为什么好 / 不好"})
+    elif watching:
+        f = watching[0]
+        steps.append({"key": "data", "title": "发出后看数据", "done": False, "go": "video",
+                      "detail": f"《{f['title'][:18]}》发出 {int(f['hours_since'] or 0)} 小时，{f['likes'] or 0} 赞" + (f"，{f['multiple']}×" if f.get("multiple") else "")})
+    else:
+        steps.append({"key": "data", "title": "发出后看数据", "done": True, "go": "video", "detail": "没有待跟进的已发视频"})
 
     unread = [r for r in reports if not r.get("archived_at")]
     archived_today = [r for r in reports if _day(r.get("archived_at")) == day]
