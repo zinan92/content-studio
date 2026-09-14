@@ -26,6 +26,8 @@ from .accounts import (
 from .creator_metrics import CookieFileError, load_cookie_file
 from . import today as today_plan
 from . import vault
+from . import video_project
+from .video_project import VideoProjectError
 from .store import StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
@@ -77,6 +79,10 @@ class BriefTopicBody(BaseModel):
     index: int
 
 
+class VideoLinkBody(BaseModel):
+    name: str | None = None
+
+
 class ArticleBody(BaseModel):
     markdown: str
 
@@ -88,6 +94,7 @@ class SettingsBody(BaseModel):
     sync_delay_seconds: float | None = None
     obsidian_vault: str | None = None
     yanxishi_admin_url: str | None = None
+    video_projects_root: str | None = None
 
 
 class BackgroundOps:
@@ -217,6 +224,10 @@ def create_app(
         worker.stop()
 
     app = FastAPI(title="内容拆解台", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    @app.exception_handler(VideoProjectError)
+    async def _video_missing(_request: Any, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
 
     @app.exception_handler(vault.VaultError)
     async def _vault_missing(_request: Any, exc: Exception) -> JSONResponse:
@@ -710,6 +721,57 @@ def create_app(
         if not topic.get("outline_path"):
             store.update_topic(topic_id, outline_path=str(path))
         return outline.read_outline(store.topic(topic_id)) or {}
+
+    # -- video projects (口播 workflow) -----------------------------------
+
+    def video_root() -> Path:
+        return video_project.resolve_root(store.settings()["video_projects_root"] or None)
+
+    @app.get("/api/video-projects")
+    def list_video_projects() -> dict[str, Any]:
+        try:
+            root = video_root()
+        except VideoProjectError as exc:
+            return {"root": store.settings()["video_projects_root"] or str(video_project.DEFAULT_ROOTS[0]), "error": str(exc), "projects": []}
+        linked = {t["video_project"]: t["id"] for t in store.topics(include_archived=True) if t.get("video_project")}
+        return {"root": str(root), "error": None, "projects": [{**p, "topic_id": linked.get(p["name"])} for p in video_project.list_projects(root)]}
+
+    @app.get("/api/topics/{topic_id}/video-project")
+    def topic_video_project(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if not topic.get("video_project"):
+            raise HTTPException(status_code=404, detail="这个选题还没有关联视频项目")
+        return video_project.inspect(video_root(), topic["video_project"])
+
+    @app.put("/api/topics/{topic_id}/video-project")
+    def link_video_project(topic_id: int, body: VideoLinkBody) -> dict[str, Any]:
+        store.topic(topic_id)
+        if body.name:
+            video_project.project_dir(video_root(), body.name)
+        return store.update_topic(topic_id, video_project=body.name or None)
+
+    @app.post("/api/topics/{topic_id}/video-project")
+    def create_video_project(topic_id: int) -> dict[str, Any]:
+        from . import outline
+
+        topic = store.topic(topic_id)
+        if topic.get("video_project"):
+            raise ValueError("这个选题已经关联了视频项目")
+        draft = outline.read_outline(topic)
+        name = video_project.create_project(
+            video_root(), title=topic["title"], today=date.today().isoformat(), outline_markdown=draft["markdown"] if draft else None
+        )
+        store.update_topic(topic_id, video_project=name)
+        return video_project.inspect(video_root(), name)
+
+    @app.get("/api/video-projects/{name}/file")
+    def video_project_file(name: str, path: str) -> Response:
+        target = video_project.safe_file(video_root(), name, path)
+        headers = {"Cache-Control": "no-store"}
+        if target.suffix.lower() == ".html":
+            # Worktable pages need their own scripts and JSON export, but must not reach this app's API.
+            headers["Content-Security-Policy"] = "sandbox allow-scripts allow-downloads allow-popups"
+        return FileResponse(target, headers=headers)
 
     @app.get("/api/topics/{topic_id}/article")
     def get_article(topic_id: int) -> dict[str, Any]:

@@ -84,3 +84,11 @@
 **Why:** 研习室的 device intake 接口（Obsidian 插件用的那条）真实环境验收仍未通过（wechat-xingqiu#207），现在接自动入草稿箱会建立在未验证的合同上。
 
 **Gotchas:** khazix-writer 默认会带卡兹克本人的署名、邮箱和固定结尾，提示词明确禁止，`extract_article` 再做一道检查（命中即重试）。launchd 下调用 claude CLI 需要环境里有 USER/LOGNAME。真实测试：一篇 2700 字的文章约 2 分钟。
+
+## 2026-09-14 — 口播 workflow 以「读产物」方式嵌入（#40）
+
+**Decision:** 工作台不运行 ask-park-video，只读项目目录：按 workflow v2.6 每一步的完成证据判断当前 Step 与审批门（H1/H2/H3），project.json 的状态标签只在该步没有必需产物时才算数；给出一键复制的继续命令。唯一的写操作是「新建项目文件夹」（README + 拍摄提纲副本）。
+
+**Why:** 口播 workflow 是长任务、要改媒体文件、有三个人工审批门，由 Claude/Codex 在前台跑更安全；工作台负责让 Park 随时知道剪到哪、下一步做什么。后台代跑列为 P3-2，需 Park 确认。
+
+**Gotchas:** 现有项目在外接硬盘 `/Volumes/Phone SSD/视频/exports`，都是 v2.6 之前的目录（无 project.json，成片叫 final-video.mp4 或 delivery/final-video.mp4），按旧版只识别是否有成片；硬盘没接时页面提示而不报错。worktable.html 以 `CSP: sandbox allow-scripts allow-downloads` 返回，能用但碰不到工作台 API。
