@@ -61,5 +61,8 @@ def cli_judge(prompt: str, *, command: str | None = None, timeout: float = 600.0
         detail = f"{completed.stderr}\n{completed.stdout}"
         if re.search(r"authenticat|log ?in|oauth", detail, re.IGNORECASE):
             raise JudgeLoginError("本机 Claude 命令行登录已过期：在终端运行 claude 并按提示重新登录，然后回到队列点重试")
-        raise JudgeError(f"LLM command exited with {completed.returncode}: {completed.stderr.strip()[:300]}")
+        detail = (completed.stderr.strip() or completed.stdout.strip())[-300:] or "没有输出"
+        if re.search(r"usage limit|rate limit|limit reached|quota", detail, re.IGNORECASE):
+            raise JudgeLoginError(f"本机 Claude 额度用完或被限流，稍后点重试：{detail[:120]}")
+        raise JudgeError(f"LLM command exited with {completed.returncode}: {detail}")
     return parse_json_object(completed.stdout)
