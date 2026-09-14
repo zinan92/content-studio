@@ -602,3 +602,19 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .vp-last summary{cursor:pointer;color:var(--ink-2);font-size:13px}
 .gate-hooks{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:4px}
 .gate-table{min-width:560px}
+/* ===== publish now ===== */
+.pn{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.pn h3{margin:0;font-size:12px;letter-spacing:.1em;color:var(--ink-3)}
+.pn p{margin:0;font-size:13px}
+.pn-platforms{display:flex;flex-direction:column}
+.pn-platform{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line-soft);flex-wrap:wrap}
+.pn-platform small{display:block;font-size:12px}
+.pn-platform .acts{display:flex;gap:6px;flex-wrap:wrap}
+.pn-confirm{border:2px solid var(--hot);background:var(--hot-soft);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.pn-confirm.running{border-color:var(--accent);background:var(--accent-soft);flex-direction:row;align-items:center}
+.pn-confirm dl{display:grid;grid-template-columns:48px 1fr;gap:4px 10px;margin:0;font-size:13px}
+.pn-confirm dt{color:var(--ink-3)}
+.pn-confirm dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.pn-confirm .acts{display:flex;gap:8px}
+.pn-history{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.pn-history li{display:flex;gap:6px;align-items:center;flex-wrap:wrap}

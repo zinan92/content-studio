@@ -17,7 +17,8 @@ from typing import Any
 RUNNER_COMMAND_ENV = "CONTENT_STUDIO_WORKFLOW_CMD"
 DEFAULT_RUNNER_COMMAND = (
     "claude -p --model opus --output-format text "
-    '--allowedTools "Skill Bash Read Write Edit Glob Grep"'
+    '--allowedTools "Skill Bash Read Write Edit Glob Grep" '
+    '--disallowedTools "WebFetch WebSearch"'
 )
 DEFAULT_RUNS_DIR = Path("~/.config/content-studio/runs")
 GATE_APPROVAL_KEYS = {"H1": "hook", "H2": "visual_spec", "H3": "final"}

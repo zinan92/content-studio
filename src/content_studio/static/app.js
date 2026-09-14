@@ -43,7 +43,7 @@ function toast(message) {
 }
 
 async function api(path, options = {}) {
-  const init = { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } };
+  const init = { ...options, headers: { 'Content-Type': 'application/json', 'X-Content-Studio': '1', ...(options.headers || {}) } };
   if (init.body && typeof init.body !== 'string') init.body = JSON.stringify(init.body);
   let res;
   try {

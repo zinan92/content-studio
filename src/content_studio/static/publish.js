@@ -27,10 +27,15 @@ window.VIDEO_TABS.push({
   async render(topic, el) {
     let d;
     try { d = await api(`/api/topics/${topic.id}/publish`); } catch (err) { el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
-    if (!d.account) { el.innerHTML = '<div class="empty"><b>还没有连接自己的抖音号</b><span>去「我的视频」连接后，这里才能关联发出的视频。</span></div>'; return; }
+    const publishSlot = '<div id="publishNow"></div>';
+    if (!d.account) {
+      el.innerHTML = `<div class="pub">${publishSlot}<div class="empty"><b>还没有连接自己的抖音号</b><span>去「我的视频」连接后，这里才能关联发出的抖音视频、看数据。</span></div></div>`;
+      if (window.renderPublishPanel) window.renderPublishPanel(topic, $('#publishNow'));
+      return;
+    }
     const syncLine = `<div class="pub-sync"><span>${esc(d.account.nickname || '')} · ${d.account.syncing ? '<span class="spin"></span> 同步中' : esc(ago(d.account.last_synced_at))}</span>${d.stale_sync && !d.account.syncing ? '<span class="bad">数据可能不是最新的</span>' : ''}<button class="btn small" type="button" id="pubSync">同步我的数据</button></div>`;
     if (!d.video) {
-      el.innerHTML = `<div class="pub">${syncLine}
+      el.innerHTML = `<div class="pub">${publishSlot}${syncLine}
         ${d.suggestions.length ? `<div class="pub-block"><h3>可能是这条</h3>${d.suggestions.map((v) => `<div class="hot-row"><span class="pill mid">${Math.round(v.score * 100)}%</span><div class="hot-main"><b class="clamp">${esc(cleanTitle(v.title))}</b><small>${day(v.published_at)} · ${fmt(v.likes)} 赞</small></div><div class="acts"><button class="btn small primary" type="button" data-pub="${esc(v.video_id)}">就是这条</button></div></div>`).join('')}</div>` : '<div class="empty"><span>还没找到标题相近、在选题之后发出的视频。发出后点「同步我的数据」，或从下面手动选。</span></div>'}
         <div class="pub-block"><h3>手动选择</h3><div class="linkbox"><select id="pubPick">${d.recent.map((v) => `<option value="${esc(v.video_id)}">${day(v.published_at)} · ${esc(cleanTitle(v.title).slice(0, 40))}</option>`).join('')}</select><button class="btn" type="button" id="pubLink">关联</button></div></div>
       </div>`;
@@ -40,7 +45,7 @@ window.VIDEO_TABS.push({
     } else {
       const v = d.video;
       const c = v.creator;
-      el.innerHTML = `<div class="pub">${syncLine}
+      el.innerHTML = `<div class="pub">${publishSlot}${syncLine}
         <div class="pub-title"><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(cleanTitle(v.title))} ↗</a><small>发出 ${v.hours_since === null ? '—' : v.hours_since < 48 ? `${Math.round(v.hours_since)} 小时` : `${Math.round(v.hours_since / 24)} 天`}</small></div>
         <div class="facts pub-facts">
           <div><div class="l">账号中位数倍数</div><div class="v ${v.multiple >= S.state.settings.threshold ? 'hot' : ''}">${v.multiple === null ? '—' : v.multiple + '×'}</div></div>
@@ -62,6 +67,7 @@ window.VIDEO_TABS.push({
       bindTeardownButtons(el);
       $('#pubUnlink').onclick = () => linkVideo(topic.id, null);
     }
+    if (window.renderPublishPanel) window.renderPublishPanel(topic, $('#publishNow'));
     $('#pubSync').onclick = async () => {
       try { const r = await api('/api/sync', { method: 'POST' }); toast(r.message); } catch (err) { toast(err.message); }
     };
