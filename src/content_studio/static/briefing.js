@@ -38,7 +38,7 @@ function videoIdea(v, index, day, full) {
     <p class="idea-claim">主张：${esc(v.claim)}</p>
     ${full || v.primary ? `<ol class="idea-outline">${v.outline.map((line) => `<li>${esc(line)}</li>`).join('')}</ol>` : ''}
     <div class="idea-meta">为什么是今天：${esc(v.why_today)}${v.caution ? `<br><span class="bad">注意：${esc(v.caution)}</span>` : ''}</div>
-    <div class="idea-foot"><span class="idea-src">素材：${v.sources.map((s) => sourceLink(s)).join('、')}</span><button class="btn small primary" type="button" data-idea="${index}" data-day="${esc(day)}">做成视频选题</button></div>
+    <div class="idea-foot"><span class="idea-src">素材：${v.sources.map((s) => sourceLink(s)).join('、')}</span><span class="acts"><button class="btn small" type="button" data-idea="${index}" data-day="${esc(day)}">做成选题</button><button class="btn small primary" type="button" data-idea="${index}" data-day="${esc(day)}" data-outline-after="1">做成选题并写提纲</button></span></div>
   </div>`;
 }
 
@@ -47,8 +47,13 @@ function bindBriefing(root) {
   $$('[data-idea]', root).forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     try {
-      await api('/api/briefing/topic', { method: 'POST', body: { day: b.dataset.day, index: Number(b.dataset.idea) } });
-      toast('已做成视频选题，在「选题」里继续');
+      const res = await api('/api/briefing/topic', { method: 'POST', body: { day: b.dataset.day, index: Number(b.dataset.idea) } });
+      if (b.dataset.outlineAfter) {
+        await api(`/api/topics/${res.topic.id}/outline`, { method: 'POST' });
+        toast('已做成选题，正在写拍摄提纲，在「视频」里看');
+      } else {
+        toast('已做成视频选题，在「选题」里继续');
+      }
       if (window.refreshTopics) await window.refreshTopics();
     } catch (err) { toast(err.message); b.disabled = false; }
   }));
@@ -103,6 +108,18 @@ window.TODAY_CARDS.push({
   async render(el) {
     let r;
     try { r = await loadBriefing(false); } catch (err) { el.innerHTML = `<div class="panel-h"><h2>今日统筹</h2></div><div class="empty"><span>${esc(err.message)}</span></div>`; return; }
+    // Opening the page is Park's intent to plan the day: start today's briefing once if the dailies are out.
+    if (r.state === 'missing' && S.state.vault.ok && !BR.autoStarted) {
+      let already = false;
+      try { already = localStorage.getItem('cs-brief-auto') === r.day; } catch (_) { /* ignore */ }
+      BR.autoStarted = true;
+      const dailies = already ? null : await api(`/api/today/dailies?day=${r.day}`).catch(() => null);
+      if (dailies && dailies.items.some((i) => i.path)) {
+        try { localStorage.setItem('cs-brief-auto', r.day); } catch (_) { /* ignore */ }
+        await generateBriefing();
+        return;
+      }
+    }
     const sig = JSON.stringify([r.state, r.updated_at]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
