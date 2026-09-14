@@ -568,3 +568,5 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .cp-field em{font-style:normal;font-family:var(--mono)}
 .cp-field input,.cp-field textarea{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;resize:vertical}
 .cp-foot{display:flex;gap:6px}
+.plan li.attention{background:var(--hot-soft)}
+.plan li.attention .plan-body span{color:var(--hot);font-weight:600}

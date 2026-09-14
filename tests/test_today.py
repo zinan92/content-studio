@@ -22,7 +22,8 @@ def _plan(**kw):
 
 def test_empty_day_is_all_open_with_guidance() -> None:
     plan = _plan()
-    assert list(plan) == ["read", "triage", "pick", "article", "video", "review"]
+    assert list(plan) == ["read", "brief", "triage", "pick", "article", "video", "data", "review"]
+    assert plan["brief"]["done"] is False and plan["data"]["done"] is True
     assert plan["read"]["done"] is False and "还没出" in plan["read"]["detail"]
     assert plan["triage"]["done"] is True
     assert plan["pick"]["done"] is False
@@ -64,3 +65,32 @@ def test_video_is_manual_and_review_follows_reports() -> None:
 def test_missing_vault_points_to_settings() -> None:
     plan = _plan(dailies=None, inbox=None)
     assert plan["read"]["go"] == "settings" and plan["triage"]["done"] is False
+
+
+def test_briefing_step_reflects_state() -> None:
+    done = {"state": "done", "data": {"videos": [{"title": "首选这条", "primary": True}]}}
+    assert _plan(briefing=done)["brief"]["detail"] == "首选：首选这条"
+    assert "失败" in _plan(briefing={"state": "failed", "error": "boom"})["brief"]["detail"]
+
+
+def test_video_step_walks_the_video_line() -> None:
+    base = _topic(formats="video")
+    assert "先写拍摄提纲" in _plan(topics=[base])["video"]["detail"]
+    assert "可以录" in _plan(topics=[_topic(formats="video", outline_path="/o.md")])["video"]["detail"]
+    linked = _topic(formats="video", outline_path="/o.md", video_project="p")
+    assert "粗剪" in _plan(topics=[linked])["video"]["detail"]
+    gate = {"gate": {"key": "H1", "title": "等你在 worktable 里选 Hook"}, "summary": "Step 5", "current_step": 5}
+    plan = _plan(topics=[linked], video_states={1: gate})
+    assert plan["video"]["attention"] is True and "H1" in plan["video"]["detail"]
+    assert "剪辑中" in _plan(topics=[linked], video_states={1: {"summary": "Step 9：成品 A 与 QA", "current_step": 9, "gate": None}})["video"]["detail"]
+    assert "成片好了" in _plan(topics=[linked], video_states={1: {"delivered": True, "gate": None}})["video"]["detail"]
+    published = _topic(formats="video", status="published", published_video_id="9", published_at="2026-09-14T08:00:00+00:00")
+    assert _plan(topics=[published])["video"]["done"] is True
+
+
+def test_data_step_prioritises_teardown() -> None:
+    followups = [{"title": "刚发的", "hours_since": 10, "likes": 300, "multiple": 1.2, "suggest_teardown": False},
+                 {"title": "发了三天", "hours_since": 70, "likes": 900, "multiple": 3.1, "suggest_teardown": True}]
+    step = _plan(followups=followups)["data"]
+    assert step["done"] is False and "满 48 小时" in step["detail"] and "发了三天" in step["detail"]
+    assert "10 小时" in _plan(followups=followups[:1])["data"]["detail"]

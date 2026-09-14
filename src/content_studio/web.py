@@ -966,13 +966,41 @@ def create_app(
             inbox = [{**i, "triage": (triage.get(i["path"]) or {}).get("status")} for i in vault.inbox(vault_path(), since=vault.window_start(1))]
         except vault.VaultError:
             dailies = inbox = None
+        all_topics = store.topics(include_archived=True)
+        video_states: dict[int, dict[str, Any]] = {}
+        linked = [t for t in all_topics if t.get("video_project") and not t.get("archived_at") and t["status"] != "published"]
+        if linked:
+            try:
+                root = video_root()
+                for topic in linked:
+                    try:
+                        video_states[topic["id"]] = video_project.inspect(root, topic["video_project"])
+                    except VideoProjectError:
+                        continue
+            except VideoProjectError:
+                pass
+        followups = []
+        for topic in all_topics:
+            video = store.video(topic["published_video_id"]) if topic.get("published_video_id") else None
+            if not video:
+                continue
+            from . import publish
+
+            perf = publish.performance(video, median_likes=store.account_median(video["account_id"]), snapshots=[], creator=None,
+                                       has_report=report_file(video["video_id"]) is not None)
+            job = store.job_for_video(video["video_id"])
+            if perf["hours_since"] is not None and perf["hours_since"] <= 24 * 7 and not perf["has_report"] and not (job and job["stage"] != "failed"):
+                followups.append(perf)
         steps = today_plan.build_plan(
             today=target,
             dailies=dailies,
             inbox=inbox,
-            topics=store.topics(include_archived=True),
+            topics=all_topics,
             reports=reports(),
             checks=store.daily_checks(target.isoformat()),
+            briefing=store.briefing(target.isoformat()),
+            video_states=video_states,
+            followups=followups,
         )
         return {"day": target.isoformat(), "steps": steps, "done": sum(1 for s in steps if s["done"])}
 
