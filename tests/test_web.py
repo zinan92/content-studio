@@ -275,3 +275,9 @@ def test_topics_from_triage_and_today_plan(client: TestClient, tmp_path: Path) -
     assert steps["triage"]["done"] is True and steps["pick"]["done"] is True
     client.put("/api/today/checks", json={"day": plan["day"], "key": "video_shot", "checked": True})
     assert {s["key"]: s for s in client.get("/api/today/plan").json()["steps"]}["video"]["done"] is True
+
+
+def test_skills_endpoint_lists_registry(client: TestClient) -> None:
+    data = client.get("/api/skills").json()
+    assert [s["key"] for s in data["stages"]] == ["collect", "plan", "make", "ship", "review"]
+    assert any(s["name"] == "khazix-writer" and s["author"] == "数字生命卡兹克" for s in data["skills"])
