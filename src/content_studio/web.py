@@ -165,6 +165,7 @@ def create_app(
     drafts_dir: Path | None = None,
     write_fn: Callable[[str], str] | None = None,
     brief_fn: Callable[[str], dict] | None = None,
+    outline_fn: Callable[[str], str] | None = None,
 ) -> FastAPI:
     from . import writer
 
@@ -658,6 +659,57 @@ def create_app(
         store.update_topic(topic_id, write_state="running", write_error=None)
         threading.Thread(target=_write_topic, args=(topic_id,), name=f"write-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始写了，一般 1–5 分钟"}
+
+    def _outline_topic(topic_id: int) -> None:
+        from . import outline
+
+        try:
+            result = outline.write_outline(
+                store.topic(topic_id), vault_raw=vault_path(), drafts_dir=drafts_root, **({"write_fn": outline_fn} if outline_fn else {})
+            )
+            store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None)
+        except Exception as exc:  # noqa: BLE001 - shown on the topic card
+            logger.warning("outline topic %s failed: %s", topic_id, exc)
+            store.update_topic(topic_id, outline_state="failed", outline_error=str(exc)[:300] or type(exc).__name__)
+        finally:
+            with writing_lock:
+                writing.discard(-topic_id)
+
+    @app.post("/api/topics/{topic_id}/outline")
+    def start_outline(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if topic["formats"] == "article":
+            raise ValueError("这个选题只写文章；先把形式改成「视频」或「文章 + 视频」")
+        with writing_lock:
+            if -topic_id in writing:
+                return {"started": False, "message": "提纲正在写"}
+            writing.add(-topic_id)
+        store.update_topic(topic_id, outline_state="running", outline_error=None)
+        threading.Thread(target=_outline_topic, args=(topic_id,), name=f"outline-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始写拍摄提纲，一般 1–2 分钟"}
+
+    @app.get("/api/topics/{topic_id}/outline")
+    def get_outline(topic_id: int) -> dict[str, Any]:
+        from . import outline
+
+        data = outline.read_outline(store.topic(topic_id))
+        if data is None:
+            raise HTTPException(status_code=404, detail="这个选题还没有拍摄提纲")
+        return data
+
+    @app.put("/api/topics/{topic_id}/outline")
+    def put_outline(topic_id: int, body: ArticleBody) -> dict[str, Any]:
+        from . import outline
+
+        topic = store.topic(topic_id)
+        if not body.markdown.strip():
+            raise ValueError("提纲不能为空")
+        path = Path(topic["outline_path"]) if topic.get("outline_path") else drafts_root / f"topic-{topic_id}" / "outline.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body.markdown if body.markdown.endswith("\n") else body.markdown + "\n", encoding="utf-8")
+        if not topic.get("outline_path"):
+            store.update_topic(topic_id, outline_path=str(path))
+        return outline.read_outline(store.topic(topic_id)) or {}
 
     @app.get("/api/topics/{topic_id}/article")
     def get_article(topic_id: int) -> dict[str, Any]:

@@ -151,7 +151,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT"}}
+        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -252,7 +252,11 @@ class StudioStore:
             cursor = conn.execute(
                 "UPDATE topics SET write_state = 'failed', write_error = '上次写作被中断（服务重启），点重试' WHERE write_state = 'running'"
             )
-        return cursor.rowcount
+            count = cursor.rowcount
+            cursor = conn.execute(
+                "UPDATE topics SET outline_state = 'failed', outline_error = '上次生成被中断（服务重启），点重试' WHERE outline_state = 'running'"
+            )
+        return count + cursor.rowcount
 
     def briefing(self, day: str) -> dict[str, Any] | None:
         row = self._row("SELECT * FROM briefings WHERE day = ?", (day,))
@@ -306,7 +310,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")

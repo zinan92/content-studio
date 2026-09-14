@@ -64,6 +64,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         drafts_dir=tmp_path / "drafts",
         write_fn=_fake_writer,
         brief_fn=_fake_brief,
+        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n预计时长：10 分钟\n## 前 15 秒\n- a\n## 主线\nb\n## 第 1 段：x\n- y\n## 第 2 段：x\n- y\n## 第 3 段：x\n- y\n## 结尾\n- z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
     with TestClient(app) as test_client:
@@ -389,3 +390,22 @@ def test_daily_briefing_generate_and_make_topic(client: TestClient, tmp_path: Pa
     topic = client.post("/api/briefing/topic", json={"day": record["day"], "index": 0}).json()["topic"]
     assert topic["formats"] == "video" and topic["note_paths"] == ["003_park原始输出/累.md"] and "Hook：累的不是活" in topic["memo"]
     assert client.post("/api/briefing/topic", json={"day": record["day"], "index": 5}).status_code == 400
+
+
+def test_outline_generate_edit_and_format_rules(client: TestClient) -> None:
+    import time
+
+    video = client.post("/api/topics", json={"title": "拍一条", "formats": "video"}).json()
+    article_only = client.post("/api/topics", json={"title": "只写", "formats": "article"}).json()
+    assert client.post(f"/api/topics/{article_only['id']}/outline").status_code == 400
+    assert client.get(f"/api/topics/{video['id']}/outline").status_code == 404
+    assert client.post(f"/api/topics/{video['id']}/outline").json()["started"] is True
+    for _ in range(200):
+        topic = [t for t in client.get("/api/topics").json() if t["id"] == video["id"]][0]
+        if topic["outline_state"] != "running":
+            break
+        time.sleep(0.02)
+    assert topic["outline_state"] is None and topic["outline_path"]
+    assert client.get(f"/api/topics/{video['id']}/outline").json()["markdown"].startswith("# 标题")
+    saved = client.put(f"/api/topics/{video['id']}/outline", json={"markdown": "# 改了"}).json()
+    assert saved["markdown"] == "# 改了\n"

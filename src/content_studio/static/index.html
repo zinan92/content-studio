@@ -25,6 +25,7 @@
       </div>
       <div class="nav-group" data-group="make"><div class="nav-label">加工</div>
         <button data-view="article" type="button">文章</button>
+        <button data-view="video" type="button">视频</button>
         <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
       </div>
       <div class="nav-group" data-group="ship"><div class="nav-label">发出</div></div>
@@ -82,6 +83,12 @@
     <section class="view wide" id="v-article">
       <div class="head"><div><div class="eyebrow">加工 · 卡兹克写作 → Park 研习室</div><h1>文章</h1><p>选题一键写成草稿，你看过、改过，再交给研习室。不会自动发布，也不会改你的 Obsidian 笔记。</p></div></div>
       <div id="articleBody"></div>
+    </section>
+
+    <!-- VIDEO -->
+    <section class="view wide" id="v-video">
+      <div class="head"><div><div class="eyebrow">加工 · 口播视频</div><h1>视频</h1><p>一个视频选题从提纲走到发出：拍摄提纲 → 剪辑进度（口播 workflow）→ 发出与数据 → 各平台文案。</p></div></div>
+      <div id="videoBody"></div>
     </section>
 
     <!-- HOT -->
@@ -201,6 +208,7 @@
 <script src="/static/topics.js"></script>
 <script src="/static/briefing.js"></script>
 <script src="/static/article.js"></script>
+<script src="/static/video.js"></script>
 <script src="/static/skills.js"></script>
 <script src="/static/hot.js"></script>
 <script src="/static/app.js"></script>
