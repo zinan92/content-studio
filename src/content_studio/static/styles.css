@@ -503,3 +503,12 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .more{color:var(--accent);font-size:13px}
 @media (max-width:900px){.brief-grid{grid-template-columns:1fr}.brief-grid>div+div{border-left:0;border-top:1px solid var(--line-soft)}}
 .brief-reads .src-link{display:inline;text-align:left}
+/* ===== video ===== */
+.video-head{padding:14px 22px 0;border-bottom:1px solid var(--line-soft)}
+.video-head h2{font-family:var(--serif);font-size:20px;margin:0 0 10px}
+.video-tabs{display:flex;gap:4px;flex-wrap:wrap}
+.video-tabs button{border:0;border-bottom:2px solid transparent;background:transparent;padding:6px 10px 8px;cursor:pointer;color:var(--ink-2);font-weight:500;display:flex;gap:6px;align-items:center}
+.video-tabs button.on{border-bottom-color:var(--accent);color:var(--accent)}
+.video-tabs small{font-size:11px;color:var(--ink-3);font-weight:400}
+.big-text{display:block;width:100%;min-height:60vh;border:0;border-bottom:1px solid var(--line-soft);padding:16px 22px;font-family:var(--mono);font-size:13.5px;line-height:1.7;background:var(--surface);color:var(--ink);resize:vertical}
+.memo{white-space:pre-wrap;text-align:left;background:var(--sunk);border-radius:8px;padding:10px 12px;font-size:12.5px;max-width:560px;font-family:var(--sans)}
