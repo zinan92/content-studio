@@ -1,101 +1,246 @@
-# content-studio
+<div align="center">
 
-内容拆解台是 Park 的本地优先抖音内容监控与拆解工具。它的主材料是视频转写文字，账号自身的点赞中位数用于爆款基准；cookies、后台数据和下载产物只存本机。
+# 内容工作台 · content-studio
 
-## 一条命令启动
+**把一个人的内容生产串成每天一条主线：Obsidian 进项 → 选题 → 文章 / 视频 → 发出 → 爆款复盘**
 
-```bash
-cd ~/work/content-studio
-python3 -m content_studio serve
+[![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-local_web-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![SQLite](https://img.shields.io/badge/SQLite-local_only-003B57.svg?logo=sqlite&logoColor=white)](https://sqlite.org)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-skills-D97757.svg)](https://docs.anthropic.com/en/docs/claude-code)
+[![License](https://img.shields.io/badge/license-not_specified-lightgrey.svg)](#license)
+
+</div>
+
+---
+
+```
+in   Obsidian 库（剪藏 / 收藏 / 原始输出 / AI 与财经日报） + 抖音账号主页链接 + 视频链接
+out  今日主线（6 步，自动判定完成） + 选题看板 + 卡兹克写作文章草稿 + 抖音爆款拆解报告
+
+fail Obsidian 路径不存在      → 页面提示去设置，其它功能照常
+fail 抖音 cookies 缺失/过期   → 顶部提示重新导出，不发请求
+fail 抖音验证页 / 反作弊      → 立即停止抓取并显示原因，不绕过
+fail 本机 claude 未登录       → 任务标失败并写明「重新登录后点重试」，不空转重试
+fail 模型输出不合格          → 带错误重试，仍失败则保留原因可手动重试
 ```
 
-打开 <http://127.0.0.1:8780>（只监听本机）。关掉终端即停止；数据保存在 `~/.config/content-studio/`，重启后都在。如果提示端口被占用，说明常驻服务已经在跑，直接打开链接即可。
+这是 Park 自己的内容工作流，不追求普适。它只在本机运行：笔记只读、cookies 与数据不出本机、不代发布任何平台内容。
 
-在 Park 的 Mac 上它作为常驻服务运行（launchd `com.wendy.content-studio`，开机自启、崩溃自动拉起），并通过带密码的 `https://studio.park-ai-intel.com`（网站入口 `park-ai-intel.com/studio`）从外网访问；接入方式见 park-ai-intel 仓库 `deploy/content-studio/README.md`。改完代码后重启：`launchctl kickstart -k gui/$(id -u)/com.wendy.content-studio`。拆解需要本机 `claude` 命令行处于登录状态。
+## 示例输出
 
-报告文件在 `~/.config/content-studio/studio/reports/<视频编号>/`；M1 阶段生成的样本报告在 `~/.config/content-studio/m1/reports/`，网页会同时读取两处。
+> 下面的截图来自演示实例，内容是示例数据。
 
-四个页面：
+**今天**：打开就知道今天做什么。主线的每一步由数据自动判断完成，没做完的选题留到第二天。
 
-| 页面 | 能做什么 |
-| --- | --- |
-| 我的视频 | 首次打开粘贴自己的抖音主页链接完成连接；看粉丝、近 10 条播放中位数、近 5 条涨粉、平均观看时长；作品表可排序，含后台涨粉 / 5 秒完播 / 2 秒跳出 / 平均观看；每条可一键拆解或看报告。 |
-| 对标雷达 | 「加入对标账号」粘贴主页链接（抖音立即同步；小红书 / X / 视频号入库并标"抓取待接入"）；账号卡片显示点赞走势、中位数、爆款数、同步状态；门槛滑块实时筛选爆款；超过门槛的作品自动进入拆解队列（同时最多 8 条）。 |
-| 拆解队列 | 粘贴视频链接或分享口令入队；显示下载 → 转文字 → 结构拆解 → 报告四个阶段和失败原因；排队中的可取消，失败的可重试；服务重启后未完成的任务自动恢复。 |
-| 拆解报告 | 数据（倍数、收藏/赞、转发/赞、评论/赞、后台指标）、主线一句话、自己视频的"观众平均看到的前 N 秒"、可点击的分段时间轴（斜纹 = 不服务主线）、为什么爆 / 为什么散（每条附原文时间点）、逐段原文、每段语速。 |
+![今天](docs/screenshots/today.png)
 
-## 首次准备
+**素材库**：只读 Obsidian 的剪藏、收藏、原始输出，值得做的「做成选题」，不做的「忽略」。
+
+![素材库](docs/screenshots/collect.png)
+
+**文章**：选题一键交给卡兹克写作 skill 出草稿（作者是 Park，不带原作者署名），预览、编辑、复制、下载，再交给 Park 研习室。
+
+![文章](docs/screenshots/article.png)
+
+**热点**：对标账号 48 小时爆款、日报头条、剪藏里反复出现的话题。
+
+![热点](docs/screenshots/hot.png)
+
+**Skills**：做内容在用的 skill，按生产阶段放，写明作者和原仓库。
+
+![Skills](docs/screenshots/skills.png)
+
+## 一天怎么用
+
+| 步 | 在哪 | 做什么 | 怎么算完成 |
+|---|---|---|---|
+| 1 看日报 | 今天 | 读 AI 日报、财经日报、晨报 | 当天已出的日报都勾了「已看」 |
+| 2 回顾进项 | 素材库 | 昨天到现在的新笔记，逐条「做成选题」或「忽略」 | 没有未处理的进项 |
+| 3 选今天做的 | 选题 / 热点 | 挑一条，定形式：文章 / 视频 / 两者 | 有进行中的选题 |
+| 4 写文章 → 研习室 | 文章 | 写文章 → 看、改 → 交给研习室 → 标已发出 | 今天有文章发出 |
+| 5 拍视频 → 抖音 | 选题 | 拍、剪、发 | 手动勾「拍完了」 |
+| 6 复盘 | 我的视频 / 拆解报告 | 看爆款拆解，看完归档 | 报告都看完或今天归档过 |
+
+## 架构
+
+```
+┌─────────────── Obsidian 库（只读，6 个白名单文件夹）───────────────┐
+│  Clippings · 002_个人收藏 · 003_park原始输出 · 006/007/009 日报    │
+└───────────────┬───────────────────────────────────────────────────┘
+                ▼
+┌──────────────────────────── FastAPI（127.0.0.1:8780）────────────────────────────┐
+│ vault.py 收集   today.py 主线   hot.py 热点   skills.py 注册表   writer.py 文章     │
+│ accounts.py 账号同步   worker.py 拆解队列   structure.py 结构拆解   store.py SQLite │
+└──────┬───────────────────────┬──────────────────────────┬────────────────────────┘
+       ▼                       ▼                          ▼
+ content-downloader      content-extractor           本机 claude CLI
+ 抖音作品/下载（签名）    mlx-whisper 转写            结构判断 · khazix-writer 写作
+       │                                                  │
+       └──────────── ~/.config/content-studio/ ───────────┘
+                     studio.sqlite3 · reports/ · drafts/（权限 600/700）
+```
+
+前端是原生 JS，每个页面一个文件（`today.js`、`collect.js`、`topics.js`、`hot.js`、`article.js`、`skills.js`），注册到 `window.VIEWS` / `window.TODAY_CARDS`。
+
+## 快速开始
 
 ```bash
+# 1. 克隆并安装
+git clone https://github.com/zinan92/content-studio.git
+cd content-studio
 python3 -m pip install -e '.[dev]'
+
+# 2. 依赖的两个本机能力
+git clone https://github.com/zinan92/content-downloader.git ~/work/content-downloader   # 或设 CONTENT_DOWNLOADER_PATH
+python3 -m pip install git+https://github.com/zinan92/content-extractor.git
+
+# 3. 启动
+python3 -m content_studio serve
+# 打开 http://127.0.0.1:8780 ，在「设置」里填 Obsidian 库路径
 ```
 
-- 需要本机有 `~/work/content-downloader`（抖音下载与签名请求）和已安装的 `content-extractor`（转写）。下载器路径可用环境变量 `CONTENT_DOWNLOADER_PATH` 改。
-- 抖音登录 cookies：在浏览器登录抖音网页版和创作者中心后导出到 `~/.config/content-studio/douyin-cookies.json`，权限 `600`。页面顶部会提示 cookies 缺失或不安全。
-- 拆解调用本机已登录的 `claude` 命令行；可用 `CONTENT_STUDIO_LLM_CMD` 换成其他命令。
+- 抖音功能需要浏览器登录抖音网页版与创作者中心后，把 cookies 导出到 `~/.config/content-studio/douyin-cookies.json`（权限 `600`）。
+- 拆解和写文章调用本机已登录的 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI；写文章需要安装 [khazix-writer](https://github.com/KKKKhazix/khazix-skills) skill。
+
+## 功能一览
+
+| 功能 | 说明 | 状态 |
+|---|---|---|
+| 今日主线 | 6 步流程，完成状态由数据自动判定，未完成的选题顺延 | 已完成 |
+| 素材库 | 只读 Obsidian，Markdown 阅读器（净化），做成选题 / 忽略 | 已完成 |
+| 选题 | 看板：待写 → 草稿中 → 待发 → 已发出，形式 文章/视频/两者 | 已完成 |
+| 热点 | 对标 48h 爆款、日报头条、高频话题（本地统计） | 已完成 |
+| 文章 | 卡兹克写作出草稿，编辑、复制、下载 .md、交给研习室 | 已完成 |
+| Skills | 注册表 + 本机安装检测 + 调用方式 | 已完成 |
+| 我的视频 | 作品数据 + 创作者后台（涨粉、完播、跳出、均看） | 已完成 |
+| 对标雷达 | 加对标账号（抖音同步；小红书 / X / 视频号先入库），账号自身中位数算倍数 | 已完成 |
+| 拆解队列与报告 | 下载 → 转写 → 模型判断结构 → 代码算数 → 原文回查；报告可归档 | 已完成 |
+| 多账号 | 我的账号可以有多个，左下角切换 | 已完成 |
+| 研习室自动进草稿箱 | 走研习室设备接口 | 计划中（[#31](https://github.com/zinan92/content-studio/issues/31)） |
+| 视频线 | 口播稿、剪辑、抖音发出记录 | 计划中 |
+| 抖音站内热搜 | 搜索接口触发反作弊，按规则不做 | 不做 |
+
+## 用到的 Skills
+
+别人写的 skill 只列名字、作者和原仓库，代码不复制进本仓库（有测试守护）。
+
+| Skill | 用在哪一步 | 作者 | 原仓库 |
+|---|---|---|---|
+| ask-park-video | 加工 · 口播视频 | Park | [zinan92/park-koubo-workflow](https://github.com/zinan92/park-koubo-workflow) |
+| khazix-writer | 加工 · 文章 | 数字生命卡兹克 | [KKKKhazix/khazix-skills](https://github.com/KKKKhazix/khazix-skills) |
+| dbs-content / dbs-deconstruct / dbs-diagnosis / dbs-wechat-html | 选题 · 发出 · 复盘 | dontbesilent | [dontbesilent2025/dbskill](https://github.com/dontbesilent2025/dbskill) |
+| video-shotcraft | 加工 · 产品视频 | Vincentwei1021 | [Vincentwei1021/video-shotcraft](https://github.com/Vincentwei1021/video-shotcraft) |
+| gzh-design | 发出 · 公众号排版 | isjiamu | [isjiamu/gzh-design-skill](https://github.com/isjiamu/gzh-design-skill) |
+| x-mentor-skill | 选题 · X | alchaincyf | [alchaincyf/x-mentor-skill](https://github.com/alchaincyf/x-mentor-skill) |
+| baoyu-post-to-wechat | 发出 · 公众号 | 宝玉 | [JimLiu/baoyu-skills](https://github.com/JimLiu/baoyu-skills) |
+
+完整名单与调用方式见 [`config/skills.json`](config/skills.json)。
+
+## 边界
+
+- **笔记只读**：只开放 6 个白名单文件夹，拒绝 `..`、绝对路径和软链逃逸；库里其它文件夹（包括密钥目录）不可达。库里的 HTML 以 `CSP: sandbox` 返回。
+- **不代发布**：文章交给研习室由 Park 发布；抖音只读数据，不发、不评、不私信。
+- **抓取克制**：串行、页间 ≥1.5 秒、每账号最多 3 页；遇验证页或反作弊立即停止。
+- **数据本机**：cookies、SQLite、报告、草稿都在 `~/.config/content-studio/`，不进仓库。
+- **拆解结论是假设**：结构标签与「为什么爆」是待验证的参考，不是爆款判定规则。
 
 ## 命令行
 
 | 命令 | 作用 |
-| --- | --- |
-| `python3 -m content_studio serve` | 启动网页（默认端口 8780）并在后台串行处理拆解队列 |
-| `python3 -m content_studio sync` | 一次性同步：所有抖音账号作品 + 自己的后台数据 + 自动入队爆款；遇到抖音验证立即停止 |
-| `python3 -m content_studio work` | 不开网页，把队列跑完后退出 |
+|---|---|
+| `python3 -m content_studio serve` | 启动网页（默认 8780）并在后台串行处理拆解队列 |
+| `python3 -m content_studio sync` | 同步所有抖音账号作品 + 自己的后台数据 + 自动入队爆款 |
+| `python3 -m content_studio work` | 不开网页，把拆解队列跑完后退出 |
 | `python3 -m content_studio add-account <主页链接> [--self]` | 命令行加账号 |
 | `python3 -m content_studio creator-sync` | 只抓自己的创作者后台数据（最近 90 天） |
 | `python3 -m content_studio pipeline --url <视频链接>` | 不入库，直接对链接出报告 |
-| `python3 -m content_studio write-schedule` | 生成每日同步的 launchd 配置文件，**只写文件不启用**；输出里有启用 / 停用命令 |
+| `python3 -m content_studio write-schedule` | 生成每日同步的 launchd 配置，只写文件不启用 |
 
-## 创作者后台数据
+## API 参考
 
-`creator-sync` 从 `creator.douyin.com` 的作品列表读取最近 90 天记录，保存播放、完播率、5s 完播、封面点击率、2s 跳出、平均观看时长、点赞、分享、评论、收藏、主页访问和粉丝增量，按作品 ID 幂等更新；串行分页、页间等待。
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/today/plan` | 今日主线 6 步与完成状态 |
+| `GET` | `/api/today/dailies` · `PUT /api/today/checks` | 当天日报与「已看」 |
+| `GET` | `/api/vault/inbox?days=1&source=` | 最近进项（剪藏 / 收藏 / 原始输出） |
+| `GET` | `/api/vault/note?path=` | 读一条笔记（白名单内） |
+| `PUT` | `/api/vault/triage` | 做成选题 / 忽略 / 撤销 |
+| `GET` `POST` `PATCH` | `/api/topics` · `/api/topics/{id}` | 选题 |
+| `POST` | `/api/topics/{id}/write` | 后台写文章 |
+| `GET` `PUT` | `/api/topics/{id}/article` · `GET …/article.md` | 草稿读写与下载 |
+| `POST` | `/api/topics/{id}/handoff` | 交给研习室（状态改待发，返回后台地址） |
+| `GET` | `/api/hot` · `/api/skills` | 热点 · Skills |
+| `GET` `POST` | `/api/accounts` · `/api/mine` · `/api/outliers` | 账号、我的视频、爆款 |
+| `GET` `POST` | `/api/jobs` · `/api/reports` | 拆解队列与报告 |
 
-## 拆解流水线
+## 配置
 
-把任意抖音视频链接串成：下载（`content-downloader`）→ 转写（`content-extractor`）→ 结构拆解（模型）→ 报告。
+| 项 | 说明 | 默认值 |
+|---|---|---|
+| 设置 · Obsidian 库路径 | 读取进项的库 | `~/park-hands` |
+| 设置 · 研习室电脑后台地址 | 「交给研习室」时打开 | 空 |
+| 设置 · 爆款门槛 | 点赞 ÷ 账号自身中位数 | `5×` |
+| `CONTENT_DOWNLOADER_PATH` | content-downloader 路径 | `~/work/content-downloader` |
+| `CONTENT_STUDIO_LLM_CMD` | 结构拆解命令（stdin 提示词 → stdout JSON） | `claude -p --model sonnet …` |
+| `CONTENT_STUDIO_WRITER_CMD` | 写文章命令 | `claude -p --model opus …`（允许 Skill/Read） |
 
-```bash
-PYTHONPATH=~/work/content-downloader python3 -m content_studio pipeline \
-  --url https://www.douyin.com/video/7651653378111540495 \
-  --cookies ~/.config/content-studio/douyin-cookies.json \
-  --data-dir ~/.config/content-studio/m1 \
-  --downloads-dir ~/.config/content-studio/downloads
+## For AI Agents
+
+```yaml
+name: content-studio
+version: 0.1.0
+capability:
+  summary: Local daily content-production workbench for one creator — Obsidian inbox to topics, khazix-writer article drafts, and Douyin breakout teardowns.
+  in: Obsidian vault folders (read-only) + Douyin profile/video URLs
+  out: today plan, topics, article drafts (Markdown), teardown reports (JSON/Markdown)
+  fail:
+    - "vault path missing → 404 with Chinese guidance"
+    - "Douyin verification or anti-spam → stop, no retry"
+    - "claude CLI logged out → task failed with re-login message"
+api_base_url: http://127.0.0.1:8780
+endpoints:
+  - path: /api/today/plan
+    method: GET
+    description: six steps of today's line with done flags
+  - path: /api/topics
+    method: POST
+    description: create a topic
+    body:
+      content_type: application/json
+      schema:
+        title: string
+        formats: article|video|both
+        note_paths: list[string]
+  - path: /api/topics/{id}/write
+    method: POST
+    description: start writing an article draft in the background
+install_command: python3 -m pip install -e '.[dev]'
+start_command: python3 -m content_studio serve
+health_check: GET /api/state
 ```
 
-- **判断与计算分离**：主线、按意思分段、每段是否服务主线（附理由）、"为什么爆 / 为什么散"由模型给出；收藏/赞、转发/赞、评论/赞、账号点赞中位数倍数等数字由代码算好再交给模型，结论必须引用数字，不合格会带错误重试一次。
-- **证据可复验**：每条结论的引文由代码按时间点回查真实转写，不采用模型复述。
-- **账号基准**：按作者近 60 条非置顶作品的点赞中位数计算倍数，缓存 24 小时（`data-dir/baselines/`）。
-- **自己的视频**：若 `creator-sync` 已存该视频后台数据，报告增加"观众平均看到的前 N 秒"一节；对标视频没有这一节。
-- **模型**：默认调用本机已登录的 `claude -p --model sonnet`（禁用所有工具）；可用环境变量 `CONTENT_STUDIO_LLM_CMD` 换成其他命令，命令需从标准输入读提示词、向标准输出写 JSON。
-- **转写纠错**：`config/glossary.json` 词表，增删不需要改代码。
+```python
+import httpx, time
 
-报告写入 `data-dir/reports/<content_id>/report.json` 与 `report.md`。结构标签和结论是待验证假设，不是爆款判定规则。
-
-## 输入 / 输出 / 失败合同
-
-```text
-in   external browser-export cookies JSON + manual creator-sync command
-out  local SQLite records keyed by video_id, with fetched_at and raw_json
-fail missing/unsafe cookies -> clear error
-fail expired session -> clear re-login message
-fail CAPTCHA/risk control -> stop immediately and report
+base = "http://127.0.0.1:8780"
+plan = httpx.get(f"{base}/api/today/plan").json()
+topic = httpx.post(f"{base}/api/topics", json={"title": "为什么用了 AI 反而更累", "formats": "article"}).json()
+httpx.post(f"{base}/api/topics/{topic['id']}/write")
+while httpx.get(f"{base}/api/topics").json()[0]["write_state"] == "running":
+    time.sleep(10)
+draft = httpx.get(f"{base}/api/topics/{topic['id']}/article").json()["markdown"]
 ```
 
-数据库表 `creator_video_metrics` 的每行对应一条作品，`raw_json` 保存该作品的原始后台字段；数据库默认在仓库外的 `~/.config/content-studio/data/`，目录权限为 `700`，数据库权限为 `600`。
+## 相关项目
 
-## 验证
+| 项目 | 关系 |
+|---|---|
+| [content-downloader](https://github.com/zinan92/content-downloader) | 抖音作品列表与视频下载的唯一入口 |
+| [content-extractor](https://github.com/zinan92/content-extractor) | 视频转写（mlx-whisper） |
+| [park-koubo-workflow](https://github.com/zinan92/park-koubo-workflow) | Park 的口播视频工作流 skill |
+| [content-production](https://github.com/zinan92/content-production) | Content 宇宙注册表 |
 
-```bash
-python3 -m pytest -q
-git diff --check
-```
+## License
 
-项目需求合同在 [`docs/spec.md`](docs/spec.md)，视觉与交互基线在 [`docs/prototype/index.html`](docs/prototype/index.html)。不要把样稿里的静态数组当作接口合同。
-
-## 边界
-
-- 不发布内容、评论、私信或代操作账号。
-- 不自动启用任何定时任务：每日同步需要 Park 本人运行 `write-schedule` 输出里的启用命令。
-- 抖音同步每账号最多 3 页、页间 ≥1.5 秒、串行；遇到验证页立即停止并在页面上提示。
-- 不把 cookies、原始响应或本机数据库提交到 GitHub。
-- “5 类生态位”和“四步结构检查”只允许作为待验证报告维度，不能成为爆款判定规则。
+未指定。
