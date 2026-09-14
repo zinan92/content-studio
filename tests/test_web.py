@@ -248,3 +248,30 @@ def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_pat
     assert [d for d in client.get("/api/today/dailies").json()["items"] if d["key"] == "morning_brief"][0]["checked_at"]
     assert client.put("/api/today/checks", json={"day": today, "key": "nope", "checked": True}).status_code == 400
     assert (root / "Clippings" / "a.md").read_text(encoding="utf-8").endswith("正文")
+
+
+def test_topics_from_triage_and_today_plan(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "vault2"
+    (root / "003_park原始输出").mkdir(parents=True)
+    (root / "003_park原始输出" / "灵感.md").write_text("# 不是我用AI\n想法", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+
+    res = client.put("/api/vault/triage", json={"path": "003_park原始输出/灵感.md", "status": "topic"}).json()
+    topic = res["topic"]
+    assert topic["title"] == "不是我用AI" and topic["note_paths"] == ["003_park原始输出/灵感.md"]
+    again = client.put("/api/vault/triage", json={"path": "003_park原始输出/灵感.md", "status": "topic"}).json()
+    assert again["topic"]["id"] == topic["id"] and len(client.get("/api/topics").json()) == 1
+
+    manual = client.post("/api/topics", json={"title": "手动选题", "formats": "video"}).json()
+    assert client.post("/api/topics", json={"title": " "}).status_code == 400
+    assert client.patch(f"/api/topics/{manual['id']}", json={"status": "nope"}).status_code == 400
+    published = client.patch(f"/api/topics/{manual['id']}", json={"status": "published", "published_url": "https://v.douyin.com/x"}).json()
+    assert published["published_at"]
+    client.patch(f"/api/topics/{manual['id']}", json={"archived": True})
+    assert [t["id"] for t in client.get("/api/topics").json()] == [topic["id"]]
+
+    plan = client.get("/api/today/plan").json()
+    steps = {s["key"]: s for s in plan["steps"]}
+    assert steps["triage"]["done"] is True and steps["pick"]["done"] is True
+    client.put("/api/today/checks", json={"day": plan["day"], "key": "video_shot", "checked": True})
+    assert {s["key"]: s for s in client.get("/api/today/plan").json()["steps"]}["video"]["done"] is True

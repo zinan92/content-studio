@@ -14,6 +14,8 @@ DEFAULT_STORE_PATH = Path("~/.config/content-studio/data/studio.sqlite3")
 
 JOB_STAGES = ("queued", "downloading", "transcribing", "analyzing", "done", "failed")
 ACTIVE_STAGES = ("downloading", "transcribing", "analyzing")
+TOPIC_STATUSES = ("todo", "drafting", "ready", "published")
+TOPIC_FORMATS = ("article", "video", "both")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "threshold": 5.0,
@@ -85,6 +87,21 @@ CREATE TABLE IF NOT EXISTS inbox_triage (
     path TEXT PRIMARY KEY,
     status TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS topics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    note_paths TEXT NOT NULL DEFAULT '[]',
+    formats TEXT NOT NULL DEFAULT 'both',
+    status TEXT NOT NULL DEFAULT 'todo',
+    memo TEXT,
+    article_path TEXT,
+    published_url TEXT,
+    published_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT
 );
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -194,6 +211,77 @@ class StudioStore:
                     "ON CONFLICT(path) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at",
                     (path, status, now_iso()),
                 )
+
+    # -- topics -----------------------------------------------------------
+
+    def _topic_row(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {**row, "note_paths": json.loads(row["note_paths"] or "[]")}
+
+    def topic(self, topic_id: int) -> dict[str, Any]:
+        row = self._topic_row(self._row("SELECT * FROM topics WHERE id = ?", (topic_id,)))
+        if row is None:
+            raise StoreError("选题不存在")
+        return row
+
+    def topics(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+        where = "" if include_archived else "WHERE archived_at IS NULL"
+        return [self._topic_row(r) for r in self._rows(f"SELECT * FROM topics {where} ORDER BY updated_at DESC, id DESC")]
+
+    def topic_for_note(self, path: str) -> dict[str, Any] | None:
+        for topic in self.topics(include_archived=True):
+            if path in topic["note_paths"]:
+                return topic
+        return None
+
+    def create_topic(
+        self,
+        title: str,
+        *,
+        note_paths: list[str] | None = None,
+        formats: str = "both",
+        account_id: int | None = None,
+        memo: str | None = None,
+    ) -> dict[str, Any]:
+        title = (title or "").strip()
+        if not title:
+            raise StoreError("选题标题不能为空")
+        if formats not in TOPIC_FORMATS:
+            raise StoreError("形式只能是 文章、视频 或 两者")
+        stamp = now_iso()
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "INSERT INTO topics(account_id, title, note_paths, formats, memo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (account_id, title[:200], json.dumps(note_paths or [], ensure_ascii=False), formats, memo, stamp, stamp),
+            )
+            topic_id = cursor.lastrowid
+        return self.topic(topic_id)
+
+    def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")
+        current = self.topic(topic_id)
+        if "status" in fields:
+            if fields["status"] not in TOPIC_STATUSES:
+                raise StoreError("状态只能是 待写、草稿、待发、已发")
+            if fields["status"] == "published" and current["status"] != "published":
+                fields["published_at"] = now_iso()
+            if fields["status"] != "published":
+                fields["published_at"] = None
+        if "formats" in fields and fields["formats"] not in TOPIC_FORMATS:
+            raise StoreError("形式只能是 文章、视频 或 两者")
+        if "title" in fields and not str(fields["title"] or "").strip():
+            raise StoreError("选题标题不能为空")
+        if "note_paths" in fields:
+            fields["note_paths"] = json.dumps(fields["note_paths"] or [], ensure_ascii=False)
+        fields["updated_at"] = now_iso()
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        with self.tx() as conn:
+            conn.execute(f"UPDATE topics SET {assignments} WHERE id = ?", (*fields.values(), topic_id))
+        return self.topic(topic_id)
 
     # -- settings ---------------------------------------------------------
 

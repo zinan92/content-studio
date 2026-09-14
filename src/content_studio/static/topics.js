@@ -1,0 +1,137 @@
+'use strict';
+/* 选题 + 今日主线 */
+window.VIEWS = window.VIEWS || {};
+window.TODAY_CARDS = window.TODAY_CARDS || [];
+
+const TP = { topics: null, plan: null, planAt: 0, loadedAt: 0 };
+const STATUS_COLS = [['todo', '待写'], ['drafting', '草稿中'], ['ready', '待发'], ['published', '已发出']];
+const FORMAT_NAME = { article: '文章', video: '视频', both: '文章 + 视频' };
+window.TOPIC_ACTIONS = window.TOPIC_ACTIONS || []; // later modules add buttons: (topic) => html
+
+async function loadTopics(force) {
+  if (!force && TP.topics && Date.now() - TP.loadedAt < 15000) return;
+  TP.topics = await api('/api/topics');
+  TP.loadedAt = Date.now();
+}
+
+async function loadPlan(force) {
+  if (!force && TP.plan && Date.now() - TP.planAt < 15000) return;
+  TP.plan = await api(`/api/today/plan?day=${new Date().toLocaleDateString('sv-SE')}`);
+  TP.planAt = Date.now();
+}
+
+async function patchTopic(id, body, message) {
+  try {
+    await api(`/api/topics/${id}`, { method: 'PATCH', body });
+    if (message) toast(message);
+    await Promise.all([loadTopics(true), loadPlan(true)]);
+    renderView();
+  } catch (err) { toast(err.message); }
+}
+window.patchTopic = patchTopic;
+window.refreshTopics = async () => { await Promise.all([loadTopics(true), loadPlan(true)]); renderView(); };
+
+function topicCard(t) {
+  const notes = t.note_paths.map((p) => `<button type="button" class="linklike note-link clamp" data-note="${esc(p)}">📄 ${esc(p.split('/').pop().replace(/\.md$/, ''))}</button>`).join('');
+  const extra = window.TOPIC_ACTIONS.map((fn) => fn(t)).join('');
+  return `<div class="topic" data-topic-id="${t.id}">
+    <b class="clamp">${esc(t.title)}</b>
+    <div class="topic-meta"><span class="src-tag">${FORMAT_NAME[t.formats] || t.formats}</span>${t.published_url ? `<a href="${esc(t.published_url)}" target="_blank" rel="noopener">发出链接 ↗</a>` : ''}</div>
+    ${notes ? `<div class="topic-notes">${notes}</div>` : ''}
+    <div class="acts">
+      ${extra}
+      <select data-status="${t.id}" aria-label="状态">${STATUS_COLS.map(([k, l]) => `<option value="${k}" ${t.status === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select data-format="${t.id}" aria-label="形式">${Object.entries(FORMAT_NAME).map(([k, l]) => `<option value="${k}" ${t.formats === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="btn small ghost" type="button" data-archive-topic="${t.id}">归档</button>
+    </div>
+  </div>`;
+}
+
+function bindTopicCards(root) {
+  $$('[data-status]', root).forEach((sel) => (sel.onchange = async () => {
+    let body = { status: sel.value };
+    if (sel.value === 'published') {
+      const url = prompt('发出链接（研习室或抖音，可留空）', '');
+      if (url === null) { sel.value = TP.topics.find((t) => t.id === Number(sel.dataset.status)).status; return; }
+      if (url.trim()) body.published_url = url.trim();
+    }
+    patchTopic(Number(sel.dataset.status), body, '已更新状态');
+  }));
+  $$('[data-format]', root).forEach((sel) => (sel.onchange = () => patchTopic(Number(sel.dataset.format), { formats: sel.value }, '已更新形式')));
+  $$('[data-archive-topic]', root).forEach((b) => (b.onclick = () => patchTopic(Number(b.dataset.archiveTopic), { archived: true }, '已归档选题')));
+  $$('[data-note]', root).forEach((b) => (b.onclick = () => openNote(b.dataset.note)));
+}
+
+window.VIEWS.topics = {
+  async render() {
+    const body = $('#topicsBody');
+    try { await loadTopics(false); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    const sig = JSON.stringify([TP.loadedAt]);
+    if (body.dataset.sig === sig) return;
+    body.dataset.sig = sig;
+    const topics = TP.topics;
+    body.innerHTML = `<div class="panel">
+        <form class="linkbox" id="topicForm">
+          <input id="topicIn" placeholder="新选题，例如：为什么用了 AI 反而更累" aria-label="选题标题" autocomplete="off">
+          <select id="topicFmt" aria-label="形式">${Object.entries(FORMAT_NAME).map(([k, l]) => `<option value="${k}" ${k === 'both' ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <button class="btn primary" type="submit">加选题</button>
+        </form>
+        <div class="hint">也可以在「素材库」里点「做成选题」，会自动带上原笔记。</div>
+      </div>
+      <div class="kanban">${STATUS_COLS.map(([k, l]) => {
+        const col = topics.filter((t) => t.status === k);
+        return `<div class="kanban-col"><div class="kanban-h"><b>${l}</b><span class="num">${col.length}</span></div>${col.map(topicCard).join('') || '<div class="kanban-empty">—</div>'}</div>`;
+      }).join('')}</div>`;
+    $('#topicForm').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/topics', { method: 'POST', body: { title: $('#topicIn').value, formats: $('#topicFmt').value, account_id: S.mine.account ? S.mine.account.id : null } });
+        toast('已加选题');
+        await Promise.all([loadTopics(true), loadPlan(true)]);
+        renderView();
+      } catch (err) { toast(err.message); }
+    };
+    bindTopicCards(body);
+    $('#navTopics').textContent = topics.filter((t) => t.status !== 'published').length || '';
+  },
+};
+
+window.TODAY_CARDS.push({
+  id: 'plan',
+  order: 0,
+  wide: true,
+  title: '今日主线',
+  async render(el) {
+    try { await loadPlan(false); } catch (err) { el.innerHTML = `<div class="panel-h"><h2>今日主线</h2></div><div class="empty"><span>${esc(err.message)}</span></div>`; return; }
+    const p = TP.plan;
+    const firstOpen = p.steps.findIndex((s) => !s.done);
+    el.innerHTML = `<div class="panel-h"><h2>今日主线</h2><small>${p.done}/${p.steps.length} 完成</small></div>
+      <ol class="plan">${p.steps.map((s, i) => `<li class="${s.done ? 'done' : i === firstOpen ? 'now' : ''}">
+        <span class="plan-dot">${s.done ? '✓' : i + 1}</span>
+        <div class="plan-body"><b>${esc(s.title)}</b><span>${esc(s.detail)}</span></div>
+        <div class="acts">${s.manual ? `<label class="manual"><input type="checkbox" data-manual="${s.key}" ${s.done ? 'checked' : ''}> 拍完了</label>` : ''}${s.go && s.go !== 'today' ? `<button class="btn small ${i === firstOpen ? 'primary' : ''}" type="button" data-go="${s.go}">去做</button>` : ''}</div>
+      </li>`).join('')}</ol>`;
+    $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
+    $$('[data-manual]', el).forEach((box) => (box.onchange = async () => {
+      try {
+        await api('/api/today/checks', { method: 'PUT', body: { day: p.day, key: 'video_shot', checked: box.checked } });
+        await loadPlan(true);
+        renderView();
+      } catch (err) { toast(err.message); }
+    }));
+  },
+});
+
+window.TODAY_CARDS.push({
+  id: 'topics',
+  order: 30,
+  title: '进行中的选题',
+  async render(el) {
+    try { await loadTopics(false); } catch (err) { el.innerHTML = ''; return; }
+    const active = TP.topics.filter((t) => t.status !== 'published');
+    el.innerHTML = `<div class="panel-h"><h2>进行中的选题</h2><small>${active.length} 个</small></div>
+      ${active.length ? `<div class="inbox-mini">${active.slice(0, 5).map((t) => `<div class="inbox-mini-row"><span class="src-tag">${STATUS_COLS.find(([k]) => k === t.status)[1]}</span><span class="clamp">${esc(t.title)}</span><span class="muted">${FORMAT_NAME[t.formats]}</span></div>`).join('')}</div>` : '<div class="empty"><span>还没有选题。去素材库挑一条「做成选题」。</span></div>'}
+      <div class="card-foot"><button class="linklike" type="button" data-go="topics">打开选题 →</button></div>`;
+    $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
+  },
+});
