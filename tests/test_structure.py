@@ -150,9 +150,18 @@ def test_scatter_reasons_may_be_structural_without_numbers() -> None:
 
 
 def test_judgement_that_never_validates_raises() -> None:
-    bad = _judgement(segments=[{"start": 0, "end": 150, "label": "跑题", "summary": "x", "serves_thesis": True, "reason": "x"}])
+    bad = _judgement(segments=[{"start": 0, "end": 150, "label": "钩子", "summary": "x", "serves_thesis": True, "reason": "x"}])
     with pytest.raises(ReportError):
         build_report(_item(), TRANSCRIPT, judge_fn=lambda _prompt: bad)
+
+
+def test_conflicting_drift_signals_are_treated_as_drift() -> None:
+    judgement = _judgement()
+    judgement["segments"][1]["serves_thesis"] = False
+    judgement["segments"][2]["serves_thesis"] = True
+    report = build_report(_item(), TRANSCRIPT, judge_fn=lambda _prompt: judgement)
+    assert [s["label"] for s in report["segments"]][1:3] == ["跑题", "跑题"]
+    assert [s["drift"] for s in report["segments"]] == [False, True, True, False]
 
 
 def test_source_url_drops_tracking_parameters() -> None:

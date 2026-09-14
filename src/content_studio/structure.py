@@ -208,7 +208,7 @@ def build_prompt(
     )
     retry = f"\n\n上一次输出没有通过校验：{error}\n请修正后重新输出完整 JSON。" if error else ""
     return f"""你是短视频内容结构分析师。下面是一条抖音视频的标题、数据和带时间戳（秒）的完整转写。
-请只输出一个 JSON 对象，不要输出任何其他文字。
+请只输出一个 JSON 对象，不要输出任何其他文字。字符串里需要引号时用「」，不要用英文双引号。
 
 ## 标题
 {title}
@@ -245,6 +245,17 @@ def _has_number(text: str) -> bool:
     return bool(re.search(r"\d", text))
 
 
+def reconcile_drift(raw: dict[str, Any]) -> dict[str, Any]:
+    """Either drift signal marks a segment as drift, so the two fields never disagree."""
+    for segment in raw.get("segments") or []:
+        if isinstance(segment, dict) and (segment.get("label") == "跑题" or segment.get("serves_thesis") is False):
+            segment["label"] = "跑题"
+            segment["serves_thesis"] = False
+        elif isinstance(segment, dict):
+            segment["serves_thesis"] = True
+    return raw
+
+
 def validate_judgement(raw: dict[str, Any], duration: float, needs_opening: bool) -> list[str]:
     problems: list[str] = []
     thesis = raw.get("thesis")
@@ -267,8 +278,6 @@ def validate_judgement(raw: dict[str, Any], duration: float, needs_opening: bool
                 continue
             if end <= start:
                 problems.append(f"segments[{index}] end 必须大于 start")
-            if (segment.get("label") == "跑题") == bool(segment.get("serves_thesis")):
-                problems.append(f"segments[{index}] label 与 serves_thesis 不一致")
             if not str(segment.get("reason") or "").strip():
                 problems.append(f"segments[{index}].reason 缺失")
         if duration > 60 and len(segments) < 3:
@@ -300,7 +309,7 @@ def judge_structure(
     facts: dict[str, Any],
     opening_seconds: float | None,
     judge_fn: JudgeFn,
-    attempts: int = 3,
+    attempts: int = 4,
 ) -> dict[str, Any]:
     duration = lines[-1]["end"] if lines else 0.0
     error: str | None = None
@@ -310,6 +319,7 @@ def judge_structure(
         except JudgeError as exc:
             error = str(exc)
             continue
+        raw = reconcile_drift(raw)
         problems = validate_judgement(raw, duration, needs_opening=opening_seconds is not None)
         if not problems:
             return raw
