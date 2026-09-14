@@ -9,13 +9,13 @@
 
 ## Done looks like
 
-Park 可以从真实抖音链接一路得到可读的拆解报告；自己的创作者后台逐条数据已在本机存档；四个页面（我的视频、对标雷达、拆解队列、拆解报告）显示真实数据并保持样稿的交互；M1 的三份样本报告经 Park 阅读后认为“说中了”。视觉与交互基线见 [`docs/prototype/index.html`](docs/prototype/index.html)，线上基线为 [Claude artifact](https://claude.ai/code/artifact/6d9672af-68eb-45cc-b65e-98fd07bea1dd)。
+Park 可以从真实抖音链接一路得到可读的拆解报告；自己的创作者后台逐条数据已在本机存档；四个页面（我的视频、对标雷达、拆解队列、拆解报告）显示真实数据并保持样稿的交互；M1 的三份样本报告经 Park 阅读后认为“说中了”。视觉与交互基线为 [Claude artifact](https://claude.ai/code/artifact/6d9672af-68eb-45cc-b65e-98fd07bea1dd)（原仓库内副本含创作者后台私密数据，公开前已移除）。
 
 ## Approved foundations
 
 | Item | Canonical artifact / reference | Decision date | Do not reinvent |
 | --- | --- | --- | --- |
-| 视觉与交互基线 | [`docs/prototype/index.html`](docs/prototype/index.html) · [线上样稿](https://claude.ai/code/artifact/6d9672af-68eb-45cc-b65e-98fd07bea1dd) | 2026-09-13 | yes |
+| 视觉与交互基线 | [线上样稿](https://claude.ai/code/artifact/6d9672af-68eb-45cc-b65e-98fd07bea1dd) | 2026-09-13 | yes |
 | 对标库初始名单 | dontbesilent 聊赚钱、千雪AI、柱子哥TzFilm | 2026-09-13 | yes |
 | 爆款基准 | 账号自身点赞中位数 × 倍数门槛，默认 5×，可调 | 2026-09-13 | yes |
 | 能力复用 | `content-downloader` 是唯一下载入口（先修抖音适配）；`content-extractor` 是唯一转写入口；`content-intelligence` 与 `content-workbench` 只作参考 | 2026-09-13 | yes |
