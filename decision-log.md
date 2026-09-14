@@ -100,3 +100,11 @@
 **Why:** worktable 把 Park 的选择存在 localStorage，沙箱源里不可用，刷新会丢；该页面由 Park 自己的 skill 生成，可信。
 
 **Gotchas:** launchd 下的 Python 读 `~/Downloads` 会触发 macOS 隐私授权弹窗并阻塞请求（实测卡死），所以服务端永远不扫描「下载」文件夹。
+
+## 2026-09-14 — 后台代跑口播 workflow，审批在工作台里点（#56）
+
+**Decision:** Park 授权后，工作台可以在后台用 `claude -p --model opus`（允许 Skill/Bash/Read/Write/Edit/Glob/Grep，工作目录与 --add-dir 都是项目目录）跑 ask-park-video 到下一个审批门；一次只跑一个，进程组独立于服务（重启不打断），退出码写在日志旁边，可中止。H1/H2/H3 在工作台里看材料后点批准，写入 project.json 的 approvals（by Park / via content-studio）并追加 process-log。项目停在审批门时不允许启动。
+
+**Why:** Park 在外面也要能推进剪辑；三个审批门仍然由 Park 本人决定。
+
+**Gotchas:** H1 批准要求 worktable.json 已导入；旧版目录（无 project.json）不能代跑。

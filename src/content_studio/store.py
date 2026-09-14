@@ -136,6 +136,17 @@ CREATE TABLE IF NOT EXISTS reviews (
     data TEXT,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_id INTEGER NOT NULL,
+    project TEXT NOT NULL,
+    pid INTEGER,
+    state TEXT NOT NULL,
+    log_path TEXT,
+    exit_path TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -340,6 +351,33 @@ class StudioStore:
             else:
                 conn.execute("DELETE FROM publish_records WHERE topic_id = ? AND platform = ?", (topic_id, platform))
         return self.publish_records(topic_id)
+
+    def create_run(self, topic_id: int, project: str) -> int:
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "INSERT INTO workflow_runs(topic_id, project, state, started_at) VALUES (?, ?, 'starting', ?)", (topic_id, project, now_iso())
+            )
+        return int(cursor.lastrowid)
+
+    def update_run(self, run_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"pid", "state", "log_path", "exit_path", "started_at", "finished_at"}
+        if set(fields) - allowed:
+            raise StoreError("不可更新的运行字段")
+        if fields:
+            assignments = ", ".join(f"{k} = ?" for k in fields)
+            with self.tx() as conn:
+                conn.execute(f"UPDATE workflow_runs SET {assignments} WHERE id = ?", (*fields.values(), run_id))
+        return self._row("SELECT * FROM workflow_runs WHERE id = ?", (run_id,)) or {}
+
+    def runs(self, *, topic_id: int | None = None, active_only: bool = False) -> list[dict[str, Any]]:
+        where, params = [], []
+        if topic_id is not None:
+            where.append("topic_id = ?")
+            params.append(topic_id)
+        if active_only:
+            where.append("state IN ('starting', 'running')")
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        return self._rows(f"SELECT * FROM workflow_runs {clause} ORDER BY id DESC", tuple(params))
 
     def topic_for_note(self, path: str) -> dict[str, Any] | None:
         for topic in self.topics(include_archived=True):
