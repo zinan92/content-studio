@@ -74,7 +74,7 @@ window.VIDEO_TABS.push({
 window.VIEWS.video = {
   async render() {
     const body = $('#videoBody');
-    if (VD.dirty) return;
+    if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'copy')) return;
     let topics;
     try { topics = await api('/api/topics'); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     const candidates = topics.filter((t) => t.formats !== 'article');
@@ -90,8 +90,8 @@ window.VIEWS.video = {
     body.innerHTML = `<div class="art-grid"><div class="panel art-list">${list}</div><div class="panel art-main">${topic ? `
       <div class="video-head"><h2>${esc(topic.title)}</h2><div class="video-tabs" role="tablist">${tabs.map((tab) => `<button type="button" role="tab" class="${VD.tab === tab.key ? 'on' : ''}" data-vtab="${tab.key}">${tab.label}${tab.badge(topic) ? `<small>${esc(tab.badge(topic))}</small>` : ''}</button>`).join('')}</div></div>
       <div id="videoTab"></div>` : '<div class="empty"><span>左边选一个视频选题。</span></div>'}</div></div>`;
-    $$('[data-vtopic]', body).forEach((b) => (b.onclick = () => { VD.topicId = Number(b.dataset.vtopic); VD.outline = null; VD.mode = 'preview'; renderView(); }));
-    $$('[data-vtab]', body).forEach((b) => (b.onclick = () => { VD.tab = b.dataset.vtab; body.dataset.sig = ''; renderView(); }));
+    $$('[data-vtopic]', body).forEach((b) => (b.onclick = () => { if (typeof CP !== 'undefined') CP.dirty = false; VD.topicId = Number(b.dataset.vtopic); VD.outline = null; VD.mode = 'preview'; renderView(); }));
+    $$('[data-vtab]', body).forEach((b) => (b.onclick = () => { if (typeof CP !== 'undefined') CP.dirty = false; VD.tab = b.dataset.vtab; body.dataset.sig = ''; renderView(); }));
     if (topic) {
       const tab = tabs.find((x) => x.key === VD.tab) || tabs[0];
       await tab.render(topic, $('#videoTab'));

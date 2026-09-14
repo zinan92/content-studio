@@ -64,6 +64,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         drafts_dir=tmp_path / "drafts",
         write_fn=_fake_writer,
         brief_fn=_fake_brief,
+        copy_fn=lambda prompt: {k: {"title": "" if k == "x" else "标题", "body": "正文", "tags": ["AI"]} for k in ("douyin", "channels", "xiaohongshu", "bilibili", "youtube", "x", "yanxishi")},
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n预计时长：10 分钟\n## 前 15 秒\n- a\n## 主线\nb\n## 第 1 段：x\n- y\n## 第 2 段：x\n- y\n## 第 3 段：x\n- y\n## 结尾\n- z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
@@ -454,3 +455,25 @@ def test_publish_link_performance_and_snapshots(client: TestClient) -> None:
     other = client.post("/api/topics", json={"title": "别的", "formats": "video"}).json()
     assert "5" not in [v["video_id"] for v in client.get(f"/api/topics/{other['id']}/publish").json()["recent"]]
     assert client.put(f"/api/topics/{topic['id']}/publish", json={"video_id": None}).json()["published_video_id"] is None
+
+
+def test_copy_pack_and_platform_records(client: TestClient) -> None:
+    import time
+
+    topic = client.post("/api/topics", json={"title": "文案", "formats": "video"}).json()
+    assert client.post(f"/api/topics/{topic['id']}/copy").status_code == 400
+    client.put(f"/api/topics/{topic['id']}/outline", json={"markdown": "# 提纲\n内容"})
+    assert client.post(f"/api/topics/{topic['id']}/copy").json()["started"] is True
+    for _ in range(200):
+        data = client.get(f"/api/topics/{topic['id']}/copy").json()
+        if data["state"] != "running":
+            break
+        time.sleep(0.02)
+    assert data["copy"]["platforms"]["douyin"]["title"] == "标题" and data["copy"]["checks"]["x"] == []
+    edited = client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"douyin": {"title": "新标题", "body": "b", "tags": ["#AI"]}}}).json()
+    assert edited["platforms"]["douyin"]["tags"] == ["AI"] and edited["platforms"]["x"]["body"] == "正文"
+    assert client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"tiktok": {}}}).status_code == 400
+    records = client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "xiaohongshu", "published": True, "url": "https://www.xiaohongshu.com/x"}).json()
+    assert records["xiaohongshu"]["url"].startswith("https://")
+    assert client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "x", "published": True, "url": "ftp://x"}).status_code == 400
+    assert client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "xiaohongshu", "published": False}).json() == {}
