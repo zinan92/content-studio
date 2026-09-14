@@ -2,7 +2,7 @@
 
 # 内容工作台 · content-studio
 
-**把一个人的内容生产串成每天一条主线：Obsidian 进项 → 选题 → 文章 / 视频 → 发出 → 爆款复盘**
+**把一个人的内容生产串成每天一条主线：Obsidian 进项 → 每日统筹 → 文章 / 口播视频 → 多平台发出 → 数据复盘**
 
 [![Python](https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-local_web-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -15,8 +15,8 @@
 ---
 
 ```
-in   Obsidian 库（剪藏 / 收藏 / 原始输出 / AI 与财经日报） + 抖音账号主页链接 + 视频链接
-out  今日主线（6 步，自动判定完成） + 选题看板 + 卡兹克写作文章草稿 + 抖音爆款拆解报告
+in   Obsidian 库（剪藏 / 收藏 / 原始输出 / 日报） + 口播 workflow 项目目录 + 抖音账号与视频
+out  每日统筹 + 今日主线（8 步，自动判定） + 文章草稿 + 拍摄提纲 + 剪辑进度 + 各平台文案 + 发出后数据 + 拆解报告 + 每周复盘
 
 fail Obsidian 路径不存在      → 页面提示去设置，其它功能照常
 fail 抖音 cookies 缺失/过期   → 顶部提示重新导出，不发请求
@@ -31,9 +31,25 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 
 > 下面的截图来自演示实例，内容是示例数据。
 
-**今天**：打开就知道今天做什么。主线的每一步由数据自动判断完成，没做完的选题留到第二天。
+**今天**：打开就知道今天做什么。主线的每一步由数据自动判断完成；视频项目停在需要你拍板的地方会高亮。
 
 ![今天](docs/screenshots/today.png)
+
+**每日统筹**：读今天的日报、近 2 天剪藏和近 7 天原始输出，给出「今天先读」和「今天可以拍」（首选 + 备选，每条带 Hook、骨架、素材来源和不能讲过头的地方），一键做成选题并写提纲。
+
+![每日统筹](docs/screenshots/brief.png)
+
+**视频 · 拍摄提纲**：前 15 秒直接讲主线，每段都要为主线服务，不写逐字稿。
+
+![拍摄提纲](docs/screenshots/video-outline.png)
+
+**视频 · 剪辑进度**：关联口播 workflow（ask-park-video）的项目目录，按产物读出 14 步进度和审批门；选 Hook 那一步可以直接导入 worktable 的导出。
+
+![剪辑进度](docs/screenshots/video-edit.png)
+
+**视频 · 文案与平台**：抖音、视频号、小红书、B 站、YouTube、X、研习室各一份文案，长度按平台上限检查，发布状态统一记录。不会自动发布。
+
+![文案与平台](docs/screenshots/video-copy.png)
 
 **素材库**：只读 Obsidian 的剪藏、收藏、原始输出，值得做的「做成选题」，不做的「忽略」。
 
@@ -56,11 +72,13 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 | 步 | 在哪 | 做什么 | 怎么算完成 |
 |---|---|---|---|
 | 1 看日报 | 今天 | 读 AI 日报、财经日报、晨报 | 当天已出的日报都勾了「已看」 |
-| 2 回顾进项 | 素材库 | 昨天到现在的新笔记，逐条「做成选题」或「忽略」 | 没有未处理的进项 |
-| 3 选今天做的 | 选题 / 热点 | 挑一条，定形式：文章 / 视频 / 两者 | 有进行中的选题 |
-| 4 写文章 → 研习室 | 文章 | 写文章 → 看、改 → 交给研习室 → 标已发出 | 今天有文章发出 |
-| 5 拍视频 → 抖音 | 选题 | 拍、剪、发 | 手动勾「拍完了」 |
-| 6 复盘 | 我的视频 / 拆解报告 | 看爆款拆解，看完归档 | 报告都看完或今天归档过 |
+| 2 看今日统筹 | 每日统筹 | 今天先读什么、今天拍什么 | 今天的统筹已生成（打开首页自动开始） |
+| 3 回顾进项 | 素材库 | 昨天到现在的新笔记，逐条「做成选题」或「忽略」 | 没有未处理的进项 |
+| 4 选今天做的 | 每日统筹 / 选题 / 热点 | 挑一条，定形式：文章 / 视频 / 两者 | 有进行中的选题 |
+| 5 写文章 → 研习室 | 文章 | 写文章 → 看、改 → 交给研习室 → 标已发出 | 今天有文章发出 |
+| 6 拍视频 → 剪辑 | 视频 | 提纲 → 录 → 口播 workflow 剪辑（审批门会提醒） | 今天发出视频，或手动勾「拍完了」 |
+| 7 发出后看数据 | 视频 · 发出与数据 / 今天 | 关联发出的抖音视频，看 24h/72h/7 天，满 48 小时拆解 | 没有待跟进的已发视频 |
+| 8 复盘 | 拆解报告 / 每周复盘 | 看拆解，看完归档；每周复盘一次 | 报告都看完或今天归档过 |
 
 ## 架构
 
@@ -117,8 +135,14 @@ python3 -m content_studio serve
 | 对标雷达 | 加对标账号（抖音同步；小红书 / X / 视频号先入库），账号自身中位数算倍数 | 已完成 |
 | 拆解队列与报告 | 下载 → 转写 → 模型判断结构 → 代码算数 → 原文回查；报告可归档 | 已完成 |
 | 多账号 | 我的账号可以有多个，左下角切换 | 已完成 |
+| 每日统筹 | 今天先读 3–6 条、今天可拍 2–4 条（首选 + 备选），来源必须来自真实材料，避开已有选题 | 已完成 |
+| 拍摄提纲 | 前 15 秒 + 3–5 段 + 结尾 + 不要讲过头，可编辑 | 已完成 |
+| 剪辑进度 | 口播 workflow 14 步 / 5 阶段 / H1–H3 审批门，按产物判断；worktable 导入；成片在线播放 | 已完成 |
+| 发出与数据 | 自动匹配已发视频、每次同步留快照、24h/72h/7 天、满 48 小时拆解 | 已完成 |
+| 文案与平台 | 7 个平台文案 + 长度校验 + 发布状态 | 已完成 |
+| 每周复盘 | 做对了 / 问题 / 规律 / 下周调整 / 小实验，结论必须指向具体视频 | 已完成 |
 | 研习室自动进草稿箱 | 走研习室设备接口 | 计划中（[#31](https://github.com/zinan92/content-studio/issues/31)） |
-| 视频线 | 口播稿、剪辑、抖音发出记录 | 计划中 |
+| 后台代跑口播 workflow / 自动发布 | 需要 Park 确认 | 待定 |
 | 抖音站内热搜 | 搜索接口触发反作弊，按规则不做 | 不做 |
 
 ## 用到的 Skills
@@ -170,6 +194,12 @@ python3 -m content_studio serve
 | `POST` | `/api/topics/{id}/write` | 后台写文章 |
 | `GET` `PUT` | `/api/topics/{id}/article` · `GET …/article.md` | 草稿读写与下载 |
 | `POST` | `/api/topics/{id}/handoff` | 交给研习室（状态改待发，返回后台地址） |
+| `GET` `POST` | `/api/briefing` · `/api/briefing/generate` · `/api/briefing/topic` | 每日统筹 |
+| `POST` `GET` `PUT` | `/api/topics/{id}/outline` | 拍摄提纲 |
+| `GET` `PUT` `POST` | `/api/topics/{id}/video-project` · `…/worktable` · `/api/video-projects` | 口播项目进度与 worktable 导入 |
+| `GET` `PUT` | `/api/topics/{id}/publish` | 关联已发视频与数据 |
+| `POST` `GET` `PUT` | `/api/topics/{id}/copy` · `PUT /api/topics/{id}/platforms` | 各平台文案与发布状态 |
+| `GET` `POST` | `/api/review` · `/api/review/generate` | 每周复盘 |
 | `GET` | `/api/hot` · `/api/skills` | 热点 · Skills |
 | `GET` `POST` | `/api/accounts` · `/api/mine` · `/api/outliers` | 账号、我的视频、爆款 |
 | `GET` `POST` | `/api/jobs` · `/api/reports` | 拆解队列与报告 |
@@ -180,10 +210,12 @@ python3 -m content_studio serve
 |---|---|---|
 | 设置 · Obsidian 库路径 | 读取进项的库 | `~/park-hands` |
 | 设置 · 研习室电脑后台地址 | 「交给研习室」时打开 | 空 |
+| 设置 · 口播视频项目目录 | ask-park-video 项目所在目录 | `/Volumes/Phone SSD/视频/exports` |
 | 设置 · 爆款门槛 | 点赞 ÷ 账号自身中位数 | `5×` |
 | `CONTENT_DOWNLOADER_PATH` | content-downloader 路径 | `~/work/content-downloader` |
 | `CONTENT_STUDIO_LLM_CMD` | 结构拆解命令（stdin 提示词 → stdout JSON） | `claude -p --model sonnet …` |
 | `CONTENT_STUDIO_WRITER_CMD` | 写文章命令 | `claude -p --model opus …`（允许 Skill/Read） |
+| `CONTENT_STUDIO_BRIEF_CMD` · `…_OUTLINE_CMD` · `…_COPY_CMD` · `…_REVIEW_CMD` | 统筹 / 提纲 / 文案 / 复盘命令 | 本机 `claude -p`，禁用工具 |
 
 ## For AI Agents
 
