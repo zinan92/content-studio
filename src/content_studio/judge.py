@@ -23,6 +23,10 @@ class JudgeError(RuntimeError):
     """The structure judge did not return a usable JSON object."""
 
 
+class JudgeLoginError(JudgeError):
+    """The local LLM CLI is logged out; retrying will not help until someone logs in."""
+
+
 def parse_json_object(text: str) -> dict:
     """Parse the first JSON object in model output, tolerating code fences."""
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
@@ -54,5 +58,8 @@ def cli_judge(prompt: str, *, command: str | None = None, timeout: float = 600.0
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise JudgeError(f"LLM command failed to run: {exc}") from exc
     if completed.returncode != 0:
+        detail = f"{completed.stderr}\n{completed.stdout}"
+        if re.search(r"authenticat|log ?in|oauth", detail, re.IGNORECASE):
+            raise JudgeLoginError("本机 Claude 命令行登录已过期：在终端运行 claude 并按提示重新登录，然后回到队列点重试")
         raise JudgeError(f"LLM command exited with {completed.returncode}: {completed.stderr.strip()[:300]}")
     return parse_json_object(completed.stdout)

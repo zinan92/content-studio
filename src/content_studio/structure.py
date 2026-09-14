@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from .judge import JudgeError, JudgeFn, cli_judge
+from .judge import JudgeError, JudgeFn, JudgeLoginError, cli_judge
 
 
 MIN_BASELINE_POSTS = 20
@@ -323,6 +323,8 @@ def judge_structure(
     for _ in range(attempts):
         try:
             raw = judge_fn(build_prompt(title, lines, facts, opening_seconds, error))
+        except JudgeLoginError as exc:
+            raise ReportError(str(exc)) from exc
         except JudgeError as exc:
             error = str(exc)
             continue
