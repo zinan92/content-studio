@@ -3,34 +3,35 @@
 > Current snapshot only. Put dated history in `daily/`; put why a durable
 > decision was made in `decision-log.md`.
 
-**Last verified:** 2026-09-14 15:45 CST
+**Last verified:** 2026-09-14 16:40 CST
 
 **State authority:** this file for this project's current state
 **North Star:** [NORTH_STAR.md](NORTH_STAR.md)
 
 ## What we are building
 
-见 [NORTH_STAR.md](NORTH_STAR.md)：Park 自己的内容生产工作台，每天一条主线。
+见 [NORTH_STAR.md](NORTH_STAR.md)：Park 自己的内容生产工作台，每天一条主线。规划见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## Where we are now
 
-P1（Epic [#16](https://github.com/zinan92/content-studio/issues/16)）已交付并在真实数据上验证：左侧主题导航 + 「今天」（今日主线 6 步、日报、昨日进项、热点、进行中选题、工具栏）；素材库只读 Obsidian；选题看板；热点（对标 48h 爆款、日报头条、高频话题）；文章线（卡兹克写作草稿 → 编辑 → 交给研习室，真实文章 2,709 字约 2 分钟）；Skills 页；多个自己的账号。仓库已公开，GitHub 主页 Content OS 以本工作台为中心，6 个重叠旧仓库已归档。
+P1（文章线）和 P2（视频线与全流程）都已交付并在真实数据上跑过：每日统筹（真实：6 条先读、4 条可拍，首选是 Park 的原始输出）→ 选题 → 拍摄提纲（真实 5 段提纲）→ 口播 workflow 剪辑进度（读外接硬盘上的项目，按 14 步产物判断，H1 worktable 导入）→ 发出与数据（快照、24h/72h/7 天、48 小时拆解）→ 7 个平台文案（真实全部通过长度校验）→ 每周复盘。首页主线 8 步全部由数据判定。测试 146 个全绿。
 
-运行：launchd `com.wendy.content-studio` 常驻 `127.0.0.1:8780`，外网经密码代理访问（见 [docs/operations.md](docs/operations.md)）。测试 103 个全绿。
+运行：launchd `com.wendy.content-studio` 常驻 `127.0.0.1:8780`，外网经密码代理访问（见 [docs/operations.md](docs/operations.md)）。
 
-仍待 Park：① 读拆解报告确认「说中了」；② 在设置里填研习室电脑后台地址；③ 是否启用每日同步。
+仍待 Park：① 读拆解报告确认「说中了」；② 设置里填研习室电脑后台地址；③ 是否启用每日同步；④ P3：是否让工作台后台代跑口播 workflow、是否接自动发布。
 
 ## Milestone position
 
 | Milestone | Status | Evidence |
 | --- | --- | --- |
 | M1–M3 拆解台 | built | PR #4 #7 #8 #9 |
-| P1 内容生产工作台 | built | PR #24–#34，Issue #17–#23 |
-| P2 视频线 + 研习室自动草稿 | not started | Issue [#31](https://github.com/zinan92/content-studio/issues/31)（依赖 wechat-xingqiu#207） |
-| M4 扩平台 | not started | 抖音站内搜索因反作弊不做（#20） |
+| P1 内容生产工作台 | built | PR #24–#35 |
+| P2 视频线与全流程 | built | PR #44–#53，Issue #38–#43 |
+| P3 研习室自动草稿 / 后台代跑 / 自动发布 | not started | #31；后两项待 Park 确认 |
+| M4 扩平台数据 | not started | 抖音站内搜索因反作弊不做（#20） |
 
 ## Next
 
-1. 视频线：选题 → 口播稿 → ask-park-video / 剪映 → 抖音发出记录回收到「我的视频」。
+1. Park 实际用一天后按反馈调整统筹与提纲的写法。
 2. wechat-xingqiu#207 验收通过后做 #31。
-3. content-production 注册表由 Park OS 快照生成，下一次快照时纳入 content-studio。
+3. P3-2/P3-3 等 Park 决定。
