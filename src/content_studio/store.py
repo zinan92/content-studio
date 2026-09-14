@@ -122,6 +122,13 @@ CREATE TABLE IF NOT EXISTS video_snapshots (
     views INTEGER,
     PRIMARY KEY (video_id, fetched_at)
 );
+CREATE TABLE IF NOT EXISTS publish_records (
+    topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    url TEXT,
+    published_at TEXT NOT NULL,
+    PRIMARY KEY (topic_id, platform)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -162,7 +169,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT"}}
+        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -267,6 +274,10 @@ class StudioStore:
             cursor = conn.execute(
                 "UPDATE topics SET outline_state = 'failed', outline_error = '上次生成被中断（服务重启），点重试' WHERE outline_state = 'running'"
             )
+            count += cursor.rowcount
+            cursor = conn.execute(
+                "UPDATE topics SET copy_state = 'failed', copy_error = '上次生成被中断（服务重启），点重试' WHERE copy_state = 'running'"
+            )
         return count + cursor.rowcount
 
     def briefing(self, day: str) -> dict[str, Any] | None:
@@ -290,6 +301,21 @@ class StudioStore:
         with self.tx() as conn:
             cursor = conn.execute("UPDATE briefings SET state = 'failed', error = '上次生成被中断（服务重启），点重新生成' WHERE state = 'running'")
         return cursor.rowcount
+
+    def publish_records(self, topic_id: int) -> dict[str, dict[str, Any]]:
+        return {r["platform"]: r for r in self._rows("SELECT * FROM publish_records WHERE topic_id = ?", (topic_id,))}
+
+    def set_publish_record(self, topic_id: int, platform: str, *, published: bool, url: str | None = None) -> dict[str, dict[str, Any]]:
+        with self.tx() as conn:
+            if published:
+                conn.execute(
+                    "INSERT INTO publish_records(topic_id, platform, url, published_at) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(topic_id, platform) DO UPDATE SET url = excluded.url",
+                    (topic_id, platform, url, now_iso()),
+                )
+            else:
+                conn.execute("DELETE FROM publish_records WHERE topic_id = ? AND platform = ?", (topic_id, platform))
+        return self.publish_records(topic_id)
 
     def topic_for_note(self, path: str) -> dict[str, Any] | None:
         for topic in self.topics(include_archived=True):
@@ -321,7 +347,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id", "copy_state", "copy_error"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")

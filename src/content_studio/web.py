@@ -87,6 +87,16 @@ class PublishBody(BaseModel):
     video_id: str | None = None
 
 
+class CopyBody(BaseModel):
+    platforms: dict[str, dict[str, Any]]
+
+
+class RecordBody(BaseModel):
+    platform: str
+    published: bool
+    url: str | None = None
+
+
 class ArticleBody(BaseModel):
     markdown: str
 
@@ -177,6 +187,7 @@ def create_app(
     write_fn: Callable[[str], str] | None = None,
     brief_fn: Callable[[str], dict] | None = None,
     outline_fn: Callable[[str], str] | None = None,
+    copy_fn: Callable[[str], dict] | None = None,
 ) -> FastAPI:
     from . import writer
 
@@ -825,6 +836,87 @@ def create_app(
         if not topic.get("published_url"):
             fields["published_url"] = f"https://www.douyin.com/video/{body.video_id}"
         return store.update_topic(topic_id, **fields)
+
+    # -- copy packs & platform records ------------------------------------
+
+    def _copy_basis(topic: dict[str, Any]) -> str:
+        from . import outline
+
+        parts = []
+        draft_outline = outline.read_outline(topic)
+        if draft_outline:
+            parts.append(draft_outline["markdown"])
+        draft_article = writer.read_draft(topic)
+        if draft_article:
+            parts.append(draft_article["markdown"][:6000])
+        if not parts and topic.get("memo"):
+            parts.append(f"{topic['title']}\n{topic['memo']}")
+        return "\n\n".join(parts)
+
+    def _copy_topic(topic_id: int) -> None:
+        from . import copypack
+
+        try:
+            topic = store.topic(topic_id)
+            result = copypack.generate_copy(topic, _copy_basis(topic), **({"copy_fn": copy_fn} if copy_fn else {}))
+            copypack.save_copy(drafts_root, topic_id, result)
+            store.update_topic(topic_id, copy_state=None, copy_error=None)
+        except Exception as exc:  # noqa: BLE001 - shown on the tab
+            logger.warning("copy topic %s failed: %s", topic_id, exc)
+            store.update_topic(topic_id, copy_state="failed", copy_error=str(exc)[:300] or type(exc).__name__)
+        finally:
+            with writing_lock:
+                writing.discard(10_000_000 + topic_id)
+
+    @app.post("/api/topics/{topic_id}/copy")
+    def start_copy(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if not _copy_basis(topic).strip():
+            raise ValueError("先写拍摄提纲或文章，再生成文案")
+        with writing_lock:
+            if 10_000_000 + topic_id in writing:
+                return {"started": False, "message": "文案正在生成"}
+            writing.add(10_000_000 + topic_id)
+        store.update_topic(topic_id, copy_state="running", copy_error=None)
+        threading.Thread(target=_copy_topic, args=(topic_id,), name=f"copy-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始写各平台文案，一般 1 分钟"}
+
+    @app.get("/api/topics/{topic_id}/copy")
+    def get_copy(topic_id: int) -> dict[str, Any]:
+        from . import copypack
+
+        topic = store.topic(topic_id)
+        return {
+            "platforms_spec": copypack.PLATFORMS,
+            "copy": copypack.read_copy(drafts_root, topic_id),
+            "records": store.publish_records(topic_id),
+            "state": topic.get("copy_state"),
+            "error": topic.get("copy_error"),
+        }
+
+    @app.put("/api/topics/{topic_id}/copy")
+    def put_copy(topic_id: int, body: CopyBody) -> dict[str, Any]:
+        from . import copypack
+
+        store.topic(topic_id)
+        unknown = set(body.platforms) - set(copypack.PLATFORMS)
+        if unknown:
+            raise ValueError(f"未知平台：{sorted(unknown)}")
+        current = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms", {})
+        merged = {**current, **{k: {"title": v.get("title") or "", "body": v.get("body") or "", "tags": [str(t).strip().lstrip("#") for t in v.get("tags") or [] if str(t).strip()]} for k, v in body.platforms.items()}}
+        copypack.save_copy(drafts_root, topic_id, merged)
+        return copypack.read_copy(drafts_root, topic_id) or {}
+
+    @app.put("/api/topics/{topic_id}/platforms")
+    def put_record(topic_id: int, body: RecordBody) -> dict[str, Any]:
+        from . import copypack
+
+        store.topic(topic_id)
+        if body.platform not in copypack.PLATFORMS:
+            raise ValueError("未知平台")
+        if body.url and not body.url.startswith(("https://", "http://")):
+            raise ValueError("链接需要以 https:// 开头")
+        return store.set_publish_record(topic_id, body.platform, published=body.published, url=body.url)
 
     @app.get("/api/topics/{topic_id}/article")
     def get_article(topic_id: int) -> dict[str, Any]:

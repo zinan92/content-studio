@@ -556,3 +556,15 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .milestones div{border:1px solid var(--line-soft);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;font-size:12.5px}
 .milestones b{font-family:var(--mono);font-size:14px}
 .pub-actions{display:flex;gap:8px;flex-wrap:wrap}
+/* ===== copy pack ===== */
+.cp-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 22px;border-bottom:1px solid var(--line-soft);font-size:12.5px;color:var(--ink-3)}
+.cp-top .spacer,.cp-h .spacer{flex:1}
+.cp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:16px 22px}
+.cp-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.cp-h{display:flex;gap:8px;align-items:center}
+.cp-h a:not(.btn){color:var(--accent);font-size:12px}
+.cp-field{display:flex;flex-direction:column;gap:3px}
+.cp-field span{font-size:12px;color:var(--ink-3)}
+.cp-field em{font-style:normal;font-family:var(--mono)}
+.cp-field input,.cp-field textarea{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;resize:vertical}
+.cp-foot{display:flex;gap:6px}
