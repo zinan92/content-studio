@@ -45,7 +45,7 @@ async function renderCopyBox(topic, el) {
     <label class="cb-field"><span>话题（逗号分隔，可不填）</span><input id="cbTags" value="${esc((e.tags || []).join('，'))}" autocomplete="off"></label>
     <div class="cb-foot"><button class="btn small primary" type="button" id="cbSave">保存</button><button class="btn small" type="button" id="cbCopy">复制</button>
       <span class="spacer"></span>
-      <span class="cb-rec">${SHARED_KEYS.filter((k) => k !== 'douyin').map((k) => records[k]
+      <span class="cb-rec">${[...new Set([...SHARED_KEYS.filter((k) => k !== 'douyin'), ...Object.keys(records)])].filter((k) => specs[k]).map((k) => records[k]
         ? `<button class="chip-state shipped" type="button" data-cb-unmark="${k}" title="点一下撤销">${esc(specs[k].label)} 已发</button>`
         : `<button class="chip-state" type="button" data-cb-mark="${k}">${esc(specs[k].label)} 标为已发</button>`).join('')}</span></div>
   </section>`;

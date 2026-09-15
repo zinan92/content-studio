@@ -122,7 +122,7 @@ window.VIEWS.input = {
         </div>`).join('')
       : `<div class="empty"><b>这段时间没有新东西进来</b><span>从 ${hm(C.since)} 起${C.source ? `，${SOURCE_TABS.find(([k]) => k === C.source)[1]}` : '，Clippings、我收藏的、我写的都'}没有变化。</span></div>`;
 
-    let reader = '<div class="empty reader-empty"><span>这段时间没有可读的。</span></div>';
+    let reader = `<div class="empty reader-empty"><span>${shown.length ? '点任意一条，在这里读原文。' : '这段时间没有可读的。'}</span></div>`;
     if (C.open) {
       const n = C.note;
       if (!n) reader = '<div class="empty"><span class="spin"></span></div>';
