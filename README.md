@@ -16,7 +16,7 @@
 
 ```
 in   Obsidian 库（Newsletter / Clippings / 我收藏的 / 我写的） + 口播 workflow 项目目录 + 抖音账号与视频
-out  今天推荐拍 + 加工看板（提纲 → 录制 → 剪辑 → 待发，自动归列） + 拍摄提纲 + 开头 15 秒检查 + 剪辑进度 + 文案 + 文章 + 发出后数据图表 + 拆解报告 + 每周复盘
+out  今天推荐拍 + 加工看板（提纲 → 录制 → 剪辑 → 待发，自动归列） + 拍摄提纲 + 开头 15 秒检查 + 剪辑进度 + 发布 + 研习室文章 + 发出后数据图表 + 拆解报告 + 每周复盘
 
 fail Obsidian 路径不存在      → 页面提示去设置，其它功能照常
 fail 抖音 cookies 缺失/过期   → 顶部提示重新导出，不发请求
@@ -35,7 +35,7 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 | 02 加工中 | 左侧「加工中」 | 顶部「今天推荐拍」（日报出来后自动生成，每天一次）；下面是看板：提纲 → 录制 → 剪辑 → 待发，按提纲文件和口播项目 14 步证据自动归列，橙点表示在等你。点卡片进一条视频：拍摄提纲、剪辑进度（含开头 15 秒检查）、文案与平台、发出与数据、文章。 |
 | 03 已发出 | 左侧「已发出」 | 概览：近 30 天条数、连续拍摄、倍数、涨粉、平均观看；每条视频的倍数图，2 秒跳出 / 平均观看 / 涨粉 / 收藏赞走势；这周复盘（下周只改一件事）。另有我的视频、对标雷达、拆解报告（拆解队列在报告页底部）。 |
 
-文章和视频不分开：每条都先做视频，文章是这条视频的一个页签。
+文章和视频不分开：每条都先做视频。一条视频只有四个页签：拍摄提纲 → 剪辑进度 → 发布 → 研习室文章（可选）。
 
 ## 架构
 
@@ -85,12 +85,12 @@ python3 -m content_studio serve
 | 进项 | 今天的 Newsletter + 只读 Obsidian（Clippings / 我收藏的 / 我写的），拿来做 / 拍过了 / 忽略，已做成视频的会标出 | 已完成 |
 | 今天推荐拍 | 日报出来后自动生成 1 首选 + 1 备选，来源必须来自真实材料，避开近 90 天已发视频和已有选题 | 已完成 |
 | 加工看板 | 提纲 → 录制 → 剪辑 → 待发，自动归列，每张卡写明在等什么 | 已完成 |
-| 拍摄提纲 | 前 15 秒 + 3–5 段 + 结尾 + 不要讲过头，可编辑 | 已完成 |
+| 拍摄提纲 | 一句主线 + 4–8 条要点（第一条就讲主线），不写逐字稿，可编辑 | 已完成 |
 | 开头 15 秒检查 | 读项目已有字幕，判断主线第一次出现的秒数，给改法 | 已完成 |
 | 剪辑进度 | 口播 workflow 14 步 / 5 阶段 / H1–H3 审批门；worktable 导入；后台代跑到审批门停下 | 已完成 |
-| 文案与平台 | 自动写抖音、视频号、研习室；其他平台可手填 | 已完成 |
+| 发布 · 标题和简介 | 一个标题 + 一段简介，所有平台共用，只提示各平台字数；可「用提纲填」；视频号 / B 站 / YouTube 可标为已发 | 已完成 |
 | 一键发布 | 视频号 / B 站 / YouTube，每次都要 Park 确认 | 已完成 |
-| 文章 | 卡兹克写作出草稿，编辑、复制、下载 .md、交给研习室 | 已完成 |
+| 研习室文章 | 可选：卡兹克写作出草稿，编辑、复制、下载 .md、交给研习室 | 已完成 |
 | 已发出概览 | KPI + 倍数图 + 留存与涨粉走势 + 这周复盘 + 满 48 小时待拆解 | 已完成 |
 | 我的视频 | 作品数据 + 创作者后台（涨粉、完播、跳出、均看） | 已完成 |
 | 对标雷达 | 账号自身中位数算倍数；≥5× 自动拆解，每天最多 2 条 | 已完成 |
@@ -153,7 +153,7 @@ python3 -m content_studio serve
 | `POST` `GET` `PUT` | `/api/topics/{id}/outline` | 拍摄提纲 |
 | `GET` `PUT` `POST` | `/api/topics/{id}/video-project` · `…/worktable` · `/api/video-projects` | 口播项目进度与 worktable 导入 |
 | `GET` `PUT` | `/api/topics/{id}/publish` | 关联已发视频与数据 |
-| `POST` `GET` `PUT` | `/api/topics/{id}/copy` · `PUT /api/topics/{id}/platforms` | 各平台文案与发布状态 |
+| `GET` `PUT` | `/api/topics/{id}/copy` · `PUT /api/topics/{id}/platforms` | 发布标题和简介（各平台共用）与发布状态 |
 | `GET` `POST` | `/api/review` · `/api/review/generate` | 每周复盘 |
 | `GET` `POST` | `/api/topics/{id}/opening` | 开头 15 秒检查 |
 | `GET` | `/api/skills` | Skills |
@@ -171,7 +171,7 @@ python3 -m content_studio serve
 | `CONTENT_DOWNLOADER_PATH` | content-downloader 路径 | `~/work/content-downloader` |
 | `CONTENT_STUDIO_LLM_CMD` | 结构拆解命令（stdin 提示词 → stdout JSON） | `claude -p --model sonnet …` |
 | `CONTENT_STUDIO_WRITER_CMD` | 写文章命令 | `claude -p --model opus …`（允许 Skill/Read） |
-| `CONTENT_STUDIO_BRIEF_CMD` · `…_OUTLINE_CMD` · `…_COPY_CMD` · `…_REVIEW_CMD` | 统筹 / 提纲 / 文案 / 复盘命令 | 本机 `claude -p`，禁用工具 |
+| `CONTENT_STUDIO_BRIEF_CMD` · `…_OUTLINE_CMD` · `…_REVIEW_CMD` | 推荐 / 提纲 / 复盘命令 | 本机 `claude -p`，禁用工具 |
 
 ## For AI Agents
 

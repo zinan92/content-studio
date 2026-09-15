@@ -1,5 +1,5 @@
 'use strict';
-/* 视频 · 发出与数据：关联已发出的抖音视频，看发出后的数据，满 48 小时拆解 */
+/* 视频 · 发布：标题和简介 → 一键发布 → 关联抖音视频看数据，满 48 小时拆解 */
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 function sparkSeries(series) {
@@ -22,15 +22,16 @@ function sparkSeries(series) {
 
 window.VIDEO_TABS.push({
   key: 'publish',
-  label: '发出与数据',
+  label: '发布',
   badge: (t) => (t.published_video_id ? '已发出' : ''),
   async render(topic, el) {
     let d;
     try { d = await api(`/api/topics/${topic.id}/publish`); } catch (err) { el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
-    const publishSlot = '<div id="publishNow"></div>';
+    const publishSlot = '<div id="copyBox"></div><div id="publishNow"></div>';
     if (!d.account) {
       el.innerHTML = `<div class="pub">${publishSlot}<div class="empty"><b>还没有连接自己的抖音号</b><span>去「我的视频」连接后，这里才能关联发出的抖音视频、看数据。</span></div></div>`;
-      if (window.renderPublishPanel) window.renderPublishPanel(topic, $('#publishNow'));
+      if (window.renderCopyBox) window.renderCopyBox(topic, $('#copyBox'));
+    if (window.renderPublishPanel) window.renderPublishPanel(topic, $('#publishNow'));
       return;
     }
     const syncLine = `<div class="pub-sync"><span>${esc(d.account.nickname || '')} · ${d.account.syncing ? '<span class="spin"></span> 同步中' : esc(ago(d.account.last_synced_at))}</span>${d.stale_sync && !d.account.syncing ? '<span class="bad">数据可能不是最新的</span>' : ''}<button class="btn small" type="button" id="pubSync">同步我的数据</button></div>`;
@@ -67,6 +68,7 @@ window.VIDEO_TABS.push({
       bindTeardownButtons(el);
       $('#pubUnlink').onclick = () => linkVideo(topic.id, null);
     }
+    if (window.renderCopyBox) window.renderCopyBox(topic, $('#copyBox'));
     if (window.renderPublishPanel) window.renderPublishPanel(topic, $('#publishNow'));
     $('#pubSync').onclick = async () => {
       try { const r = await api('/api/sync', { method: 'POST' }); toast(r.message); } catch (err) { toast(err.message); }

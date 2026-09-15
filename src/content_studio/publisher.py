@@ -89,7 +89,7 @@ def build_payload(platform: str, mode: str, *, video: Path, copy: dict[str, Any]
     body = str(entry.get("body") or "").strip()
     tags = [str(t).strip() for t in entry.get("tags") or [] if str(t).strip()]
     if not title:
-        raise PublishError(f"先在「文案与平台」里写好{spec['label']}的标题")
+        raise PublishError(f"先在「发布」页写好标题并保存")
     return {"platform": platform, "platform_label": spec["label"], "mode": mode, "mode_label": spec["modes"][mode]["label"],
             "video": str(video), "video_mb": round(video.stat().st_size / 1_048_576, 1), "title": title, "body": body, "tags": tags}
 
