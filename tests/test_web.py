@@ -390,7 +390,7 @@ def test_daily_briefing_generate_and_make_topic(client: TestClient, tmp_path: Pa
     assert record["state"] == "done", record
     assert record["data"]["videos"][0]["primary"] is True and record["data"]["input_counts"]["notes"] == 1
     topic = client.post("/api/briefing/topic", json={"day": record["day"], "index": 0}).json()["topic"]
-    assert topic["formats"] == "video" and topic["note_paths"] == ["003_park原始输出/累.md"] and "Hook：累的不是活" in topic["memo"]
+    assert topic["formats"] == "both" and topic["note_paths"] == ["003_park原始输出/累.md"] and "Hook：累的不是活" in topic["memo"]
     assert client.post("/api/briefing/topic", json={"day": record["day"], "index": 5}).status_code == 400
 
 
@@ -628,3 +628,42 @@ def test_opening_check_reads_project_subtitles(client: TestClient, tmp_path: Pat
             break
         time.sleep(0.02)
     assert data["result"]["passed"] is True and data["subtitles"]["label"] == "原始录音" and data["result"]["thesis"] == "开头"
+
+
+def test_board_auto_briefing_and_used_notes(client: TestClient, tmp_path: Path) -> None:
+    import time
+    from datetime import date as _date, datetime as _dt
+
+    root = tmp_path / "vault5"
+    today = _date.today()
+    (root / "006_ai daily newsletter").mkdir(parents=True)
+    (root / "003_park原始输出").mkdir()
+    (root / "003_park原始输出" / "累.md").write_text("# 用了 AI 更累\n落差", encoding="utf-8")
+    (root / "003_park原始输出" / "问卷.md").write_text("# 问卷\nFDE", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    tick = client.app.state.auto_briefing_tick
+    early = _dt.combine(today, _dt.min.time()).replace(hour=7)
+    late = early.replace(hour=10)
+    assert tick(late) is False  # dailies not out yet
+    (root / "006_ai daily newsletter" / f"{today.strftime('%y-%m-%d')}.md").write_text("- **A** | [Codex 新功能](https://x.com/1)", encoding="utf-8")
+    assert tick(early) is False and tick(late) is True
+    for _ in range(200):
+        if client.get("/api/briefing").json()["state"] != "running":
+            break
+        time.sleep(0.02)
+    assert tick(late) is False  # once per day
+
+    board = client.get("/api/board").json()
+    assert [s["label"] for s in board["stages"]] == ["提纲", "录制", "剪辑", "待发"]
+    assert board["recommend"]["state"] == "done" and board["recommend"]["items"][0]["primary"] is True
+    assert board["recommend"]["items"][0]["topic_id"] is None and board["cards"] == []
+
+    topic = client.post("/api/briefing/topic", json={"day": board["recommend"]["day"], "index": board["recommend"]["items"][0]["index"]}).json()["topic"]
+    board = client.get("/api/board").json()
+    assert board["recommend"]["items"][0]["topic_id"] == topic["id"]
+    assert board["cards"][0]["stage"] == "outline" and board["cards"][0]["next"]["text"] == "写拍摄提纲"
+
+    client.put("/api/vault/triage", json={"path": "003_park原始输出/问卷.md", "status": "shot"})
+    inbox = {i["path"]: i for i in client.get("/api/vault/inbox?days=1").json()["items"]}
+    assert inbox["003_park原始输出/累.md"]["used_by"]["topic_id"] == topic["id"]
+    assert inbox["003_park原始输出/问卷.md"]["triage"] == "shot" and inbox["003_park原始输出/问卷.md"]["used_by"] is None

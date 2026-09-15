@@ -61,7 +61,7 @@ def test_inputs_collect_dailies_notes_and_allowed_sources(tmp_path: Path) -> Non
     assert "千雪｜对标爆款标题｜12.0×" in prompt
     assert "AI + 金融" in prompt and "我的" in prompt and "003_park原始输出/r.md" in prompt
     assert "- 开头直接说结论" in prompt
-    assert "[原始输出·已发] 老观点" in prompt and "为什么用了 AI 更累（已发出）" in prompt and "不要重复推荐" in prompt
+    assert "[我写的·已发] 老观点" in prompt and "为什么用了 AI 更累（已发出）" in prompt and "不要重复推荐" in prompt
 
 
 def test_generate_fills_source_titles_and_validates(tmp_path: Path) -> None:
@@ -115,3 +115,18 @@ def test_empty_material_is_explained(tmp_path: Path) -> None:
     inputs = briefing.gather_inputs(str(tmp_path), DAY)
     with pytest.raises(briefing.BriefingError, match="没有可统筹"):
         briefing.generate_briefing(inputs, brief_fn=lambda p: {})
+
+
+def test_auto_due_once_per_morning_after_dailies() -> None:
+    morning = datetime(2026, 9, 15, 9, 5)
+    assert briefing.auto_due(morning, None, dailies_ready=True) is True
+    assert briefing.auto_due(datetime(2026, 9, 15, 8, 0), None, dailies_ready=True) is False
+    assert briefing.auto_due(morning, None, dailies_ready=False) is False
+    for state in ("running", "done", "failed"):
+        assert briefing.auto_due(morning, {"state": state}, dailies_ready=True) is False
+
+
+def test_notes_marked_shot_are_left_out(tmp_path: Path) -> None:
+    _vault(tmp_path)
+    inputs = briefing.gather_inputs(str(tmp_path), DAY, exclude_paths={"003_park原始输出/r.md"})
+    assert "003_park原始输出/r.md" not in {n["path"] for n in inputs["notes"]}

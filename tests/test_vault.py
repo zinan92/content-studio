@@ -46,7 +46,7 @@ def test_inbox_lists_recent_notes_with_titles_and_summaries(root: Path) -> None:
     items = vault.inbox(str(root), since=datetime(2026, 9, 13))
     assert [i["title"] for i in items] == ["起号逻辑", "不是我用AI"]
     clip = items[0]
-    assert clip["source_label"] == "剪藏" and clip["url"] == "https://x.com/a/status/1"
+    assert clip["source_label"] == "Clippings" and clip["url"] == "https://x.com/a/status/1"
     assert clip["summary"] == "正文第一段 链接"
     assert vault.inbox(str(root), since=datetime(2026, 9, 13), sources=("raw",))[0]["source"] == "raw"
 
