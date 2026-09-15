@@ -469,9 +469,9 @@ def test_copy_pack_and_platform_records(client: TestClient) -> None:
         if data["state"] != "running":
             break
         time.sleep(0.02)
-    assert data["copy"]["platforms"]["douyin"]["title"] == "标题" and data["copy"]["checks"]["x"] == []
+    assert data["copy"]["platforms"]["douyin"]["title"] == "标题" and data["copy"]["checks"]["channels"] == [] and "x" not in data["copy"]["platforms"]
     edited = client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"douyin": {"title": "新标题", "body": "b", "tags": ["#AI"]}}}).json()
-    assert edited["platforms"]["douyin"]["tags"] == ["AI"] and edited["platforms"]["x"]["body"] == "正文"
+    assert edited["platforms"]["douyin"]["tags"] == ["AI"] and edited["platforms"]["channels"]["body"] == "正文"
     assert client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"tiktok": {}}}).status_code == 400
     records = client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "xiaohongshu", "published": True, "url": "https://www.xiaohongshu.com/x"}).json()
     assert records["xiaohongshu"]["url"].startswith("https://")
@@ -581,3 +581,29 @@ def test_cross_site_writes_are_blocked(client: TestClient) -> None:
     evil = client.post("/api/topics", json={"title": "x"}, headers={"Origin": "https://evil.example"})
     assert evil.status_code == 403
     assert client.post("/api/topics", json={"title": "ok"}, headers={"Origin": "http://testserver"}).status_code == 200
+
+
+def test_plan_has_three_groups_and_streak_from_shoot_checks(client) -> None:
+    from datetime import date as _date
+
+    today = _date.today().isoformat()
+    client.put("/api/today/checks", json={"day": today, "key": "video_shot", "checked": True})
+    plan = client.get(f"/api/today/plan?day={today}").json()
+    assert [g["key"] for g in plan["groups"]] == ["read", "shoot", "ship"]
+    assert plan["streak"]["days"] == 1 and plan["streak"]["today_done"] is True
+
+
+def test_unread_benchmark_reports_auto_archive_after_seven_days(client, tmp_path) -> None:
+    import json as _json
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    base = tmp_path / "data" / "reports"
+    for vid, age, is_self in (("old", 8, False), ("fresh", 2, False), ("mine", 30, True)):
+        folder = base / vid
+        folder.mkdir(parents=True)
+        facts = {"creator_avg_view_second": 20} if is_self else {}
+        folder.joinpath("report.json").write_text(_json.dumps({"schema_version": 2, "title": vid, "facts": facts,
+                                                               "generated_at": (_dt.now(_tz.utc) - _td(days=age)).isoformat()}), encoding="utf-8")
+    listed = {r["video_id"]: r for r in client.get("/api/reports").json()}
+    assert listed["old"]["archived_at"] and listed["old"].get("auto_archived")
+    assert listed["fresh"]["archived_at"] is None and listed["mine"]["archived_at"] is None

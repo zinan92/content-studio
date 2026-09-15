@@ -298,18 +298,17 @@ AUTO_SOURCE_PREFIX = "对标爆款"
 def auto_enqueue_outliers(
     store: StudioStore,
     has_report: Callable[[str], bool] = lambda _video_id: False,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Queue un-analysed breakouts, keeping at most N auto jobs waiting across all accounts."""
+    """Queue only big breakouts (≥ auto_enqueue_threshold), at most auto_enqueue_limit new auto jobs per local day."""
     settings = store.settings()
     limit = int(settings["auto_enqueue_limit"])
-    pending = sum(
-        1
-        for job in store.jobs(1000)
-        if job["source"].startswith(AUTO_SOURCE_PREFIX) and job["stage"] not in ("done", "failed")
-    )
+    local_now = (now or datetime.now(timezone.utc)).astimezone()
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+    today_count = sum(1 for job in store.jobs(1000) if job["source"].startswith(AUTO_SOURCE_PREFIX) and job["created_at"] >= day_start)
     created = []
-    for video in store.outliers(float(settings["threshold"])):
-        if pending + len(created) >= limit:
+    for video in store.outliers(float(settings["auto_enqueue_threshold"])):
+        if today_count + len(created) >= limit:
             break
         if has_report(video["video_id"]):
             continue

@@ -29,6 +29,8 @@ PLATFORMS: dict[str, dict[str, Any]] = {
     "x": {"label": "X", "title": 0, "body": 280, "tags": 3, "admin": "https://x.com/compose/post", "weighted": True},
     "yanxishi": {"label": "研习室", "title": 64, "body": 200, "tags": 5, "admin": None},
 }
+# Park publishes to these three; the rest stay editable behind 「更多平台」 but are not generated.
+CORE_PLATFORMS = ("douyin", "channels", "yanxishi")
 CopyFn = Callable[[str], dict]
 
 
@@ -62,11 +64,12 @@ def measure(platform: str, entry: dict[str, Any]) -> list[str]:
     return problems
 
 
-def build_prompt(topic: dict[str, Any], basis: str, error: str | None = None) -> str:
+def build_prompt(topic: dict[str, Any], basis: str, error: str | None = None, platforms: tuple[str, ...] = CORE_PLATFORMS) -> str:
     limits = "\n".join(
         f"- {key}（{spec['label']}）：" + (f"标题 ≤{spec['title']} 字，" if spec["title"] else "不要标题（title 填空字符串），")
         + f"正文 ≤{spec['body']}{'（中文字按 2 计，含话题）' if spec.get('weighted') else ' 字'}，话题 ≤{spec['tags']} 个"
         for key, spec in PLATFORMS.items()
+        if key in platforms
     )
     retry = f"\n\n上一次输出没有通过校验：{error}\n请修正后重新输出完整 JSON。" if error else ""
     return f"""你在帮 Park（抖音号「Park 的 AI 世界」，AI + 金融）为同一条内容写各平台的发布文案。内容以口播视频为主，研习室是他的会员文章产品。
@@ -82,26 +85,26 @@ def build_prompt(topic: dict[str, Any], basis: str, error: str | None = None) ->
 
 ## 要求
 - 只输出一个 JSON 对象，键是上面的平台 key，每个值 {{"title": "", "body": "", "tags": []}}。字符串里需要引号时用「」。
-- 按平台习惯写：抖音、视频号简短有钩子；小红书标题口语、正文分段带表情可少量；B 站、YouTube 简介写清这期讲了什么（可分点）；X 一条就能看懂的观点；研习室是一句话摘要。
+- 按平台习惯写：抖音、视频号简短有钩子；小红书标题口语、正文分段带表情可少量；B 站、YouTube 简介写清这期讲了什么（可分点）；X 一条就能看懂的观点；研习室是一句话摘要。只写上面列出的平台。
 - tags 不带 #。不要编造数据和经历；不写「保证赚钱」「必涨」这类承诺；不给投资建议。{retry}"""
 
 
-def generate_copy(topic: dict[str, Any], basis: str, *, copy_fn: CopyFn | None = None, attempts: int = 3) -> dict[str, Any]:
+def generate_copy(topic: dict[str, Any], basis: str, *, copy_fn: CopyFn | None = None, attempts: int = 3, platforms: tuple[str, ...] = CORE_PLATFORMS) -> dict[str, Any]:
     if not basis.strip():
         raise CopyError("先写拍摄提纲或文章，再生成文案")
     fn = copy_fn or (lambda prompt: cli_judge(prompt, command=os.environ.get(COPY_COMMAND_ENV) or DEFAULT_COPY_COMMAND, timeout=600))
     error: str | None = None
     for _ in range(attempts):
         try:
-            raw = fn(build_prompt(topic, basis, error))
+            raw = fn(build_prompt(topic, basis, error, platforms))
         except JudgeLoginError:
             raise
         except JudgeError as exc:
             error = str(exc)
             continue
-        problems = [p for key in PLATFORMS for p in (measure(key, raw[key]) if isinstance(raw.get(key), dict) else [f"缺少 {key}"])]
+        problems = [p for key in platforms for p in (measure(key, raw[key]) if isinstance(raw.get(key), dict) else [f"缺少 {key}"])]
         if not problems:
-            return {key: {"title": raw[key].get("title") or "", "body": raw[key]["body"], "tags": [str(t).strip() for t in raw[key].get("tags") or []]} for key in PLATFORMS}
+            return {key: {"title": raw[key].get("title") or "", "body": raw[key]["body"], "tags": [str(t).strip() for t in raw[key].get("tags") or []]} for key in platforms}
         error = "；".join(problems[:8])
     raise CopyError(f"文案连续 {attempts} 次没通过长度校验，可点重试：{error}")
 

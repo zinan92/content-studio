@@ -118,6 +118,8 @@ const S = {
 function go(view, { push = true } = {}) {
   S.view = view;
   $$('.nav button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
+  const more = $('#navMore');
+  if (more && more.querySelector(`[data-view="${view}"]`)) more.open = true;
   $$('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + view));
   if (push) {
     const hash = view === 'report' && S.reportId ? `#report/${S.reportId}` : `#${view}`;
@@ -128,7 +130,8 @@ function go(view, { push = true } = {}) {
 }
 
 function readHash() {
-  const [view, id] = location.hash.replace(/^#/, '').split('/');
+  let [view, id] = location.hash.replace(/^#/, '').split('/');
+  view = { hot: 'brief', skills: 'settings' }[view] || view; // old bookmarks
   if (view === 'report' && id) S.reportId = id;
   return [...CORE_VIEWS, ...Object.keys(window.VIEWS)].includes(view) ? view : 'today';
 }
@@ -216,7 +219,7 @@ function renderView() {
   if (!S.state) return;
   if (window.VIEWS[S.view]) window.VIEWS[S.view].render();
   if (S.view === 'today') renderToday();
-  if (S.view === 'settings') renderSettings();
+  if (S.view === 'settings') { renderSettings(); if (window.renderSkills) window.renderSkills.render(); }
   if (S.view === 'mine') renderMine();
   if (S.view === 'radar') renderRadar();
   if (S.view === 'queue') renderQueue();

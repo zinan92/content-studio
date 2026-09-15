@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import logging
 from pathlib import Path
@@ -34,6 +34,7 @@ from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+REPORT_STALE_DAYS = 7
 LEGACY_REPORT_DIRS = (Path("~/.config/content-studio/m1"),)
 
 
@@ -120,6 +121,7 @@ class ArticleBody(BaseModel):
 class SettingsBody(BaseModel):
     threshold: float | None = None
     auto_enqueue_limit: int | None = None
+    auto_enqueue_threshold: float | None = None
     sync_pages: int | None = None
     sync_delay_seconds: float | None = None
     obsidian_vault: str | None = None
@@ -484,6 +486,12 @@ def create_app(
                     "is_self": bool((data.get("facts") or {}).get("creator_avg_view_second")),
                     "archived_at": archived.get(video_id),
                 }
+        # Benchmark reports nobody opened in 7 days are archived when the list is read, so the unread count stays meaningful.
+        stale_before = (datetime.now(timezone.utc) - timedelta(days=REPORT_STALE_DAYS)).isoformat()
+        for item in seen.values():
+            if not item["archived_at"] and not item["is_self"] and (item["generated_at"] or "9") < stale_before:
+                item["archived_at"] = store.archive_report(item["video_id"])
+                item["auto_archived"] = True
         return sorted(seen.values(), key=lambda r: r.get("generated_at") or "", reverse=True)
 
     @app.get("/api/reports/{video_id}")
@@ -644,7 +652,11 @@ def create_app(
 
         key = day_value.isoformat()
         try:
-            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics(), adjustments=latest_adjustments())
+            from . import hot
+
+            bench = hot.benchmark_breakouts(store, threshold=float(store.settings()["threshold"]))
+            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics(), adjustments=latest_adjustments(),
+                                            breakouts=bench["items"] or bench["fallback"])
             data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
             store.set_briefing(key, state="done", data=data)
         except Exception as exc:  # noqa: BLE001 - shown on the briefing card
@@ -1117,7 +1129,8 @@ def create_app(
         try:
             topic = store.topic(topic_id)
             result = copypack.generate_copy(topic, _copy_basis(topic), **({"copy_fn": copy_fn} if copy_fn else {}))
-            copypack.save_copy(drafts_root, topic_id, result)
+            previous = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms") or {}
+            copypack.save_copy(drafts_root, topic_id, {**previous, **result})
             store.update_topic(topic_id, copy_state=None, copy_error=None)
         except Exception as exc:  # noqa: BLE001 - shown on the tab
             logger.warning("copy topic %s failed: %s", topic_id, exc)
@@ -1146,6 +1159,7 @@ def create_app(
         topic = store.topic(topic_id)
         return {
             "platforms_spec": copypack.PLATFORMS,
+            "core_platforms": list(copypack.CORE_PLATFORMS),
             "copy": copypack.read_copy(drafts_root, topic_id),
             "records": store.publish_records(topic_id),
             "state": topic.get("copy_state"),
@@ -1260,7 +1274,13 @@ def create_app(
             video_states=video_states,
             followups=followups,
         )
-        return {"day": target.isoformat(), "steps": steps, "done": sum(1 for s in steps if s["done"])}
+        shot_days = set(store.checked_days("video_shot"))
+        for account in store.accounts():
+            if account["is_self"]:
+                shot_days.update(d for d in (today_plan._day(v["published_at"]) for v in store.videos(account["id"]) if not v["is_image_post"]) if d)
+        groups = today_plan.group_plan(steps)
+        return {"day": target.isoformat(), "steps": steps, "groups": groups, "done": sum(1 for g in groups if g["done"]),
+                "streak": today_plan.shooting_streak(target, shot_days)}
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:

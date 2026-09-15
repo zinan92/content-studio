@@ -3,7 +3,7 @@
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 const CP = { data: {}, dirty: false };
-const PLATFORM_ORDER = ['douyin', 'channels', 'xiaohongshu', 'bilibili', 'youtube', 'x', 'yanxishi'];
+const PLATFORM_ORDER = ['douyin', 'channels', 'yanxishi', 'xiaohongshu', 'bilibili', 'youtube', 'x'];
 
 function xLen(text) {
   let n = 0;
@@ -47,19 +47,25 @@ window.VIDEO_TABS.push({
     try { d = await loadCopy(topic.id, false); } catch (err) { el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
     const specs = d.platforms_spec;
     const published = Object.keys(d.records).length;
+    const core = d.core_platforms || ['douyin', 'channels', 'yanxishi'];
+    const extra = PLATFORM_ORDER.filter((k) => !core.includes(k));
+    const extraCards = (render) => {
+      const cards = extra.map(render).join('');
+      return cards ? `<details class="cp-more" ${extra.some((k) => d.records[k]) ? 'open' : ''}><summary>更多平台（小红书、B 站、YouTube、X）· 不自动生成，需要时自己填</summary><div class="cp-grid">${cards}</div></details>` : '';
+    };
     if (d.state === 'running') {
       el.innerHTML = '<div class="empty"><span class="spin"></span><b>正在写各平台文案</b><span>一般 1 分钟。</span></div>';
       return;
     }
-    const top = `<div class="cp-top"><span>${published}/${PLATFORM_ORDER.length} 个平台已发出 · 只帮你写文案和记录，不会自动发布</span>
+    const top = `<div class="cp-top"><span>${published} 个平台已发出 · 只帮你写文案和记录，不会自动发布</span>
       ${d.error && d.state === 'failed' ? `<span class="bad">${esc(d.error)}</span>` : ''}
       <span class="spacer"></span>${d.copy ? '<button class="btn small primary" type="button" id="cpSave">保存修改</button>' : ''}
       <button class="btn small ${d.copy ? '' : 'primary'}" type="button" id="cpGen">${d.copy ? '重新生成' : '生成各平台文案'}</button></div>`;
     if (!d.copy) {
-      el.innerHTML = `${top}<div class="empty"><span>根据拍摄提纲${topic.article_path ? '和文章' : ''}写抖音、视频号、小红书、B 站、YouTube、X、研习室的标题、正文和话题，长度按平台上限检查。</span></div>
+      el.innerHTML = `${top}<div class="empty"><span>根据拍摄提纲${topic.article_path ? '和文章' : ''}写抖音、视频号、研习室的标题、正文和话题，长度按平台上限检查。</span></div>
         <div class="cp-grid">${PLATFORM_ORDER.map((k) => d.records[k] ? copyCard(k, specs[k], null, d.records[k]) : '').join('')}</div>`;
     } else {
-      el.innerHTML = `${top}<div class="cp-grid">${PLATFORM_ORDER.map((k) => copyCard(k, specs[k], d.copy.platforms[k], d.records[k])).join('')}</div>`;
+      el.innerHTML = `${top}<div class="cp-grid">${core.map((k) => copyCard(k, specs[k], d.copy.platforms[k], d.records[k])).join('')}</div>${extraCards((k) => copyCard(k, specs[k], d.copy.platforms[k], d.records[k]))}`;
     }
     $$('.cp-card input, .cp-card textarea', el).forEach((input) => (input.oninput = () => { CP.dirty = true; }));
     $('#cpGen').onclick = async () => {
@@ -69,7 +75,11 @@ window.VIDEO_TABS.push({
     const save = $('#cpSave');
     if (save) save.onclick = async () => {
       const platforms = {};
-      $$('.cp-card', el).forEach((card) => { platforms[card.dataset.platform] = readCard(card); });
+      $$('.cp-card', el).forEach((card) => {
+        const entry = readCard(card);
+        if (!core.includes(card.dataset.platform) && !entry.title && !entry.body && !entry.tags.length) return; // untouched extra platform
+        platforms[card.dataset.platform] = entry;
+      });
       try { await api(`/api/topics/${topic.id}/copy`, { method: 'PUT', body: { platforms } }); toast('已保存'); CP.dirty = false; delete CP.data[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }
     };
     $$('[data-cp-copy]', el).forEach((b) => (b.onclick = () => {

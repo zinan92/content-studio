@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import os
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,15 @@ def _vault(tmp_path: Path) -> Path:
     (tmp_path / "Clippings" / "c.md").write_text("---\ntitle: 剪藏\nsource: https://y.com/2\ncreated: 2026-09-13\n---\n正文", encoding="utf-8")
     (tmp_path / "003_park原始输出").mkdir()
     (tmp_path / "003_park原始输出" / "r.md").write_text("# 原始输出\n想法", encoding="utf-8")
+    _pin_mtimes(tmp_path)
     return tmp_path
+
+
+def _pin_mtimes(root: Path) -> None:
+    # Notes written "today" must look like they existed on DAY, whatever day the suite runs.
+    stamp = datetime(2026, 9, 14, 9, 0).timestamp()
+    for path in root.rglob("*"):
+        os.utime(path, (stamp, stamp))
 
 
 def _good(inputs):
@@ -40,13 +49,16 @@ def _good(inputs):
 def test_inputs_collect_dailies_notes_and_allowed_sources(tmp_path: Path) -> None:
     _vault(tmp_path)
     (tmp_path / "003_park原始输出" / "已发 老观点.md").write_text("# 老观点\n讲过了", encoding="utf-8")
+    _pin_mtimes(tmp_path)
     inputs = briefing.gather_inputs(str(tmp_path), DAY, own_videos=[{"title": "我的", "likes": 10, "multiple": 1.2}],
-                                    existing_topics=[{"title": "为什么用了 AI 更累", "status": "published"}], adjustments=["开头直接说结论"])
+                                    existing_topics=[{"title": "为什么用了 AI 更累", "status": "published"}], adjustments=["开头直接说结论"],
+                                    breakouts=[{"title": "对标爆款标题", "account_nickname": "千雪", "multiple": 12.0}])
     assert [d["label"] for d in inputs["dailies"]] == ["AI 日报", "晨报"]
     assert "黄金" in inputs["dailies"][1]["text"] and "x{}" not in inputs["dailies"][1]["text"]
     assert {n["path"] for n in inputs["notes"]} == {"Clippings/c.md", "003_park原始输出/r.md", "003_park原始输出/已发 老观点.md"}
     assert "https://x.com/1" in inputs["allowed_urls"] and "https://y.com/2" in inputs["allowed_urls"]
     prompt = briefing.build_prompt(inputs)
+    assert "千雪｜对标爆款标题｜12.0×" in prompt
     assert "AI + 金融" in prompt and "我的" in prompt and "003_park原始输出/r.md" in prompt
     assert "- 开头直接说结论" in prompt
     assert "[原始输出·已发] 老观点" in prompt and "为什么用了 AI 更累（已发出）" in prompt and "不要重复推荐" in prompt

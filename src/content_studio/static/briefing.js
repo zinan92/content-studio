@@ -94,6 +94,11 @@ window.VIEWS.brief = {
     $$('[data-go]', body).forEach((b) => (b.onclick = () => go(b.dataset.go)));
   },
 };
+const renderBriefView = window.VIEWS.brief.render;
+window.VIEWS.brief.render = async function () {
+  await renderBriefView();
+  if (window.renderBriefHot) await window.renderBriefHot.render();
+};
 
 function hmTime(iso) {
   const d = new Date(iso);
