@@ -34,9 +34,9 @@ DAILY_SOURCES = (
 )
 
 INBOX_SOURCES = (
-    InboxSource("clipping", "剪藏", "Clippings"),
-    InboxSource("saved", "收藏", "002_个人收藏"),
-    InboxSource("raw", "原始输出", "003_park原始输出"),
+    InboxSource("clipping", "Clippings", "Clippings"),
+    InboxSource("saved", "我收藏的", "002_个人收藏"),
+    InboxSource("raw", "我写的", "003_park原始输出"),
 )
 
 READABLE_SUFFIXES = (".md", ".html")

@@ -42,6 +42,7 @@ def gather_inputs(
     existing_topics: list[dict[str, Any]] | None = None,
     adjustments: list[str] | None = None,
     breakouts: list[dict[str, Any]] | None = None,
+    exclude_paths: set[str] | None = None,
 ) -> dict[str, Any]:
     root = vault.vault_root(vault_raw)
     dailies = []
@@ -57,7 +58,7 @@ def gather_inputs(
     notes = [
         {"kind": i["source_label"], "path": i["path"], "title": i["title"], "url": i["url"], "summary": i["summary"],
          "published_mark": "已发" in i["path"]}
-        for i in (recent[:25] + raw_outputs[:15])
+        for i in ([r for r in recent if r["path"] not in (exclude_paths or set())][:25] + [r for r in raw_outputs if r["path"] not in (exclude_paths or set())][:15])
         if max(i["created_at"], i["modified_at"]) <= now.isoformat()
     ]
     urls = set()
@@ -71,7 +72,7 @@ def gather_inputs(
         "own_videos": own_videos or [],
         "adjustments": [a for a in (adjustments or []) if a][:3],
         "breakouts": [{"title": (b.get("title") or "")[:60], "account": b.get("account_nickname") or "", "multiple": b.get("multiple")} for b in (breakouts or [])][:6],
-        "existing_topics": [{"title": t["title"], "status": t["status"]} for t in (existing_topics or [])][:30],
+        "existing_topics": [{"title": t["title"], "status": t["status"]} for t in (existing_topics or [])][:60],
         "allowed_paths": sorted({d["path"] for d in dailies} | {n["path"] for n in notes}),
         "allowed_urls": sorted(urls),
     }
@@ -96,13 +97,13 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 ## 今天的日报
 {dailies}
 
-## 近 2 天的剪藏 / 收藏，近 7 天 Park 自己的原始输出
+## 近 2 天的 Clippings / 我收藏的，近 7 天「我写的」（Park 自己的原始输出）
 {notes}
 
 ## 对标账号近两天的爆款（只当由头和参考，不能写进 sources）
 {breakouts}
 
-## Park 最近的视频表现（倍数 = 点赞 ÷ 账号点赞中位数）
+## Park 近 90 天发过的视频（倍数 = 点赞 ÷ 账号点赞中位数）
 {videos}
 
 ## 最近一次每周复盘定下的调整（选题和骨架要照着做）
@@ -119,8 +120,8 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
   title（视频标题，说人话），hook（前 15 秒要说的一句话），claim（核心主张一句话），
   outline（口播骨架 3–5 条，每条一句），sources（1–3 个，只能是上面出现过的 path 或 url，每个 {{"path"或"url": "...", "title": "..."}}），
   why_today（为什么是今天拍），effort（拍摄负担：低/中/高），caution（不能讲过头的地方，没有就写空字符串）。
-  优先用 Park 自己的原始输出做主线、用日报和剪藏做由头；不要只是复述新闻。
-  标了「已发」的原始输出、最近视频里已经讲过的主题、工作台里已有的选题，不要当成新选题重复推荐。
+  优先用「我写的」（Park 自己的原始输出）做主线、用日报和 Clippings 做由头；不要只是复述新闻。
+  标了「已发」的原始输出、Park 已经发过的视频（下面列了近 90 天全部标题，换了标题讲同一件事也算重复）、工作台里已有的选题，不要当成新选题重复推荐。
 - prep：今日最小准备，一两句话。
 
 ## 输出格式
@@ -212,3 +213,19 @@ def generate_briefing(
             }
         error = "；".join(problems[:6])
     raise BriefingError(f"统筹连续 {attempts} 次没通过校验，可点重新生成：{error}")
+
+
+AUTO_AFTER_MINUTES = 8 * 60 + 30  # dailies land at 09:00–09:40; try from 08:30 and keep checking
+
+
+def auto_due(now_local: datetime, record: dict[str, Any] | None, dailies_ready: bool) -> bool:
+    """Whether the morning recommendation should start now without Park asking.
+
+    Once per day: a failed run is not retried automatically, so a broken login cannot
+    loop an opus call every few minutes.
+    """
+    if now_local.hour * 60 + now_local.minute < AUTO_AFTER_MINUTES:
+        return False
+    if record and record.get("state") in ("running", "done", "failed"):
+        return False
+    return dailies_ready

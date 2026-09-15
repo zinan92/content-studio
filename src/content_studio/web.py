@@ -256,14 +256,43 @@ def create_app(
         worker.notify()
         return result
 
+    stop_auto = threading.Event()
+
+    def auto_briefing_tick(now_local: datetime | None = None) -> bool:
+        from . import briefing
+
+        now_local = now_local or datetime.now()
+        key = now_local.date().isoformat()
+        try:
+            ready = any(d.get("path") for d in vault.dailies(vault_path(), now_local.date()))
+        except vault.VaultError:
+            return False
+        if not briefing.auto_due(now_local, store.briefing(key), ready):
+            return False
+        if not briefing_lock.acquire(blocking=False):
+            return False
+        store.set_briefing(key, state="running")
+        threading.Thread(target=_run_briefing, args=(now_local.date(),), name="briefing-auto", daemon=True).start()
+        return True
+
+    def auto_briefing_loop() -> None:
+        while not stop_auto.wait(600):
+            try:
+                auto_briefing_tick()
+            except Exception as exc:  # noqa: BLE001 - never kill the loop
+                logger.warning("auto briefing check failed: %s", exc)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if start_worker:
             worker.start()
+            threading.Thread(target=auto_briefing_loop, name="auto-briefing", daemon=True).start()
         yield
+        stop_auto.set()
         worker.stop()
 
-    app = FastAPI(title="内容拆解台", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="内容工作台", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app.state.auto_briefing_tick = auto_briefing_tick
 
     from .publisher import PublishError
 
@@ -550,9 +579,17 @@ def create_app(
         since = vault.window_start(min(max(days, 1), 30))
         triage = store.triage()
         items = vault.inbox(vault_path(), since=since, sources=(source,) if source else None)
+        # A note that already became a video should not look like fresh material.
+        used: dict[str, dict[str, Any]] = {}
+        for topic in store.topics(include_archived=True):
+            shipped = bool(topic.get("published_video_id")) or topic["status"] == "published"
+            if topic.get("archived_at") and not shipped:
+                continue
+            for path in topic["note_paths"]:
+                used.setdefault(path, {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped})
         return {
             "since": since.isoformat(timespec="minutes"),
-            "items": [{**item, "triage": (triage.get(item["path"]) or {}).get("status")} for item in items],
+            "items": [{**item, "triage": (triage.get(item["path"]) or {}).get("status"), "used_by": used.get(item["path"])} for item in items],
         }
 
     @app.put("/api/vault/triage")
@@ -641,7 +678,8 @@ def create_app(
         if me is None:
             return []
         median = store.account_median(me["id"])
-        rows = [v for v in store.videos(me["id"]) if not v["is_image_post"]][:8]
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        rows = [v for v in store.videos(me["id"]) if not v["is_image_post"] and (v["published_at"] or "") >= cutoff[:10]][:60]
         return [
             {"title": v["title"] or "", "published_at": v["published_at"] or "", "likes": v["likes"],
              "multiple": round(v["likes"] / median, 1) if median and v["likes"] is not None else None}
@@ -656,8 +694,9 @@ def create_app(
             from . import hot
 
             bench = hot.benchmark_breakouts(store, threshold=float(store.settings()["threshold"]))
-            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics(), adjustments=latest_adjustments(),
-                                            breakouts=bench["items"] or bench["fallback"])
+            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics(include_archived=True), adjustments=latest_adjustments(),
+                                            breakouts=bench["items"] or bench["fallback"],
+                                            exclude_paths={path for path, row in store.triage().items() if row.get("status") in ("shot", "ignored")})
             data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
             store.set_briefing(key, state="done", data=data)
         except Exception as exc:  # noqa: BLE001 - shown on the briefing card
@@ -746,7 +785,10 @@ def create_app(
         )
         note_paths = [s["path"] for s in video.get("sources", []) if s.get("path") and not s["path"].startswith(("006_", "007_", "009_"))]
         me = store.self_account()
-        topic = store.create_topic(video["title"], note_paths=note_paths, formats="video", memo=memo, account_id=me["id"] if me else None)
+        existing = next((t for t in store.topics() if t["title"] == video["title"]), None)
+        if existing:
+            return {"topic": existing}
+        topic = store.create_topic(video["title"], note_paths=note_paths, formats="both", memo=memo, account_id=me["id"] if me else None)
         return {"topic": topic}
 
     # -- article line ------------------------------------------------------
@@ -1274,6 +1316,61 @@ def create_app(
         if topic["status"] in ("todo", "drafting"):
             topic = store.update_topic(topic_id, status="ready")
         return {"topic": topic, "admin_url": store.settings()["yanxishi_admin_url"] or None}
+
+    # -- processing board ------------------------------------------------------
+
+    def shot_days() -> set[str]:
+        days = set(store.checked_days("video_shot"))
+        for account in store.accounts():
+            if account["is_self"]:
+                days.update(d for d in (today_plan._day(v["published_at"]) for v in store.videos(account["id"]) if not v["is_image_post"]) if d)
+        return days
+
+    def recommendations(day_value: date, topics: list[dict[str, Any]]) -> dict[str, Any]:
+        record = store.briefing(day_value.isoformat()) or {"state": "missing", "error": None, "data": None}
+        taken = {t["title"]: t["id"] for t in topics}
+        videos = ((record.get("data") or {}).get("videos") or [])
+        ordered = sorted(range(len(videos)), key=lambda i: not videos[i].get("primary"))
+        return {
+            "day": day_value.isoformat(),
+            "state": record["state"],
+            "error": record.get("error"),
+            "generated_at": (record.get("data") or {}).get("generated_at"),
+            "items": [
+                {"index": i, "title": videos[i]["title"], "why": videos[i].get("why_today") or "", "hook": videos[i].get("hook") or "",
+                 "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")), "topic_id": taken.get(videos[i]["title"])}
+                for i in ordered[:2]
+            ],
+        }
+
+    @app.get("/api/board")
+    def get_board(day: str | None = None) -> dict[str, Any]:
+        from . import board, opening
+
+        target = parse_day(day)
+        topics = store.topics()
+        active = [t for t in topics if not board.is_shipped(t)]
+        root = None
+        try:
+            root = video_root()
+        except VideoProjectError:
+            pass
+        cards = []
+        for topic in active:
+            project = None
+            if topic.get("video_project") and root is not None:
+                try:
+                    project = video_project.inspect(root, topic["video_project"])
+                except VideoProjectError:
+                    project = None
+            cards.append(board.card(topic, project, opening.load(drafts_root, topic["id"])))
+        return {
+            "stages": [{"key": k, "label": label} for k, label in board.STAGES],
+            "cards": cards,
+            "recommend": recommendations(target, store.topics(include_archived=True)),
+            "streak": today_plan.shooting_streak(target, shot_days()),
+            "project_root_ok": root is not None,
+        }
 
     @app.get("/api/today/plan")
     def get_plan(day: str | None = None) -> dict[str, Any]:

@@ -271,8 +271,8 @@ class StudioStore:
         return {row["path"]: dict(row) for row in self._rows("SELECT path, status, updated_at FROM inbox_triage")}
 
     def set_triage(self, path: str, status: str | None) -> None:
-        if status not in (None, "topic", "ignored"):
-            raise StoreError("处理状态只能是 做成选题 或 忽略")
+        if status not in (None, "topic", "ignored", "shot"):
+            raise StoreError("处理状态只能是 拿来做、拍过了 或 忽略")
         with self.tx() as conn:
             if status is None:
                 conn.execute("DELETE FROM inbox_triage WHERE path = ?", (path,))
