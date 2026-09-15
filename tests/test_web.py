@@ -65,6 +65,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         write_fn=_fake_writer,
         brief_fn=_fake_brief,
         opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
+        qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "开头"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n## 主线\nb\n## 提纲\n- 开头：a\n- x\n- y\n- 结尾：z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
@@ -95,7 +96,7 @@ def _fake_brief(prompt: str) -> dict:
         "reads": [{"title": "Codex 新功能", "why": "和你的方向相关", "source": {"path": daily}}],
         "videos": [{"title": "为什么用了 AI 反而更累", "hook": "累的不是活，是落差", "claim": "预期落差让人累",
                     "outline": ["一", "二", "三"], "sources": [{"path": note}, {"path": daily}], "why_today": "日报在讲",
-                    "effort": "低", "caution": "", "primary": True}],
+                    "effort": "低", "caution": "", "qa": {"pain": 4, "contrast": 3, "delivery": 3, "note": "n"}, "primary": True}],
         "prep": "打开录制窗口",
     }
 
@@ -400,6 +401,17 @@ def test_outline_generate_edit_and_format_rules(client: TestClient) -> None:
     assert client.get(f"/api/topics/{video['id']}/outline").json()["markdown"].startswith("# 标题")
     saved = client.put(f"/api/topics/{video['id']}/outline", json={"markdown": "# 改了"}).json()
     assert saved["markdown"] == "# 改了\n"
+    # The three-point QA runs right after the outline is written and shows on the board card.
+    for _ in range(200):
+        qa = client.get(f"/api/topics/{video['id']}/qa").json()
+        if qa["result"]:
+            break
+        time.sleep(0.02)
+    assert qa["result"]["total"] == 12 and qa["result"]["verdict"] == "go" and qa["result"]["fix"] == "补一张截图"
+    card = [c for c in client.get("/api/board").json()["cards"] if c["id"] == video["id"]][0]
+    assert card["qa"] == {"total": 12, "verdict": "go"}
+    assert client.post(f"/api/topics/{article_only['id']}/qa").status_code == 400
+    assert client.post(f"/api/topics/{video['id']}/qa").json()["started"] in (True, False)
 
 
 def test_video_project_link_create_inspect_and_files(client: TestClient, tmp_path: Path) -> None:

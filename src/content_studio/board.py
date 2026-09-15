@@ -54,7 +54,7 @@ def next_action(topic: dict[str, Any], stage: str, project: dict[str, Any] | Non
     return {"text": "成片好了，去发", "mine": True}
 
 
-def card(topic: dict[str, Any], project: dict[str, Any] | None, opening: dict[str, Any] | None = None) -> dict[str, Any]:
+def card(topic: dict[str, Any], project: dict[str, Any] | None, opening: dict[str, Any] | None = None, qa: dict[str, Any] | None = None) -> dict[str, Any]:
     stage = stage_for(topic, project)
     return {
         "id": topic["id"],
@@ -67,5 +67,6 @@ def card(topic: dict[str, Any], project: dict[str, Any] | None, opening: dict[st
         "project": {k: project.get(k) for k in ("name", "summary", "current_step", "delivered")} if project else None,
         "gate": project.get("gate") if project else None,
         "opening": {"passed": opening.get("passed"), "stated_at": opening.get("stated_at")} if opening else None,
+        "qa": {"total": qa.get("total"), "verdict": qa.get("verdict")} if qa else None,
         "next": next_action(topic, stage, project, opening),
     }

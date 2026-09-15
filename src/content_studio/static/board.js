@@ -48,6 +48,7 @@ function recommendBlock(r) {
       <div class="rec-top"><span class="rec-tag">${v.primary ? '首选' : '备选'}</span>${v.effort ? `<span class="rec-effort">${EFFORT_NAME[v.effort] || v.effort}</span>` : ''}</div>
       <h3>${esc(v.title)}</h3>
       ${v.hook ? `<blockquote>${esc(v.hook)}</blockquote>` : ''}
+      ${v.qa ? `<div class="rec-qa">${[['pain', '痛点'], ['contrast', '反差'], ['delivery', '交付']].map(([k, l]) => `<span class="${v.qa[k] <= 2 ? 'low' : ''}">${l} <b class="num">${v.qa[k]}</b></span>`).join('')}${v.qa.note ? `<small>${esc(v.qa.note)}</small>` : ''}</div>` : ''}
       <p>${esc(v.why)}</p>
       <div class="rec-foot">${v.dropped
         ? '<span class="chip-state">已经拍过 / 不做了</span>'
@@ -65,6 +66,7 @@ function hmTime(iso) {
 function boardCard(c) {
   const badges = [
     c.gate ? `<span class="badge gate">${esc(c.gate.key)}</span>` : '',
+    c.qa ? `<span class="badge ${c.qa.verdict === 'go' ? 'ok' : 'bad'}" title="痛点 + 反差 + 交付，满分 15">三点 ${c.qa.total}</span>` : '',
     c.opening ? `<span class="badge ${c.opening.passed ? 'ok' : 'bad'}">开头${c.opening.passed ? '✓' : '✗'}</span>` : '',
     c.has_article ? '<span class="badge">文章</span>' : '',
   ].join('');
