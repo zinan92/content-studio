@@ -65,6 +65,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         write_fn=_fake_writer,
         brief_fn=_fake_brief,
         copy_fn=lambda prompt: {k: {"title": "" if k == "x" else "标题", "body": "正文", "tags": ["AI"]} for k in ("douyin", "channels", "xiaohongshu", "bilibili", "youtube", "x", "yanxishi")},
+        opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n预计时长：10 分钟\n## 前 15 秒\n- a\n## 主线\nb\n## 第 1 段：x\n- y\n## 第 2 段：x\n- y\n## 第 3 段：x\n- y\n## 结尾\n- z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
@@ -607,3 +608,23 @@ def test_unread_benchmark_reports_auto_archive_after_seven_days(client, tmp_path
     listed = {r["video_id"]: r for r in client.get("/api/reports").json()}
     assert listed["old"]["archived_at"] and listed["old"].get("auto_archived")
     assert listed["fresh"]["archived_at"] is None and listed["mine"]["archived_at"] is None
+
+
+def test_opening_check_reads_project_subtitles(client: TestClient, tmp_path: Path) -> None:
+    import time
+
+    root = tmp_path / "videos"
+    (root / "rec" / "subtitles").mkdir(parents=True)
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "开头", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": "rec"})
+    assert client.get(f"/api/topics/{topic['id']}/opening").json()["subtitles"] is None
+    assert client.post(f"/api/topics/{topic['id']}/opening").status_code == 400
+    (root / "rec" / "subtitles" / "source.srt").write_text("1\n00:00:00,500 --> 00:00:02,000\n开门见山说主线\n", encoding="utf-8")
+    assert client.post(f"/api/topics/{topic['id']}/opening").json()["started"] is True
+    for _ in range(200):
+        data = client.get(f"/api/topics/{topic['id']}/opening").json()
+        if data["state"] != "running":
+            break
+        time.sleep(0.02)
+    assert data["result"]["passed"] is True and data["subtitles"]["label"] == "原始录音" and data["result"]["thesis"] == "开头"

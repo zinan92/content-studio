@@ -207,6 +207,7 @@ def create_app(
     outline_fn: Callable[[str], str] | None = None,
     copy_fn: Callable[[str], dict] | None = None,
     review_fn: Callable[[str], dict] | None = None,
+    opening_fn: Callable[[str], dict] | None = None,
     runs_dir: Path | None = None,
     runner_command: str | None = None,
     publishers: dict[str, dict[str, Any]] | None = None,
@@ -880,6 +881,51 @@ def create_app(
         )
         store.update_topic(topic_id, video_project=name)
         return video_project.inspect(video_root(), name)
+
+    # -- opening 15 seconds ---------------------------------------------------
+
+    opening_runs: dict[int, dict[str, Any]] = {}
+    opening_lock = threading.Lock()
+
+    def _score_opening(topic_id: int, project: Path, thesis: str) -> None:
+        from . import opening
+
+        try:
+            result = opening.score_opening(project, thesis=thesis, **({"opening_fn": opening_fn} if opening_fn else {}))
+            opening.save(drafts_root, topic_id, result)
+            with opening_lock:
+                opening_runs.pop(topic_id, None)
+        except Exception as exc:  # noqa: BLE001 - shown on the video tab
+            logger.warning("opening topic %s failed: %s", topic_id, exc)
+            with opening_lock:
+                opening_runs[topic_id] = {"state": "failed", "error": str(exc)[:300] or type(exc).__name__}
+
+    @app.get("/api/topics/{topic_id}/opening")
+    def get_opening(topic_id: int) -> dict[str, Any]:
+        from . import opening
+
+        _topic, project, _info = linked_project(topic_id)
+        found = opening.find_subtitles(project)
+        with opening_lock:
+            run = dict(opening_runs.get(topic_id) or {})
+        return {"state": run.get("state") or "idle", "error": run.get("error"), "result": opening.load(drafts_root, topic_id),
+                "subtitles": {"path": str(found[0].relative_to(project)), "label": found[1]} if found else None}
+
+    @app.post("/api/topics/{topic_id}/opening")
+    def start_opening(topic_id: int) -> dict[str, Any]:
+        from . import opening, outline
+
+        topic, project, _info = linked_project(topic_id)
+        if opening.find_subtitles(project) is None:
+            raise ValueError("项目里还没有字幕文件：录完把粗剪和字幕放进项目文件夹")
+        draft = outline.read_outline(topic)
+        thesis = opening.thesis_for(draft["markdown"] if draft else None, topic["title"])
+        with opening_lock:
+            if (opening_runs.get(topic_id) or {}).get("state") == "running":
+                return {"started": False, "message": "正在检查开头"}
+            opening_runs[topic_id] = {"state": "running"}
+        threading.Thread(target=_score_opening, args=(topic_id, project, thesis), daemon=True).start()
+        return {"started": True, "message": "开始检查开头 15 秒，一般半分钟"}
 
     @app.post("/api/topics/{topic_id}/video-project/worktable")
     def import_worktable(topic_id: int, body: WorktableBody) -> dict[str, Any]:
