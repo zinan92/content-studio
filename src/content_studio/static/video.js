@@ -1,7 +1,6 @@
 'use strict';
-/* 加工 · 视频：拍摄提纲 → 剪辑进度 → 发出与数据 → 文案包（各页签由模块注册） */
+/* 加工中 · 一条视频：拍摄提纲 → 剪辑进度 → 文案与平台 → 发出与数据 → 文章（各页签由模块注册） */
 window.VIEWS = window.VIEWS || {};
-window.TOPIC_ACTIONS = window.TOPIC_ACTIONS || [];
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 const VD = { topicId: null, tab: 'outline', outline: null, dirty: false, mode: 'preview' };
@@ -11,24 +10,8 @@ async function startOutline(topicId) {
     const res = await api(`/api/topics/${topicId}/outline`, { method: 'POST' });
     toast(res.message);
     if (window.refreshTopics) await window.refreshTopics();
-    const body = $('#videoBody');
-    if (body) body.dataset.sig = '';
-    renderView();
   } catch (err) { toast(err.message); }
 }
-
-window.TOPIC_ACTIONS.push((t) => {
-  if (t.formats === 'article') return '';
-  if (t.outline_state === 'running') return '<span class="stage-pill running">提纲生成中…</span>';
-  return `<button class="btn small ${t.outline_path ? '' : 'primary'}" type="button" data-open-video="${t.id}">${t.outline_path ? '看视频' : '写提纲'}</button>`;
-});
-
-document.addEventListener('click', (e) => {
-  const open = e.target.closest('[data-open-video]');
-  if (open) { e.preventDefault(); VD.topicId = Number(open.dataset.openVideo); VD.outline = null; VD.tab = 'outline'; go('video'); }
-  const gen = e.target.closest('[data-outline]');
-  if (gen) { e.preventDefault(); startOutline(Number(gen.dataset.outline)); }
-});
 
 window.VIDEO_TABS.push({
   key: 'outline',
@@ -71,30 +54,55 @@ window.VIDEO_TABS.push({
   },
 });
 
-window.VIEWS.video = {
+const TAB_ORDER = ['outline', 'edit', 'copy', 'publish', 'article'];
+const WORK_STEPS = [['outline', '提纲'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
+const WK = { topics: null, at: 0 };
+
+window.invalidateWork = () => { WK.topics = null; const body = $('#videoBody'); if (body) body.dataset.sig = ''; };
+
+window.VIEWS.work = {
   async render() {
-    const body = $('#videoBody');
-    if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'copy')) return;
-    let topics;
-    try { topics = await api('/api/topics'); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
-    const candidates = topics.filter((t) => t.formats !== 'article');
-    if (!VD.topicId || !candidates.some((t) => t.id === VD.topicId)) VD.topicId = candidates.length ? candidates[0].id : null;
-    const topic = candidates.find((t) => t.id === VD.topicId);
-    const tabs = window.VIDEO_TABS;
-    const sig = JSON.stringify([VD.topicId, VD.tab, VD.mode, VD.outline && VD.outline.updated_at, candidates.map((t) => [t.id, t.outline_state, Boolean(t.outline_path), t.video_project, t.status, t.published_video_id])]);
-    if (body.dataset.sig === sig && !VD.forceRender) return;
-    body.dataset.sig = sig;
+    const root = $('#workBody');
+    if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'copy') || (typeof AR !== 'undefined' && AR.dirty && VD.tab === 'article')) return;
+    if (VD.topicId !== S.workId) { VD.topicId = S.workId; VD.outline = null; VD.mode = 'preview'; VD.tab = 'outline'; }
+    try {
+      if (!WK.topics || Date.now() - WK.at > 5000) {
+        WK.topics = await api('/api/topics?archived=true');
+        WK.at = Date.now();
+      }
+      if (typeof BD !== 'undefined' && !BD.data) await loadBoard(false);
+    } catch (err) { root.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    const topic = WK.topics.find((t) => t.id === VD.topicId);
+    if (!topic) { root.innerHTML = '<div class="panel empty"><b>找不到这条视频</b><button class="btn" type="button" onclick="go(\'board\')">回到看板</button></div>'; return; }
+    const card = BD.data && BD.data.cards.find((c) => c.id === topic.id);
+    const stage = topic.published_video_id ? 'shipped' : card ? card.stage : 'outline';
+    const tabs = window.VIDEO_TABS.slice().sort((a, b) => TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key));
+    let body = $('#videoBody');
+    const sig = JSON.stringify([VD.topicId, VD.tab, VD.mode, VD.outline && VD.outline.updated_at, stage, card && card.next.text, topic.outline_state, Boolean(topic.outline_path), topic.video_project, topic.status, topic.published_video_id, topic.write_state, Boolean(topic.article_path), topic.archived_at]);
+    if (body && body.dataset.sig === sig && !VD.forceRender) return;
     VD.forceRender = false;
-    const list = candidates.length ? candidates.map((t) => `<button type="button" class="art-item ${t.id === VD.topicId ? 'on' : ''}" data-vtopic="${t.id}"><b class="clamp">${esc(t.title)}</b><small>${tabs.map((tab) => tab.badge(t)).filter(Boolean).join(' · ') || '还没开始'}</small></button>`).join('')
-      : '<div class="empty"><span>还没有视频选题。去「每日统筹」挑一条，或在「选题」里加。</span></div>';
-    body.innerHTML = `<div class="art-grid"><div class="panel art-list">${list}</div><div class="panel art-main">${topic ? `
-      <div class="video-head"><h2>${esc(topic.title)}</h2><div class="video-tabs" role="tablist">${tabs.map((tab) => `<button type="button" role="tab" class="${VD.tab === tab.key ? 'on' : ''}" data-vtab="${tab.key}">${tab.label}${tab.badge(topic) ? `<small>${esc(tab.badge(topic))}</small>` : ''}</button>`).join('')}</div></div>
-      <div id="videoTab"></div>` : '<div class="empty"><span>左边选一个视频选题。</span></div>'}</div></div>`;
-    $$('[data-vtopic]', body).forEach((b) => (b.onclick = () => { if (typeof CP !== 'undefined') CP.dirty = false; VD.topicId = Number(b.dataset.vtopic); VD.outline = null; VD.mode = 'preview'; renderView(); }));
-    $$('[data-vtab]', body).forEach((b) => (b.onclick = () => { if (typeof CP !== 'undefined') CP.dirty = false; VD.tab = b.dataset.vtab; body.dataset.sig = ''; renderView(); }));
-    if (topic) {
-      const tab = tabs.find((x) => x.key === VD.tab) || tabs[0];
-      await tab.render(topic, $('#videoTab'));
-    }
+    const reached = WORK_STEPS.findIndex(([k]) => k === stage);
+    root.innerHTML = `<header class="work-h">
+        <button class="linklike back" type="button" onclick="go('board')">← 加工中</button>
+        <div class="work-title"><h1>${esc(topic.title)}</h1>
+          <div class="work-acts">${topic.archived_at ? '<span class="chip-state">已归档</span>' : '<button class="btn small ghost" type="button" id="workArchive">不做了</button>'}</div></div>
+        <ol class="steps-line">${WORK_STEPS.map(([k, l], i) => `<li class="${i < reached ? 'done' : i === reached ? 'now' : ''}"><i></i>${l}</li>`).join('')}</ol>
+        ${card ? `<p class="work-next ${card.next.mine ? 'mine' : ''}"><i></i>${esc(card.next.text)}</p>` : ''}
+      </header>
+      <div class="panel work-main" id="videoBody">
+        <div class="video-tabs" role="tablist">${tabs.map((tab) => `<button type="button" role="tab" class="${VD.tab === tab.key ? 'on' : ''}" data-vtab="${tab.key}">${tab.label}${tab.badge(topic) ? `<small>${esc(tab.badge(topic))}</small>` : ''}</button>`).join('')}</div>
+        <div id="videoTab"></div>
+      </div>`;
+    body = $('#videoBody');
+    body.dataset.sig = sig;
+    $$('[data-vtab]', root).forEach((b) => (b.onclick = () => { if (typeof CP !== 'undefined') CP.dirty = false; VD.tab = b.dataset.vtab; body.dataset.sig = ''; renderView(); }));
+    const archive = $('#workArchive');
+    if (archive) archive.onclick = async () => {
+      if (!confirm(`不做《${topic.title}》了？会从看板拿掉，笔记和文件都不删。`)) return;
+      await window.patchTopic(topic.id, { archived: true }, '已从看板拿掉');
+      go('board');
+    };
+    const tab = tabs.find((x) => x.key === VD.tab) || tabs[0];
+    await tab.render(topic, $('#videoTab'));
   },
 };

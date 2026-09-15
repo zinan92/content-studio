@@ -25,4 +25,4 @@ def test_next_action_puts_gates_and_failed_openings_on_park() -> None:
     ready = board.card(_topic(), {"layout": "v2.6", "current_step": None, "delivered": True, "gate": None}, {"passed": False, "stated_at": None})
     assert ready["stage"] == "ready" and "开头 15 秒没过" in ready["next"]["text"]
     assert board.card(_topic(outline_state="running"), None)["next"]["mine"] is False
-    assert board.is_shipped(_topic(published_video_id="v")) and not board.is_shipped(_topic())
+    assert board.is_shipped(_topic(published_video_id="v")) and not board.is_shipped(_topic(status="published"))

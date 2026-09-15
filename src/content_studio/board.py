@@ -16,7 +16,8 @@ STAGES = (
 
 
 def is_shipped(topic: dict[str, Any]) -> bool:
-    return bool(topic.get("published_video_id")) or topic.get("status") == "published"
+    # Only a linked Douyin video ships a card; status=published can mean the article went out first.
+    return bool(topic.get("published_video_id"))
 
 
 def stage_for(topic: dict[str, Any], project: dict[str, Any] | None) -> str:

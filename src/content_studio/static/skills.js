@@ -1,7 +1,6 @@
 'use strict';
 /* Skills：Park 做内容在用的 skill，按生产阶段分组；放在「设置与 Skills」里 */
 window.VIEWS = window.VIEWS || {};
-window.TODAY_CARDS = window.TODAY_CARDS || [];
 
 const SK = { data: null };
 async function loadSkills() {

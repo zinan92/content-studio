@@ -4,35 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>内容工作台</title>
+<meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;900&display=swap">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
 <div class="app">
   <aside class="rail">
     <div class="brand"><b>内容工作台</b><span id="brandSub">Park · 本机</span></div>
-    <nav class="nav" id="nav">
-      <button data-view="today" type="button" class="nav-today">今天 <span class="count" id="navToday"></span></button>
-      <div class="nav-group" data-group="main">
-        <button data-view="brief" type="button">每日统筹</button>
-        <button data-view="topics" type="button">选题 <span class="count" id="navTopics"></span></button>
-        <button data-view="video" type="button">视频</button>
-        <button data-view="article" type="button">文章</button>
-        <button data-view="weekly" type="button">每周复盘</button>
-      </div>
-      <details class="nav-more" id="navMore">
-        <summary>更多</summary>
-        <div class="nav-group">
-          <button data-view="collect" type="button">素材库 <span class="count" id="navCollect"></span></button>
-          <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
-          <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
-          <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
-          <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
-          <button data-view="settings" type="button">设置与 Skills</button>
-        </div>
-      </details>
+    <nav class="flow" id="nav" aria-label="阶段">
+      <button type="button" data-view="input" data-stage="in"><i class="node"></i><span class="flow-k">01</span><span class="flow-t">进项<small>读进来什么</small></span><b class="count" id="navIn"></b></button>
+      <button type="button" data-view="board" data-stage="work"><i class="node"></i><span class="flow-k">02</span><span class="flow-t">加工中<small>正在做哪几条</small></span><b class="count" id="navWork"></b></button>
+      <button type="button" data-view="output" data-stage="out"><i class="node"></i><span class="flow-k">03</span><span class="flow-t">已发出<small>数据和复盘</small></span><b class="count" id="navOut"></b></button>
     </nav>
+    <button type="button" class="rail-set" data-view="settings">设置与 Skills</button>
     <div class="rail-foot">
       <label class="acct-switch" id="acctSwitchWrap"><span>当前账号</span><select id="acctSwitch" aria-label="当前账号"></select></label>
       <button class="btn small" id="syncAllBtn" type="button">同步全部账号</button>
@@ -44,98 +30,52 @@
   <main>
     <div id="globalBanner"></div>
 
-    <!-- TODAY -->
-    <section class="view" id="v-today">
-      <div class="head">
-        <div>
-          <div class="eyebrow" id="todayDate">今天</div>
-          <h1 id="todayTitle">今天做什么</h1>
-          <p id="todayIntro">每天只看三件事：读、拍、发。</p>
-        </div>
-      </div>
-      <div class="today-grid" id="todayGrid"></div>
+    <!-- 01 INPUT -->
+    <section class="view" id="v-input" data-stage="in">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">01 · 进项</div><h1>进来了什么</h1><p id="inIntro">Newsletter、Clippings、我收藏的、我写的。值得做的点「拿来做」，它会进加工中。</p></div>
+        <div class="page-figs" id="inFigs"></div>
+      </header>
+      <div id="inputBody"></div>
     </section>
 
-    <!-- COLLECT -->
-    <section class="view wide" id="v-collect">
-      <div class="head"><div><div class="eyebrow">收集 · Obsidian</div><h1>素材库</h1><p>你的剪藏、收藏和原始输出。值得做的点「做成选题」，不做的点「忽略」，今天的主线会跟着更新。</p></div></div>
-      <div id="collectBody"></div>
+    <!-- 02 PROCESSING -->
+    <section class="view" id="v-board" data-stage="work">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">02 · 加工中</div><h1>正在做的视频</h1><p>提纲 → 录制 → 剪辑 → 待发。卡片跟着文件自动走，橙点表示在等你。</p></div>
+        <div class="page-figs" id="boardFigs"></div>
+      </header>
+      <div id="boardBody"></div>
     </section>
 
-    <!-- BRIEF -->
-    <section class="view wide" id="v-brief">
-      <div class="head"><div><div class="eyebrow">选题 · 每日统筹</div><h1>今天读什么，今天拍什么</h1><p>根据今天的日报、近 2 天剪藏、近 7 天原始输出和对标爆款来统筹；素材都能点开核对。拍什么由你决定。</p></div></div>
-      <div id="briefBody"></div>
-      <div id="briefHot"></div>
+    <section class="view wide" id="v-work" data-stage="work">
+      <div id="workBody"></div>
     </section>
 
-    <!-- TOPICS -->
-    <section class="view wide" id="v-topics">
-      <div class="head"><div><div class="eyebrow">选题</div><h1>选题</h1><p>一个选题可以同时出文章和视频。没做完的会一直留在今天的主线里。</p></div></div>
-      <div id="topicsBody"></div>
-    </section>
-
-    <!-- ARTICLE -->
-    <section class="view wide" id="v-article">
-      <div class="head"><div><div class="eyebrow">加工 · 卡兹克写作 → Park 研习室</div><h1>文章</h1><p>选题一键写成草稿，你看过、改过，再交给研习室。不会自动发布，也不会改你的 Obsidian 笔记。</p></div></div>
-      <div id="articleBody"></div>
-    </section>
-
-    <!-- VIDEO -->
-    <section class="view wide" id="v-video">
-      <div class="head"><div><div class="eyebrow">加工 · 口播视频</div><h1>视频</h1><p>一个视频选题从提纲走到发出：拍摄提纲 → 剪辑进度（口播 workflow）→ 发出与数据 → 各平台文案。</p></div></div>
-      <div id="videoBody"></div>
-    </section>
-
-    <!-- WEEKLY -->
-    <section class="view" id="v-weekly">
-      <div class="head"><div><div class="eyebrow">复盘</div><h1>每周复盘</h1><p>这 7 天发的视频、拆解报告和对标爆款放在一起看：做对了什么，问题在哪，下周改什么。数字由代码算，结论必须指向具体视频。</p></div></div>
-      <div id="weeklyBody"></div>
-    </section>
-
-
-
-    <!-- SETTINGS -->
-    <section class="view" id="v-settings">
-      <div class="head"><div><div class="eyebrow">更多</div><h1>设置与 Skills</h1><p>只保存在本机。</p></div></div>
-      <div class="panel">
-        <form class="settings" id="settingsForm">
-          <label><span>Obsidian 库路径</span><input id="setVault" autocomplete="off" placeholder="~/park-hands"><small id="setVaultNote"></small></label>
-          <label><span>口播视频项目目录</span><input id="setVideoRoot" autocomplete="off" placeholder="/Volumes/Phone SSD/视频/exports"><small>留空时用外接硬盘上的 /Volumes/Phone SSD/视频/exports</small></label>
-          <label><span>研习室电脑后台地址</span><input id="setYanxishi" autocomplete="off" placeholder="https://…tcloudbaseapp.com"><small>文章页点「交给研习室」时会复制正文并打开这个地址</small></label>
-          <div><button class="btn primary" type="submit">保存</button></div>
-        </form>
-      </div>
-      <div class="panel">
-        <div class="panel-h"><h2>我的账号</h2><small>「我的视频」和选题按账号区分；加第二个号直接粘贴主页链接</small></div>
-        <div id="myAccounts"></div>
-        <form class="linkbox" id="myAcctForm"><input id="myAcctIn" placeholder="我的另一个抖音主页链接 https://www.douyin.com/user/…" aria-label="我的主页链接" autocomplete="off"><button class="btn" type="submit">添加我的账号</button></form>
-      </div>
-      <details class="panel settings-skills"><summary class="panel-h"><h2>Skills</h2><small>做内容时在用的 skill，点开看调用方式</small></summary><div id="skillsBody"></div></details>
+    <!-- 03 OUTPUT -->
+    <section class="view" id="v-output" data-stage="out">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">03 · 已发出</div><h1>发出去怎么样</h1><p>每条视频的倍数、留存和涨粉，连着看才看得出规律。</p></div>
+      </header>
+      <nav class="subnav" data-subnav aria-label="已发出"></nav>
+      <div id="outputBody"></div>
     </section>
 
     <!-- MINE -->
-    <section class="view" id="v-mine">
-      <div class="head">
-        <div>
-          <div class="eyebrow">抖音 · 我的账号</div>
-          <h1>我的视频</h1>
-          <p id="mineIntro">倍数 = 点赞 ÷ 你账号非置顶作品的点赞中位数。涨粉、完播、跳出来自创作者后台（只保留 90 天）。</p>
-        </div>
+    <section class="view" id="v-mine" data-stage="out">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">03 · 已发出 · 我的视频</div><h1>我的视频</h1><p>倍数 = 点赞 ÷ 你账号非置顶作品的点赞中位数。涨粉、完播、跳出来自创作者后台（只保留 90 天）。</p></div>
         <div class="topbar-actions" id="mineActions"></div>
-      </div>
+      </header>
+      <nav class="subnav" data-subnav aria-label="已发出"></nav>
       <div id="mineBody"></div>
     </section>
-
     <!-- RADAR -->
-    <section class="view" id="v-radar">
-      <div class="head">
-        <div>
-          <div class="eyebrow">抖音 · 对标账号</div>
-          <h1>对标雷达</h1>
-          <p>每个账号用<b>自己的</b>点赞中位数做基准：平时 5000 赞的号突然一条 20 万赞，就是 40 倍样本。超过 5× 的新爆款会自动拆解，每天最多 2 条；没看的对标报告 7 天后自动归档。</p>
-        </div>
-      </div>
+    <section class="view" id="v-radar" data-stage="out">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">03 · 已发出 · 对标雷达</div><h1>对标雷达</h1><p>每个账号用自己的点赞中位数做基准。超过 5× 的新爆款会自动拆解，每天最多 2 条。</p></div>
+      </header>
+      <nav class="subnav" data-subnav aria-label="已发出"></nav>
       <div class="controls">
         <label for="thr">爆款门槛</label>
         <input type="range" id="thr" min="2" max="30" step="0.5" value="5">
@@ -153,16 +93,15 @@
         <div class="outlist" id="outs"></div>
       </div>
     </section>
-
-    <!-- QUEUE -->
-    <section class="view" id="v-queue">
-      <div class="head">
-        <div>
-          <div class="eyebrow">下载 → 转文字 → 结构拆解 → 报告</div>
-          <h1>拆解队列</h1>
-          <p>粘贴任意抖音视频链接（或分享口令），或从对标雷达、我的视频把作品加进来。任务一条一条串行跑，关掉页面也会继续。</p>
-        </div>
-      </div>
+    <!-- REPORT -->
+    <section class="view" id="v-report" data-stage="out">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">03 · 已发出 · 拆解报告</div><h1>拆解报告</h1><p>我的视频和对标爆款的结构拆解。下面是拆解队列，贴任意抖音链接就能加。</p></div>
+      </header>
+      <nav class="subnav" data-subnav aria-label="已发出"></nav>
+      <div class="rep-picker" id="repPick"></div>
+      <div id="repBody"></div>
+      <details class="queue-fold" id="queueFold"><summary><b>拆解队列</b><span id="qSummary"></span></summary>
       <div class="panel">
         <form class="linkbox" id="linkForm">
           <input id="linkIn" placeholder="粘贴抖音视频链接，例如 https://www.douyin.com/video/… 或 v.douyin.com 分享链接" aria-label="视频链接" autocomplete="off">
@@ -174,12 +113,25 @@
         <div class="panel-h"><h2>队列</h2><small id="qMeta"></small></div>
         <div id="qList"></div>
       </div>
+      </details>
     </section>
-
-    <!-- REPORT -->
-    <section class="view" id="v-report">
-      <div class="rep-picker" id="repPick"></div>
-      <div id="repBody"></div>
+    <!-- SETTINGS -->
+    <section class="view" id="v-settings" data-stage="set">
+      <header class="page-h"><div><div class="stage-eyebrow">设置</div><h1>设置与 Skills</h1><p>只保存在本机。</p></div></header>
+      <div class="panel">
+        <form class="settings" id="settingsForm">
+          <label><span>Obsidian 库路径</span><input id="setVault" autocomplete="off" placeholder="~/park-hands"><small id="setVaultNote"></small></label>
+          <label><span>口播视频项目目录</span><input id="setVideoRoot" autocomplete="off" placeholder="/Volumes/Phone SSD/视频/exports"><small>留空时用外接硬盘上的 /Volumes/Phone SSD/视频/exports</small></label>
+          <label><span>研习室电脑后台地址</span><input id="setYanxishi" autocomplete="off" placeholder="https://…tcloudbaseapp.com"><small>视频的「文章」页签点「交给研习室」时，会复制正文并打开这个地址</small></label>
+          <div><button class="btn primary" type="submit">保存</button></div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h2>我的账号</h2><small>数据按账号区分；加第二个号直接粘贴主页链接</small></div>
+        <div id="myAccounts"></div>
+        <form class="linkbox" id="myAcctForm"><input id="myAcctIn" placeholder="我的另一个抖音主页链接 https://www.douyin.com/user/…" aria-label="我的主页链接" autocomplete="off"><button class="btn" type="submit">添加我的账号</button></form>
+      </div>
+      <details class="panel settings-skills"><summary class="panel-h"><h2>Skills</h2><small>做内容时在用的 skill，点开看调用方式</small></summary><div id="skillsBody"></div></details>
     </section>
   </main>
 </div>
@@ -197,20 +149,16 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
-<script src="/static/today.js"></script>
-<script src="/static/collect.js"></script>
-<script src="/static/topics.js"></script>
-<script src="/static/briefing.js"></script>
-<script src="/static/article.js"></script>
+<script src="/static/input.js"></script>
+<script src="/static/board.js"></script>
 <script src="/static/video.js"></script>
 <script src="/static/videoproject.js"></script>
-<script src="/static/publishnow.js"></script>
 <script src="/static/publish.js"></script>
+<script src="/static/publishnow.js"></script>
 <script src="/static/copypack.js"></script>
+<script src="/static/article.js"></script>
+<script src="/static/output.js"></script>
 <script src="/static/skills.js"></script>
-<script src="/static/hot.js"></script>
-<script src="/static/recent.js"></script>
-<script src="/static/review.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

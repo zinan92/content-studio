@@ -46,6 +46,6 @@ async function renderPublishPanel(topic, el) {
   $$('[data-pj-cancel]', el).forEach((b) => (b.onclick = async () => {
     try { await api(`/api/publish-jobs/${b.dataset.pjCancel}`, { method: 'DELETE' }); toast('已取消'); refresh(); } catch (err) { toast(err.message); }
   }));
-  if (running) setTimeout(() => { if (S.view === 'video' && VD.tab === 'publish') refresh(); }, 8000);
+  if (running) setTimeout(() => { if (S.view === 'work' && VD.tab === 'publish') refresh(); }, 8000);
 }
 window.renderPublishPanel = renderPublishPanel;

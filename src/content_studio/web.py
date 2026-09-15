@@ -582,7 +582,7 @@ def create_app(
         # A note that already became a video should not look like fresh material.
         used: dict[str, dict[str, Any]] = {}
         for topic in store.topics(include_archived=True):
-            shipped = bool(topic.get("published_video_id")) or topic["status"] == "published"
+            shipped = bool(topic.get("published_video_id"))
             if topic.get("archived_at") and not shipped:
                 continue
             for path in topic["note_paths"]:
@@ -605,31 +605,6 @@ def create_app(
                 me = store.self_account()
                 topic = store.create_topic(note["title"], note_paths=[body.path], account_id=me["id"] if me else None)
         return {"path": body.path, "triage": body.status, "topic": topic}
-
-    # -- hot ----------------------------------------------------------------
-
-    @app.get("/api/hot")
-    def hot_now() -> dict[str, Any]:
-        from . import hot
-
-        threshold = float(store.settings()["threshold"])
-        result: dict[str, Any] = {
-            "benchmarks": {
-                **hot.benchmark_breakouts(store, threshold=threshold),
-                "items": [{**v, **teardown_state(v["video_id"])} for v in hot.benchmark_breakouts(store, threshold=threshold)["items"]],
-            },
-            "threshold": threshold,
-            "douyin_search": {"available": False, "reason": "抖音站内搜索接口返回反作弊拦截，按规则不绕过"},
-        }
-        try:
-            today = date.today()
-            headlines = hot.daily_headlines(vault_path(), today)
-            result["headlines"] = headlines
-            result["topics"] = hot.frequent_topics(vault_path(), today=today)
-            result["vault_error"] = None
-        except vault.VaultError as exc:
-            result.update(headlines=[], topics=[], vault_error=str(exc))
-        return result
 
     # -- skills -----------------------------------------------------------
 
@@ -1328,7 +1303,7 @@ def create_app(
 
     def recommendations(day_value: date, topics: list[dict[str, Any]]) -> dict[str, Any]:
         record = store.briefing(day_value.isoformat()) or {"state": "missing", "error": None, "data": None}
-        taken = {t["title"]: t["id"] for t in topics}
+        taken = {t["title"]: t for t in topics}
         videos = ((record.get("data") or {}).get("videos") or [])
         ordered = sorted(range(len(videos)), key=lambda i: not videos[i].get("primary"))
         return {
@@ -1338,7 +1313,8 @@ def create_app(
             "generated_at": (record.get("data") or {}).get("generated_at"),
             "items": [
                 {"index": i, "title": videos[i]["title"], "why": videos[i].get("why_today") or "", "hook": videos[i].get("hook") or "",
-                 "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")), "topic_id": taken.get(videos[i]["title"])}
+                 "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")),
+                 "topic_id": (taken.get(videos[i]["title"]) or {}).get("id"), "dropped": bool((taken.get(videos[i]["title"]) or {}).get("archived_at"))}
                 for i in ordered[:2]
             ],
         }
@@ -1371,59 +1347,6 @@ def create_app(
             "streak": today_plan.shooting_streak(target, shot_days()),
             "project_root_ok": root is not None,
         }
-
-    @app.get("/api/today/plan")
-    def get_plan(day: str | None = None) -> dict[str, Any]:
-        target = parse_day(day)
-        try:
-            dailies = [{**d, "checked_at": store.daily_checks(target.isoformat()).get(d["key"])} for d in vault.dailies(vault_path(), target)]
-            triage = store.triage()
-            inbox = [{**i, "triage": (triage.get(i["path"]) or {}).get("status")} for i in vault.inbox(vault_path(), since=vault.window_start(1))]
-        except vault.VaultError:
-            dailies = inbox = None
-        all_topics = store.topics(include_archived=True)
-        video_states: dict[int, dict[str, Any]] = {}
-        linked = [t for t in all_topics if t.get("video_project") and not t.get("archived_at") and t["status"] != "published"]
-        if linked:
-            try:
-                root = video_root()
-                for topic in linked:
-                    try:
-                        video_states[topic["id"]] = video_project.inspect(root, topic["video_project"])
-                    except VideoProjectError:
-                        continue
-            except VideoProjectError:
-                pass
-        followups = []
-        for topic in all_topics:
-            video = store.video(topic["published_video_id"]) if topic.get("published_video_id") else None
-            if not video:
-                continue
-            from . import publish
-
-            perf = publish.performance(video, median_likes=store.account_median(video["account_id"]), snapshots=[], creator=None,
-                                       has_report=report_file(video["video_id"]) is not None)
-            job = store.job_for_video(video["video_id"])
-            if perf["hours_since"] is not None and perf["hours_since"] <= 24 * 7 and not perf["has_report"] and not (job and job["stage"] != "failed"):
-                followups.append(perf)
-        steps = today_plan.build_plan(
-            today=target,
-            dailies=dailies,
-            inbox=inbox,
-            topics=all_topics,
-            reports=reports(),
-            checks=store.daily_checks(target.isoformat()),
-            briefing=store.briefing(target.isoformat()),
-            video_states=video_states,
-            followups=followups,
-        )
-        shot_days = set(store.checked_days("video_shot"))
-        for account in store.accounts():
-            if account["is_self"]:
-                shot_days.update(d for d in (today_plan._day(v["published_at"]) for v in store.videos(account["id"]) if not v["is_image_post"]) if d)
-        groups = today_plan.group_plan(steps)
-        return {"day": target.isoformat(), "steps": steps, "groups": groups, "done": sum(1 for g in groups if g["done"]),
-                "streak": today_plan.shooting_streak(target, shot_days)}
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:
