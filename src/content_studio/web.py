@@ -207,6 +207,7 @@ def create_app(
     outline_fn: Callable[[str], str] | None = None,
     review_fn: Callable[[str], dict] | None = None,
     opening_fn: Callable[[str], dict] | None = None,
+    qa_fn: Callable[[str], dict] | None = None,
     runs_dir: Path | None = None,
     runner_command: str | None = None,
     publishers: dict[str, dict[str, Any]] | None = None,
@@ -813,6 +814,7 @@ def create_app(
                 **({"write_fn": outline_fn} if outline_fn else {})
             )
             store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None)
+            _run_qa(topic_id)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("outline topic %s failed: %s", topic_id, exc)
             store.update_topic(topic_id, outline_state="failed", outline_error=str(exc)[:300] or type(exc).__name__)
@@ -897,6 +899,56 @@ def create_app(
         )
         store.update_topic(topic_id, video_project=name)
         return video_project.inspect(video_root(), name)
+
+    # -- three-point QA (痛点具象度 / 认知反差度 / 交付可行性) --------------------
+
+    qa_runs: dict[int, dict[str, Any]] = {}
+    qa_lock = threading.Lock()
+
+    def _qa_material(topic: dict[str, Any]) -> str:
+        parts = [f"备注：{topic['memo']}"] if topic.get("memo") else []
+        parts += [f"### {s['title']}\n{s['body']}" for s in writer.gather_sources(vault_path(), topic.get("note_paths") or [])]
+        return "\n\n".join(parts)
+
+    def _run_qa(topic_id: int) -> None:
+        """Score a topic in the calling thread; failures are kept for the tab, never raised."""
+        from . import outline, qa
+
+        with qa_lock:
+            if (qa_runs.get(topic_id) or {}).get("state") == "running":
+                return
+            qa_runs[topic_id] = {"state": "running"}
+        try:
+            topic = store.topic(topic_id)
+            draft = outline.read_outline(topic)
+            result = qa.score_topic(topic["title"], draft["markdown"] if draft else "", _qa_material(topic), **({"qa_fn": qa_fn} if qa_fn else {}))
+            qa.save(drafts_root, topic_id, result)
+            with qa_lock:
+                qa_runs.pop(topic_id, None)
+        except Exception as exc:  # noqa: BLE001 - shown on the outline tab
+            logger.warning("qa topic %s failed: %s", topic_id, exc)
+            with qa_lock:
+                qa_runs[topic_id] = {"state": "failed", "error": str(exc)[:300] or type(exc).__name__}
+
+    @app.get("/api/topics/{topic_id}/qa")
+    def get_qa(topic_id: int) -> dict[str, Any]:
+        from . import qa
+
+        store.topic(topic_id)
+        with qa_lock:
+            run = dict(qa_runs.get(topic_id) or {})
+        return {"state": run.get("state") or "idle", "error": run.get("error"), "result": qa.load(drafts_root, topic_id)}
+
+    @app.post("/api/topics/{topic_id}/qa")
+    def start_qa(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if not topic.get("outline_path") and not topic.get("memo") and not topic.get("note_paths"):
+            raise ValueError("没有提纲也没有素材，没法评")
+        with qa_lock:
+            if (qa_runs.get(topic_id) or {}).get("state") == "running":
+                return {"started": False, "message": "正在评"}
+        threading.Thread(target=_run_qa, args=(topic_id,), name=f"qa-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始按三点评分，一般半分钟"}
 
     # -- opening 15 seconds ---------------------------------------------------
 
@@ -1266,7 +1318,7 @@ def create_app(
             "generated_at": (record.get("data") or {}).get("generated_at"),
             "items": [
                 {"index": i, "title": videos[i]["title"], "why": videos[i].get("why_today") or "", "hook": videos[i].get("hook") or "",
-                 "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")),
+                 "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")), "qa": videos[i].get("qa"),
                  "topic_id": (taken.get(videos[i]["title"]) or {}).get("id"), "dropped": bool((taken.get(videos[i]["title"]) or {}).get("archived_at"))}
                 for i in ordered[:2]
             ],
@@ -1274,7 +1326,7 @@ def create_app(
 
     @app.get("/api/board")
     def get_board(day: str | None = None) -> dict[str, Any]:
-        from . import board, opening
+        from . import board, opening, qa
 
         target = parse_day(day)
         topics = store.topics()
@@ -1292,7 +1344,7 @@ def create_app(
                     project = video_project.inspect(root, topic["video_project"])
                 except VideoProjectError:
                     project = None
-            cards.append(board.card(topic, project, opening.load(drafts_root, topic["id"])))
+            cards.append(board.card(topic, project, opening.load(drafts_root, topic["id"]), qa.load(drafts_root, topic["id"])))
         return {
             "stages": [{"key": k, "label": label} for k, label in board.STAGES],
             "cards": cards,

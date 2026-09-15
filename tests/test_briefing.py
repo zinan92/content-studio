@@ -38,9 +38,9 @@ def _good(inputs):
         "reads": [{"title": "t", "why": "w", "source": {"url": "https://x.com/1"}}],
         "videos": [
             {"title": "v", "hook": "h", "claim": "c", "outline": ["1", "2", "3"], "sources": [{"path": "003_park原始输出/r.md"}],
-             "why_today": "y", "effort": "低", "caution": "", "primary": True},
+             "why_today": "y", "effort": "低", "caution": "", "qa": {"pain": 4, "contrast": 4, "delivery": 3, "note": ""}, "primary": True},
             {"title": "v2", "hook": "h", "claim": "c", "outline": ["1", "2", "3"], "sources": [{"url": "https://y.com/2", "title": "剪藏"}],
-             "why_today": "y", "effort": "中", "caution": "", "primary": False},
+             "why_today": "y", "effort": "中", "caution": "", "qa": {"pain": 3, "contrast": 3, "delivery": 2, "note": "没有结果"}, "primary": False},
         ],
         "prep": "p",
     }
@@ -61,6 +61,7 @@ def test_inputs_collect_dailies_notes_and_allowed_sources(tmp_path: Path) -> Non
     assert "千雪｜对标爆款标题｜12.0×" in prompt
     assert "AI + 金融" in prompt and "我的" in prompt and "003_park原始输出/r.md" in prompt
     assert "- 开头直接说结论" in prompt
+    assert "痛点具象度" in prompt and "交付可行性" in prompt and "总分最高" in prompt
     assert "[我写的·已发] 老观点" in prompt and "为什么用了 AI 更累（已发出）" in prompt and "不要重复推荐" in prompt
 
 
@@ -79,6 +80,9 @@ def test_generate_fills_source_titles_and_validates(tmp_path: Path) -> None:
         (lambda d: d["videos"][0].__setitem__("outline", ["1"]), "3–5"),
         (lambda d: d["reads"][0].__setitem__("source", {"url": "https://fake"}), "reads[0].source"),
         (lambda d: d["videos"][0].__setitem__("effort", "很低"), "effort"),
+        (lambda d: d["videos"][0]["qa"].__setitem__("delivery", 6), "三个 1–5 的整数"),
+        (lambda d: d["videos"][0].pop("qa"), "三个 1–5 的整数"),
+        (lambda d: d["videos"][1].__setitem__("qa", {"pain": 5, "contrast": 5, "delivery": 5}), "总分最高"),
     ],
 )
 def test_validation_rejects_invented_or_malformed_output(tmp_path: Path, mutate, message) -> None:

@@ -86,6 +86,7 @@ python3 -m content_studio serve
 | 今天推荐拍 | 日报出来后自动生成 1 首选 + 1 备选，来源必须来自真实材料，避开近 90 天已发视频和已有选题 | 已完成 |
 | 加工看板 | 提纲 → 录制 → 剪辑 → 待发，自动归列，每张卡写明在等什么 | 已完成 |
 | 拍摄提纲 | 一句主线 + 4–8 条要点（第一条就讲主线），不写逐字稿，可编辑 | 已完成 |
+| 三点评分 | 提纲写完自动按 痛点具象度 / 认知反差度 / 交付可行性 打分，每分必须引用提纲或素材原话，素材太薄直接说；今天推荐拍的首选必须总分最高。标准读本机的 `park-content-qa` skill，找不到时用简版 | 已完成 |
 | 开头 15 秒检查 | 读项目已有字幕，判断主线第一次出现的秒数，给改法 | 已完成 |
 | 剪辑进度 | 口播 workflow 14 步 / 5 阶段 / H1–H3 审批门；worktable 导入；后台代跑到审批门停下 | 已完成 |
 | 发布 · 标题和简介 | 一个标题 + 一段简介，所有平台共用，只提示各平台字数；可「用提纲填」；视频号 / B 站 / YouTube 可标为已发 | 已完成 |
@@ -151,6 +152,7 @@ python3 -m content_studio serve
 | `POST` | `/api/topics/{id}/handoff` | 交给研习室（状态改待发，返回后台地址） |
 | `GET` `POST` | `/api/briefing` · `/api/briefing/generate` · `/api/briefing/topic` | 今天推荐拍（每天早上自动生成） |
 | `POST` `GET` `PUT` | `/api/topics/{id}/outline` | 拍摄提纲 |
+| `GET` `POST` | `/api/topics/{id}/qa` | 三点评分（读结果 / 重评） |
 | `GET` `PUT` `POST` | `/api/topics/{id}/video-project` · `…/worktable` · `/api/video-projects` | 口播项目进度与 worktable 导入 |
 | `GET` `PUT` | `/api/topics/{id}/publish` | 关联已发视频与数据 |
 | `GET` `PUT` | `/api/topics/{id}/copy` · `PUT /api/topics/{id}/platforms` | 发布标题和简介（各平台共用）与发布状态 |
@@ -171,7 +173,7 @@ python3 -m content_studio serve
 | `CONTENT_DOWNLOADER_PATH` | content-downloader 路径 | `~/work/content-downloader` |
 | `CONTENT_STUDIO_LLM_CMD` | 结构拆解命令（stdin 提示词 → stdout JSON） | `claude -p --model sonnet …` |
 | `CONTENT_STUDIO_WRITER_CMD` | 写文章命令 | `claude -p --model opus …`（允许 Skill/Read） |
-| `CONTENT_STUDIO_BRIEF_CMD` · `…_OUTLINE_CMD` · `…_REVIEW_CMD` | 推荐 / 提纲 / 复盘命令 | 本机 `claude -p`，禁用工具 |
+| `CONTENT_STUDIO_BRIEF_CMD` · `…_OUTLINE_CMD` · `…_QA_CMD` · `…_REVIEW_CMD` | 推荐 / 提纲 / 三点评分 / 复盘命令 | 本机 `claude -p`，禁用工具 |
 
 ## For AI Agents
 

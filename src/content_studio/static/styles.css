@@ -685,6 +685,35 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .gate-hooks{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:4px}
 .gate-table{min-width:560px}
 /* ===== publish now ===== */
+.qa{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:16px 22px 0;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
+.qa-wait{flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}
+.qa-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.qa-h .spacer{flex:1}
+.qa-h small{color:var(--ink-3);font-size:12px}
+.qa-h .num{font-size:20px;font-weight:600}
+.qa-verdict{font-size:13px;border-radius:999px;padding:2px 10px}
+.qa-verdict.ok{background:var(--out-soft);color:var(--out)}
+.qa-verdict.warn{background:var(--hot-soft);color:var(--hot)}
+.qa-verdict.bad{background:var(--warn-soft);color:var(--warn)}
+.qa-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.qa-pt{border-top:3px solid var(--accent-soft);padding-top:8px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.qa-pt.low{border-top-color:var(--warn)}
+.qa-top{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--ink-2)}
+.qa-top b{font-size:22px;color:var(--ink)}
+.qa-pt.low .qa-top b{color:var(--warn)}
+.qa-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:3px}
+.qa-bar i{height:5px;border-radius:2px;background:var(--sunk)}
+.qa-bar i.on{background:var(--accent)}
+.qa-pt.low .qa-bar i.on{background:var(--warn)}
+.qa-pt p{margin:0;font-size:13px;color:var(--ink-2)}
+.qa-pt blockquote{margin:0;padding-left:8px;border-left:2px solid var(--line);font-size:12.5px;color:var(--ink-3)}
+.qa-fix{margin:0;font-size:13.5px;display:flex;gap:10px;flex-wrap:wrap}
+.qa-fix b{font-size:12px;color:var(--ink-3);font-weight:600;min-width:6em}
+.rec-qa{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-2)}
+.rec-qa span{background:var(--sunk);border-radius:999px;padding:1px 8px}
+.rec-qa span.low{background:var(--warn-soft);color:var(--warn)}
+.rec-qa small{flex-basis:100%;color:var(--ink-3)}
+@media (max-width:760px){.qa{margin:12px 12px 0}.qa-grid{grid-template-columns:1fr}}
 .cb{border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
 .cb-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
 .cb-h h3{margin:0;font-size:12px;letter-spacing:.1em;color:var(--ink-3)}

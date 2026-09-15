@@ -119,13 +119,16 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 - videos：今天可以拍的 2–4 条，恰好 1 条 primary 为 true（首选）。每条：
   title（视频标题，说人话），hook（前 15 秒要说的一句话），claim（核心主张一句话），
   outline（口播骨架 3–5 条，每条一句），sources（1–3 个，只能是上面出现过的 path 或 url，每个 {{"path"或"url": "...", "title": "..."}}），
-  why_today（为什么是今天拍），effort（拍摄负担：低/中/高），caution（不能讲过头的地方，没有就写空字符串）。
+  why_today（为什么是今天拍），effort（拍摄负担：低/中/高），caution（不能讲过头的地方，没有就写空字符串），
+  qa（三点评分，每点 1–5 的整数：{{"pain": 痛点具象度, "contrast": 认知反差度, "delivery": 交付可行性, "note": "最弱的一点差在哪，一句话"}}）。
+  三点标准：痛点具象度看观众能不能一听就认出「说的是我」且真的难受或亏钱；认知反差度看能不能写出「大多数人以为 A，其实是 B」且 B 有证据；交付可行性看材料里有没有真实结果或观众能迈出的第一步，没有就不超过 2 分，不能编。
+  primary 必须给三点总分最高的一条；三点里有一点只有 1 分的，不要当首选。
   优先用「我写的」（Park 自己的原始输出）做主线、用日报和 Clippings 做由头；不要只是复述新闻。
   标了「已发」的原始输出、Park 已经发过的视频（下面列了近 90 天全部标题，换了标题讲同一件事也算重复）、工作台里已有的选题，不要当成新选题重复推荐。
 - prep：今日最小准备，一两句话。
 
 ## 输出格式
-{{"known": [...], "unknown": [...], "reads": [{{"title": "", "why": "", "source": {{"path": ""}}}}], "videos": [{{"title": "", "hook": "", "claim": "", "outline": [], "sources": [], "why_today": "", "effort": "中", "caution": "", "primary": true}}], "prep": ""}}{retry}"""
+{{"known": [...], "unknown": [...], "reads": [{{"title": "", "why": "", "source": {{"path": ""}}}}], "videos": [{{"title": "", "hook": "", "claim": "", "outline": [], "sources": [], "why_today": "", "effort": "中", "caution": "", "qa": {{"pain": 3, "contrast": 3, "delivery": 3, "note": ""}}, "primary": true}}], "prep": ""}}{retry}"""
 
 
 def _source_ok(source: Any, inputs: dict[str, Any]) -> bool:
@@ -136,6 +139,15 @@ def _source_ok(source: Any, inputs: dict[str, Any]) -> bool:
     if source.get("url"):
         return source["url"] in inputs["allowed_urls"]
     return False
+
+
+def qa_total(video: dict[str, Any]) -> int | None:
+    """Sum of the three-point scores, or None when any score is missing or out of range."""
+    scores = video.get("qa") if isinstance(video.get("qa"), dict) else {}
+    values = [scores.get(k) for k in ("pain", "contrast", "delivery")]
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 5 for v in values):
+        return None
+    return sum(values)
 
 
 def validate(raw: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
@@ -158,6 +170,11 @@ def validate(raw: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
     else:
         if sum(1 for v in videos if isinstance(v, dict) and v.get("primary") is True) != 1:
             problems.append("videos 必须恰好 1 条 primary 为 true")
+        else:
+            totals = [qa_total(v) for v in videos if isinstance(v, dict)]
+            primary = next(v for v in videos if isinstance(v, dict) and v.get("primary") is True)
+            if qa_total(primary) is not None and None not in totals and qa_total(primary) < max(totals):
+                problems.append("primary 必须是三点总分最高的一条")
         for i, video in enumerate(videos):
             if not isinstance(video, dict):
                 problems.append(f"videos[{i}] 不是对象")
@@ -170,6 +187,8 @@ def validate(raw: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
                 problems.append(f"videos[{i}].outline 需要 3–5 条")
             if video.get("effort") not in EFFORTS:
                 problems.append(f"videos[{i}].effort 只能是 低/中/高")
+            if qa_total(video) is None:
+                problems.append(f"videos[{i}].qa 需要 pain / contrast / delivery 三个 1–5 的整数")
             sources = video.get("sources")
             if not isinstance(sources, list) or not sources:
                 problems.append(f"videos[{i}].sources 为空")

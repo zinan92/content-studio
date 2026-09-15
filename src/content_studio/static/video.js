@@ -21,6 +21,44 @@ function bindOutlineButtons(root) {
   }));
 }
 
+const QA_POINTS = [['pain', '痛点具象度'], ['contrast', '认知反差度'], ['delivery', '交付可行性']];
+const QA_VERDICT = { go: ['可以拍', 'ok'], patch: ['先补再拍', 'warn'], thin: ['素材太薄', 'bad'] };
+
+async function renderQA(topic, box) {
+  if (!box) return;
+  let d;
+  try { d = await api(`/api/topics/${topic.id}/qa`); } catch (err) { box.innerHTML = ''; return; }
+  const r = d.result;
+  const again = `<button class="btn small ghost" type="button" data-qa-run>${r ? '重评' : '按三点评分'}</button>`;
+  if (d.state === 'running') {
+    box.innerHTML = '<section class="qa qa-wait"><span class="spin"></span>正在按三点评分（痛点、反差、交付），半分钟左右</section>';
+    setTimeout(() => { if (S.view === 'work' && VD.tab === 'outline' && VD.topicId === topic.id) renderQA(topic, $('#qaBox')); }, 4000);
+    return;
+  }
+  if (!r) {
+    box.innerHTML = `<section class="qa qa-wait">${d.state === 'failed' ? `<span class="bad">${esc(d.error || '评分失败')}</span>` : '<span>还没按三点评过：痛点具象度、认知反差度、交付可行性。</span>'}${again}</section>`;
+  } else {
+    const [label, tone] = QA_VERDICT[r.verdict] || ['', ''];
+    box.innerHTML = `<section class="qa">
+      <div class="qa-h"><b class="qa-verdict ${tone}">${label}</b><span class="num">${r.total}/15</span><small>评于 ${day(r.generated_at)}${r.guide === 'rubric' ? ' · 没找到你的 skill 文件，用的是简版标准' : ''}</small><span class="spacer"></span>${again}</div>
+      <div class="qa-grid">${QA_POINTS.map(([k, name]) => {
+        const p = r[k];
+        return `<div class="qa-pt ${p.score <= 2 ? 'low' : ''}">
+          <div class="qa-top"><span>${name}</span><b class="num">${p.score}</b></div>
+          <div class="qa-bar" aria-hidden="true">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= p.score ? 'on' : ''}"></i>`).join('')}</div>
+          <p>${esc(p.reason)}</p>${p.evidence ? `<blockquote>${esc(p.evidence)}</blockquote>` : ''}
+        </div>`;
+      }).join('')}</div>
+      <p class="qa-fix"><b>最该改的一处</b>${esc(r.fix)}</p>
+      ${r.caution ? `<p class="qa-fix"><b>不要讲过头</b>${esc(r.caution)}</p>` : ''}
+    </section>`;
+  }
+  $$('[data-qa-run]', box).forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try { const res = await api(`/api/topics/${topic.id}/qa`, { method: 'POST' }); toast(res.message); setTimeout(() => renderQA(topic, box), 400); } catch (err) { toast(err.message); b.disabled = false; }
+  }));
+}
+
 window.VIDEO_TABS.push({
   key: 'outline',
   label: '拍摄提纲',
@@ -42,7 +80,7 @@ window.VIDEO_TABS.push({
       try { VD.outline = { ...(await api(`/api/topics/${topic.id}/outline`)), topic_id: topic.id }; } catch (err) { el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
     }
     const o = VD.outline;
-    el.innerHTML = `<div class="art-head"><div><small>${o.generated_at ? `生成于 ${day(o.generated_at)} · ` : ''}最后修改 ${day(o.updated_at)}</small></div>
+    el.innerHTML = `<div id="qaBox"></div><div class="art-head"><div><small>${o.generated_at ? `生成于 ${day(o.generated_at)} · ` : ''}最后修改 ${day(o.updated_at)}</small></div>
         <div class="seg-toggle" role="group"><button type="button" class="${VD.mode === 'preview' ? 'on' : ''}" data-vmode="preview">预览</button><button type="button" class="${VD.mode === 'edit' ? 'on' : ''}" data-vmode="edit">编辑</button></div></div>
       ${VD.mode === 'edit' ? `<textarea id="outlineText" class="big-text" spellcheck="false">${esc(o.markdown)}</textarea>` : `<article class="md art-md">${renderMarkdown(o.markdown)}</article>`}
       <div class="art-foot">${VD.mode === 'edit' ? '<button class="btn primary" type="button" id="outlineSave">保存</button>' : ''}
@@ -60,6 +98,7 @@ window.VIDEO_TABS.push({
         toast('已保存'); renderView();
       } catch (err) { toast(err.message); }
     };
+    renderQA(topic, $('#qaBox', el));
     $('#outlineCopy').onclick = () => navigator.clipboard.writeText(text ? text.value : o.markdown).then(() => toast('已复制提纲'), () => toast('复制失败'));
   },
 });
