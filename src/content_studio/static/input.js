@@ -8,7 +8,7 @@ const DAY_TABS = [[1, '昨天到现在'], [7, '7 天'], [30, '30 天']];
 
 async function loadInbox(force) {
   if (!force && C.items && Date.now() - C.loadedAt < 60000) return;
-  const res = await api(`/api/vault/inbox?days=${C.days}${C.source ? `&source=${C.source}` : ''}`);
+  const res = await api(`/api/vault/inbox?days=${C.days}`);
   C.items = res.items;
   C.since = res.since;
   C.loadedAt = Date.now();
@@ -23,7 +23,8 @@ async function loadDailies(force) {
 function renderMarkdown(md) {
   if (window.marked && window.DOMPurify) {
     const html = window.marked.parse(md.replace(/!\[\[([^\]]+)\]\]/g, '（附件：$1）'), { breaks: true });
-    return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+    // Clipped web pages carry inline styles (absolute-positioned videos) that break the reader.
+    return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'], FORBID_ATTR: ['style'] });
   }
   return `<pre class="plain">${esc(md)}</pre>`;
 }
@@ -76,14 +77,14 @@ function newsletterStrip() {
   if (!d) return '';
   const ready = d.items.filter((i) => i.path);
   const read = ready.filter((i) => i.checked_at).length;
-  return `<section class="nl">
-    <div class="nl-h"><h2>今天的 Newsletter</h2><span class="num">${read}/${ready.length || d.items.length} 读完</span></div>
-    <div class="nl-row">${d.items.map((i) => `<article class="nl-tile ${i.checked_at ? 'read' : ''} ${i.path ? '' : 'missing'}">
-      <div class="nl-top"><b>${esc(i.label)}</b>${i.path ? `<label class="nl-check"><input type="checkbox" data-check="${i.key}" ${i.checked_at ? 'checked' : ''}><span>${i.checked_at ? '读完了' : '没读'}</span></label>` : '<span class="muted">还没出</span>'}</div>
+  return `<section class="nl-bar" aria-label="今天的 Newsletter">
+    <div class="nl-label"><b>今天的 Newsletter</b><span class="num">${read}/${ready.length || d.items.length}</span></div>
+    ${d.items.map((i) => `<div class="nl-item ${i.checked_at ? 'read' : ''} ${i.path ? '' : 'missing'}">
+      ${i.path ? `<label class="nl-check" title="${i.checked_at ? '读完了，点一下取消' : '读完打个勾'}"><input type="checkbox" data-check="${i.key}" ${i.checked_at ? 'checked' : ''}><span>${esc(i.label)}</span></label>` : `<span class="nl-name">${esc(i.label)}</span>`}
       ${i.path ? (i.kind === 'html'
         ? `<a class="nl-open" href="/api/vault/raw?path=${encodeURIComponent(i.path)}" target="_blank" rel="noopener">打开 ↗</a>`
-        : `<button class="nl-open" type="button" data-read="${esc(i.path)}">在右边读</button>`) : ''}
-    </article>`).join('')}</div>
+        : `<button class="nl-open" type="button" data-read="${esc(i.path)}">读</button>`) : '<span class="muted">还没出</span>'}
+    </div>`).join('')}
   </section>`;
 }
 
@@ -96,25 +97,32 @@ window.VIEWS.input = {
     }
     if (!C.items) body.innerHTML = '<div class="panel empty"><span class="spin"></span><span>正在读 Obsidian…</span></div>';
     try { await Promise.all([loadInbox(false), loadDailies(false)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
-    const fresh = C.items.filter((i) => !i.triage && !i.used_by);
-    $('#navIn').textContent = C.days === 1 && !C.source ? (fresh.length || '') : $('#navIn').textContent;
+    const isFresh = (i) => !i.triage && !i.used_by;
+    const fresh = C.items.filter(isFresh);
+    if (C.days === 1) $('#navIn').textContent = fresh.length || '';
+    const shown = C.source ? C.items.filter((i) => i.source === C.source) : C.items;
+    // Never leave the reader as an empty box on a wide screen: open the first thing still waiting.
+    if (!C.open && shown.length && window.innerWidth > 900) {
+      const first = shown.find(isFresh) || shown[0];
+      openNote(first.path);
+      return;
+    }
     const sig = JSON.stringify([C.source, C.days, C.open, Boolean(C.note), C.loadedAt, C.items.map((i) => [i.triage, Boolean(i.used_by)]), C.dailies && C.dailies.items.map((i) => i.checked_at)]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
 
-    const bySource = SOURCE_TABS.slice(1).map(([k, l]) => [l, C.items.filter((i) => i.source === k && !i.triage && !i.used_by).length]);
-    $('#inFigs').innerHTML = C.source ? '' : bySource.map(([l, n]) => `<div class="fig"><b class="num">${n}</b><span>${l}</span></div>`).join('');
+    const waiting = (k) => (k ? C.items.filter((i) => i.source === k) : C.items).filter(isFresh).length;
 
-    const list = C.items.length
-      ? C.items.map((i) => `<div class="in-row ${C.open === i.path ? 'on' : ''} state-${rowState(i)}" data-note="${esc(i.path)}" role="button" tabindex="0">
+    const list = shown.length
+      ? shown.map((i) => `<div class="in-row ${C.open === i.path ? 'on' : ''} state-${rowState(i)}" data-note="${esc(i.path)}" role="button" tabindex="0">
           <div class="in-meta"><span class="src src-${i.source}">${esc(i.source_label)}</span><span class="num">${hm(i.is_new ? i.created_at : i.modified_at)}</span>${i.is_new ? '' : '<span class="muted">改过</span>'}</div>
           <b class="clamp">${esc(i.title)}</b>
           <p class="clamp">${esc(i.summary || '（没有正文）')}</p>
           <div class="acts">${rowActions(i)}</div>
         </div>`).join('')
-      : `<div class="empty"><b>这段时间没有新东西进来</b><span>从 ${hm(C.since)} 起，Clippings、我收藏的、我写的都没有变化。</span></div>`;
+      : `<div class="empty"><b>这段时间没有新东西进来</b><span>从 ${hm(C.since)} 起${C.source ? `，${SOURCE_TABS.find(([k]) => k === C.source)[1]}` : '，Clippings、我收藏的、我写的都'}没有变化。</span></div>`;
 
-    let reader = '<div class="empty reader-empty"><span>点左边任意一条，在这里读原文。</span></div>';
+    let reader = `<div class="empty reader-empty"><span>${shown.length ? '点任意一条，在这里读原文。' : '这段时间没有可读的。'}</span></div>`;
     if (C.open) {
       const n = C.note;
       if (!n) reader = '<div class="empty"><span class="spin"></span></div>';
@@ -123,15 +131,15 @@ window.VIEWS.input = {
     }
 
     body.innerHTML = `${newsletterStrip()}
-      <div class="controls">
-        <div class="seg-toggle" role="group" aria-label="来源">${SOURCE_TABS.map(([k, l]) => `<button type="button" class="${C.source === k ? 'on' : ''}" data-src="${k}">${l}</button>`).join('')}</div>
+      <div class="in-bar">
+        <div class="in-tabs" role="tablist" aria-label="来源">${SOURCE_TABS.map(([k, l]) => { const n = waiting(k); return `<button type="button" role="tab" class="${C.source === k ? 'on' : ''}" data-src="${k}">${l}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div>
         <div class="seg-toggle" role="group" aria-label="时间">${DAY_TABS.map(([d, l]) => `<button type="button" class="${C.days === d ? 'on' : ''}" data-days="${d}">${l}</button>`).join('')}</div>
-        <span class="sync-note">${C.items.length} 条 · ${fresh.length} 条还没处理 · 只读，不会改你的笔记</span>
       </div>
+      <p class="in-note">数字是还没处理的条数 · 只读 Obsidian，不会改你的笔记</p>
       <div class="in-grid"><div class="panel in-list">${list}</div><div class="panel reader">${reader}</div></div>`;
 
-    $$('[data-src]', body).forEach((b) => (b.onclick = () => { C.source = b.dataset.src; C.items = null; renderView(); }));
-    $$('[data-days]', body).forEach((b) => (b.onclick = () => { C.days = Number(b.dataset.days); C.items = null; renderView(); }));
+    $$('[data-src]', body).forEach((b) => (b.onclick = () => { C.source = b.dataset.src; C.open = null; C.note = null; renderView(); }));
+    $$('[data-days]', body).forEach((b) => (b.onclick = () => { C.days = Number(b.dataset.days); C.items = null; C.open = null; C.note = null; renderView(); }));
     $$('[data-note]', body).forEach((row) => {
       row.onclick = () => openNote(row.dataset.note);
       row.onkeydown = (e) => { if (e.key === 'Enter') openNote(row.dataset.note); };

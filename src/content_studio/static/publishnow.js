@@ -1,5 +1,5 @@
 'use strict';
-/* 视频 · 发出与数据 · 一键发布：准备 → Park 确认 → 发布 */
+/* 视频 · 发布 · 一键发布：准备 → Park 确认 → 发布 */
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 const PJ_STATE = { awaiting_confirm: '等你确认', running: '发布中', done: '已完成', failed: '失败', cancelled: '已取消', unknown: '结果不确定' };
@@ -13,7 +13,7 @@ async function renderPublishPanel(topic, el) {
   if (!d.video) {
     html += '<p class="muted">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发到视频号、B 站、YouTube。</p>';
   } else if (!d.has_copy) {
-    html += '<p class="muted">先在「文案与平台」生成各平台文案，发布会用那里的标题、正文和话题。</p>';
+    html += '<p class="muted">先在上面写好标题并保存，发布会用这个标题和简介。</p>';
   } else {
     html += `<p class="muted">成片：${esc(d.video.path.split('/').slice(-3).join('/'))}（${d.video.mb} MB）。每次发布都要你看过下面的摘要并点「确认发布」。</p>`;
     if (pending) {

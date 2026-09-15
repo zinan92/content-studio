@@ -1,5 +1,5 @@
 'use strict';
-/* 加工中 · 一条视频：拍摄提纲 → 剪辑进度 → 文案与平台 → 发出与数据 → 文章（各页签由模块注册） */
+/* 加工中 · 一条视频：拍摄提纲 → 剪辑进度 → 发布 → 研习室文章（可选）（各页签由模块注册） */
 window.VIEWS = window.VIEWS || {};
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
@@ -13,6 +13,14 @@ async function startOutline(topicId) {
   } catch (err) { toast(err.message); }
 }
 
+function bindOutlineButtons(root) {
+  $$('[data-outline]', root).forEach((b) => (b.onclick = async () => {
+    if (b.textContent.includes('重写') && !confirm('重写会覆盖现在的提纲，继续吗？')) return;
+    b.disabled = true;
+    await startOutline(Number(b.dataset.outline));
+  }));
+}
+
 window.VIDEO_TABS.push({
   key: 'outline',
   label: '拍摄提纲',
@@ -24,9 +32,10 @@ window.VIDEO_TABS.push({
     }
     if (!topic.outline_path) {
       el.innerHTML = `<div class="empty"><b>还没有拍摄提纲</b>${topic.outline_state === 'failed' ? `<span class="bad">${esc(topic.outline_error || '')}</span>` : ''}
-        <span>按你账号的数据写：前 15 秒直接讲主线（近期平均只被看 14–26 秒），每段都要为主线服务。不写逐字稿。</span>
+        <span>一句主线 + 4–8 条要点，第一句就讲主线（近期平均只被看 14–26 秒）。不写逐字稿。</span>
         ${topic.memo ? `<pre class="memo">${esc(topic.memo)}</pre>` : ''}
         <button class="btn primary" type="button" data-outline="${topic.id}">写拍摄提纲</button></div>`;
+      bindOutlineButtons(el);
       return;
     }
     if (!VD.outline || VD.outline.topic_id !== topic.id) {
@@ -39,6 +48,7 @@ window.VIDEO_TABS.push({
       <div class="art-foot">${VD.mode === 'edit' ? '<button class="btn primary" type="button" id="outlineSave">保存</button>' : ''}
         <button class="btn" type="button" id="outlineCopy">复制提纲</button>
         <button class="btn" type="button" data-outline="${topic.id}" title="重新生成，会覆盖当前提纲">重写</button></div>`;
+    bindOutlineButtons(el);
     $$('[data-vmode]', el).forEach((b) => (b.onclick = () => { VD.mode = b.dataset.vmode; VD.dirty = false; $('#videoBody').dataset.sig = ''; renderView(); }));
     const text = $('#outlineText');
     if (text) text.oninput = () => { VD.dirty = true; };
@@ -54,7 +64,7 @@ window.VIDEO_TABS.push({
   },
 });
 
-const TAB_ORDER = ['outline', 'edit', 'copy', 'publish', 'article'];
+const TAB_ORDER = ['outline', 'edit', 'publish', 'article'];
 const WORK_STEPS = [['outline', '提纲'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
 const WK = { topics: null, at: 0 };
 
@@ -63,7 +73,7 @@ window.invalidateWork = () => { WK.topics = null; const body = $('#videoBody'); 
 window.VIEWS.work = {
   async render() {
     const root = $('#workBody');
-    if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'copy') || (typeof AR !== 'undefined' && AR.dirty && VD.tab === 'article')) return;
+    if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'publish') || (typeof AR !== 'undefined' && AR.dirty && VD.tab === 'article')) return;
     if (VD.topicId !== S.workId) { VD.topicId = S.workId; VD.outline = null; VD.mode = 'preview'; VD.tab = 'outline'; }
     try {
       if (!WK.topics || Date.now() - WK.at > 5000) {

@@ -1,8 +1,8 @@
 """Shooting outline for a talking-head video topic.
 
-Not a word-for-word script: Park speaks from an outline. The first 15 seconds must
-state the thesis, because his recent videos are watched for only 14–26 seconds on
-average, and every section must serve the thesis (the teardown's drift test).
+Bullet points only: one thesis line and 4–8 short points Park speaks from. The first
+point must state the thesis, because his recent videos are watched for only 14–26
+seconds on average, and every point must serve the thesis (the teardown's drift test).
 """
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: st
     return f"""你在帮 Park 准备一条抖音口播视频的拍摄提纲。Park 的号是「Park 的 AI 世界」（AI + 金融），他对着提纲即兴讲，不念逐字稿。
 
 两条硬约束来自他账号的真实数据和拆解：
-1. 他近期视频平均只被看 14–26 秒，所以「前 15 秒」必须直接说出这条视频的主线和观众为什么要听下去，不寒暄、不铺垫。
-2. 每一段都要为主线服务：假设删掉这一段主线会不会明显变弱？不会就不要这一段。{adjust_block}
+1. 他近期视频平均只被看 14–26 秒，所以开头第一句必须直接说出这条视频的主线，不寒暄、不铺垫。
+2. 每一条都要为主线服务：假设删掉这一条主线会不会明显变弱？不会就不要这一条。{adjust_block}
 
 ## 选题
 {topic['title']}
@@ -46,33 +46,25 @@ def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: st
 {material}
 
 ## 输出要求
-Markdown，严格按下面的结构，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间：
+Markdown，严格按下面的结构，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间。只写要点，每条一句话，不展开解释，不写逐字稿：
 
 # 视频标题
-预计时长：N 分钟
-
-## 前 15 秒
-- 第一句：……（直接说主线）
-- 为什么要听下去：……
 
 ## 主线
 一句话。
 
-## 第 1 段：小标题
-- 论点：……
-- 例子 / 素材：……（素材里别人的观点注明是谁说的）
-- 画面提示：……（可选，没有就写「人脸」）
+## 提纲
+- 开头：……（第一句就说出主线）
+- ……
+- ……
+- 结尾：……（收束一句，可带一个评论区问题）
 
-（3–5 段，每段同样结构）
-
-## 结尾
-- 收束一句：……
-- 引导：……（关注、评论问题，一句）
+（提纲 4–8 条；中间每条是一个要讲的点，素材里别人的观点注明是谁说的）
 
 ## 不要讲过头
-- ……（素材缺证据、不能说成事实、不能给投资建议的地方）
+- ……（可选，最多 3 条：素材缺证据、不能说成事实、不能给投资建议的地方；没有就删掉这一节）
 
-不要编造 Park 的经历、数据和收入；不写逐字稿。{retry}"""
+不要编造 Park 的经历、数据和收入。{retry}"""
 
 
 def extract_outline(output: str) -> str:
@@ -82,12 +74,13 @@ def extract_outline(output: str) -> str:
     text = match.group(1).strip()
     if not text.startswith("#"):
         raise WriterError("提纲缺少标题")
-    for heading in ("## 前 15 秒", "## 主线", "## 结尾"):
-        if heading not in text:
+    for heading in ("## 主线", "## 提纲"):
+        if not re.search(rf"^{heading}\s*$", text, flags=re.MULTILINE):
             raise WriterError(f"提纲缺少「{heading[3:]}」一节")
-    sections = len(re.findall(r"^## 第\s*\d+\s*段", text, flags=re.MULTILINE))
-    if not 3 <= sections <= 5:
-        raise WriterError(f"正文需要 3–5 段，现在是 {sections} 段")
+    body = re.search(r"^## 提纲\s*\n(.*?)(?=^## |\Z)", text, flags=re.MULTILINE | re.DOTALL).group(1)
+    bullets = re.findall(r"^\s*[-*] +\S", body, flags=re.MULTILINE)
+    if not 4 <= len(bullets) <= 8:
+        raise WriterError(f"提纲需要 4–8 条要点，现在是 {len(bullets)} 条")
     return text + "\n"
 
 

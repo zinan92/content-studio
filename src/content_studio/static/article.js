@@ -36,7 +36,7 @@ function refreshWorkTab() {
 
 window.VIDEO_TABS.push({
   key: 'article',
-  label: '文章',
+  label: '研习室文章',
   badge: (t) => (t.write_state === 'running' ? '写作中' : t.article_path ? '已写' : ''),
   async render(topic, body) {
     if (AR.dirty && AR.topicId === topic.id && body.querySelector('#artText')) return; // never overwrite unsaved edits
