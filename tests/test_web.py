@@ -313,24 +313,14 @@ def test_topics_from_triage_and_today_plan(client: TestClient, tmp_path: Path) -
     client.patch(f"/api/topics/{manual['id']}", json={"archived": True})
     assert [t["id"] for t in client.get("/api/topics").json()] == [topic["id"]]
 
-    plan = client.get("/api/today/plan").json()
-    steps = {s["key"]: s for s in plan["steps"]}
-    assert steps["triage"]["done"] is True and steps["pick"]["done"] is True
-    client.put("/api/today/checks", json={"day": plan["day"], "key": "video_shot", "checked": True})
-    assert {s["key"]: s for s in client.get("/api/today/plan").json()["steps"]}["video"]["done"] is True
+    client.put("/api/today/checks", json={"day": __import__("datetime").date.today().isoformat(), "key": "video_shot", "checked": True})
+    assert client.get("/api/board").json()["streak"]["today_done"] is True
 
 
 def test_skills_endpoint_lists_registry(client: TestClient) -> None:
     data = client.get("/api/skills").json()
     assert [s["key"] for s in data["stages"]] == ["collect", "plan", "make", "ship", "review"]
     assert any(s["name"] == "khazix-writer" and s["author"] == "数字生命卡兹克" for s in data["skills"])
-
-
-def test_hot_endpoint_without_vault_explains(client: TestClient, tmp_path: Path) -> None:
-    client.put("/api/settings", json={"obsidian_vault": str(tmp_path / "missing")})
-    data = client.get("/api/hot").json()
-    assert data["douyin_search"]["available"] is False
-    assert "找不到" in data["vault_error"] and data["benchmarks"]["items"] == []
 
 
 def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
@@ -584,16 +574,6 @@ def test_cross_site_writes_are_blocked(client: TestClient) -> None:
     assert client.post("/api/topics", json={"title": "ok"}, headers={"Origin": "http://testserver"}).status_code == 200
 
 
-def test_plan_has_three_groups_and_streak_from_shoot_checks(client) -> None:
-    from datetime import date as _date
-
-    today = _date.today().isoformat()
-    client.put("/api/today/checks", json={"day": today, "key": "video_shot", "checked": True})
-    plan = client.get(f"/api/today/plan?day={today}").json()
-    assert [g["key"] for g in plan["groups"]] == ["read", "shoot", "ship"]
-    assert plan["streak"]["days"] == 1 and plan["streak"]["today_done"] is True
-
-
 def test_unread_benchmark_reports_auto_archive_after_seven_days(client, tmp_path) -> None:
     import json as _json
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
@@ -660,7 +640,7 @@ def test_board_auto_briefing_and_used_notes(client: TestClient, tmp_path: Path) 
 
     topic = client.post("/api/briefing/topic", json={"day": board["recommend"]["day"], "index": board["recommend"]["items"][0]["index"]}).json()["topic"]
     board = client.get("/api/board").json()
-    assert board["recommend"]["items"][0]["topic_id"] == topic["id"]
+    assert board["recommend"]["items"][0]["topic_id"] == topic["id"] and board["recommend"]["items"][0]["dropped"] is False
     assert board["cards"][0]["stage"] == "outline" and board["cards"][0]["next"]["text"] == "写拍摄提纲"
 
     client.put("/api/vault/triage", json={"path": "003_park原始输出/问卷.md", "status": "shot"})

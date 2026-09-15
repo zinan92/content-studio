@@ -1,7 +1,6 @@
 'use strict';
-/* 加工 · 文章：选题 → 卡兹克写作草稿 → 编辑 → 交给研习室 */
-window.VIEWS = window.VIEWS || {};
-window.TOPIC_ACTIONS = window.TOPIC_ACTIONS || [];
+/* 加工中 · 一条视频的文章版：卡兹克写作草稿 → 编辑 → 交给研习室（视频页签） */
+window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 const AR = { topicId: null, draft: null, dirty: false, mode: 'preview' };
 
@@ -13,19 +12,9 @@ async function startWrite(topicId) {
   } catch (err) { toast(err.message); }
 }
 
-window.TOPIC_ACTIONS.push((t) => {
-  if (t.formats === 'video') return '';
-  if (t.write_state === 'running') return '<span class="stage-pill running">写作中…</span>';
-  const failed = t.write_state === 'failed' ? `<span class="err" title="${esc(t.write_error || '')}">写作失败</span>` : '';
-  if (t.article_path) return `${failed}<button class="btn small primary" type="button" data-open-article="${t.id}">看文章</button>`;
-  return `${failed}<button class="btn small primary" type="button" data-write="${t.id}">${t.write_state === 'failed' ? '重写' : '写文章'}</button>`;
-});
-
 document.addEventListener('click', (e) => {
   const write = e.target.closest('[data-write]');
   if (write) { e.preventDefault(); startWrite(Number(write.dataset.write)); return; }
-  const open = e.target.closest('[data-open-article]');
-  if (open) { e.preventDefault(); AR.topicId = Number(open.dataset.openArticle); AR.draft = null; go('article'); }
 });
 
 async function loadDraft() {
@@ -39,29 +28,26 @@ function copyArticle(text) {
   return navigator.clipboard.writeText(text).then(() => true, () => { toast('复制失败，请用「下载 .md」'); return false; });
 }
 
-window.VIEWS.article = {
-  async render() {
-    const body = $('#articleBody');
-    if (AR.dirty) return; // never overwrite unsaved edits during polling
-    let topics;
-    try { topics = await api('/api/topics'); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
-    const candidates = topics.filter((t) => t.formats !== 'video');
-    if (!AR.topicId) { const first = candidates.find((t) => t.article_path) || candidates[0]; AR.topicId = first ? first.id : null; }
-    const topic = candidates.find((t) => t.id === AR.topicId);
-    if (topic && topic.article_path && (!AR.draft || AR.draft.topic_id !== topic.id)) await loadDraft();
-    const sig = JSON.stringify([AR.topicId, AR.mode, AR.draft && AR.draft.updated_at, candidates.map((t) => [t.id, t.write_state, t.status, Boolean(t.article_path)])]);
-    if (body.dataset.sig === sig) return;
-    body.dataset.sig = sig;
-    const list = candidates.length ? candidates.map((t) => `<button type="button" class="art-item ${t.id === AR.topicId ? 'on' : ''}" data-art="${t.id}">
-        <b class="clamp">${esc(t.title)}</b>
-        <small>${t.write_state === 'running' ? '写作中…' : t.write_state === 'failed' ? '写作失败' : t.article_path ? { drafting: '草稿', ready: '待发', published: '已发出', todo: '草稿' }[t.status] : '还没写'}</small>
-      </button>`).join('') : '<div class="empty"><span>还没有要写成文章的选题。去「选题」加一个。</span></div>';
-    let main = '<div class="empty"><span>左边选一个选题。</span></div>';
-    if (topic) {
+function refreshWorkTab() {
+  const box = $('#videoBody');
+  if (box) box.dataset.sig = '';
+  renderView();
+}
+
+window.VIDEO_TABS.push({
+  key: 'article',
+  label: '文章',
+  badge: (t) => (t.write_state === 'running' ? '写作中' : t.article_path ? '已写' : ''),
+  async render(topic, body) {
+    if (AR.dirty && AR.topicId === topic.id && body.querySelector('#artText')) return; // never overwrite unsaved edits
+    if (AR.topicId !== topic.id) { AR.topicId = topic.id; AR.draft = null; AR.mode = 'preview'; }
+    if (topic.article_path && (!AR.draft || AR.draft.topic_id !== topic.id)) await loadDraft();
+    let main = '';
+    {
       if (topic.write_state === 'running') {
         main = `<div class="empty"><span class="spin"></span><b>卡兹克写作正在写《${esc(topic.title)}》</b><span>一般 1–5 分钟，写完自动出现在这里。可以先去做别的。</span></div>`;
       } else if (!topic.article_path) {
-        main = `<div class="empty"><b>${esc(topic.title)}</b>${topic.write_state === 'failed' ? `<span class="err">${esc(topic.write_error || '写作失败')}</span>` : ''}<span>会把选题关联的 ${topic.note_paths.length} 条 Obsidian 笔记交给卡兹克写作 skill。作者是你，不会带卡兹克的署名。</span><button class="btn primary" type="button" data-write="${topic.id}">${topic.write_state === 'failed' ? '重写' : '写文章'}</button></div>`;
+        main = `<div class="empty"><b>把这条写成研习室文章</b>${topic.write_state === 'failed' ? `<span class="err">${esc(topic.write_error || '写作失败')}</span>` : ''}<span>会把选题关联的 ${topic.note_paths.length} 条 Obsidian 笔记交给卡兹克写作 skill。作者是你，不会带卡兹克的署名。</span><button class="btn primary" type="button" data-write="${topic.id}">${topic.write_state === 'failed' ? '重写' : '写文章'}</button></div>`;
       } else if (AR.draft && AR.draft.error) {
         main = `<div class="empty"><b>${esc(AR.draft.error)}</b></div>`;
       } else if (AR.draft) {
@@ -84,16 +70,15 @@ window.VIEWS.article = {
           </div>`;
       }
     }
-    body.innerHTML = `<div class="art-grid"><div class="panel art-list">${list}</div><div class="panel art-main">${main}</div></div>`;
-    $$('[data-art]', body).forEach((b) => (b.onclick = () => { AR.topicId = Number(b.dataset.art); AR.draft = null; AR.mode = 'preview'; body.dataset.sig = ''; renderView(); }));
-    $$('[data-mode]', body).forEach((b) => (b.onclick = () => { AR.mode = b.dataset.mode; body.dataset.sig = ''; renderView(); }));
+    body.innerHTML = main;
+    $$('[data-mode]', body).forEach((b) => (b.onclick = () => { AR.mode = b.dataset.mode; refreshWorkTab(); renderView(); }));
     const text = $('#artText');
     if (text) text.oninput = () => { AR.dirty = true; };
     const save = $('#artSave');
     if (save) save.onclick = async () => {
       try {
         AR.draft = { ...(await api(`/api/topics/${topic.id}/article`, { method: 'PUT', body: { markdown: $('#artText').value } })), topic_id: topic.id };
-        AR.dirty = false; AR.mode = 'preview'; body.dataset.sig = '';
+        AR.dirty = false; AR.mode = 'preview'; refreshWorkTab();
         toast('已保存');
         renderView();
       } catch (err) { toast(err.message); }
@@ -109,7 +94,7 @@ window.VIEWS.article = {
         if (res.admin_url) window.open(res.admin_url, '_blank', 'noopener');
         toast(res.admin_url ? `${copied ? '已复制正文，' : ''}已打开研习室后台：在「内容」里导入 Markdown` : '已标为待发。在设置里填研习室后台地址，下次会直接打开');
         if (window.refreshTopics) await window.refreshTopics();
-        body.dataset.sig = '';
+        refreshWorkTab();
         renderView();
       } catch (err) { toast(err.message); }
     };
@@ -117,8 +102,7 @@ window.VIEWS.article = {
     if (published) published.onclick = async () => {
       const url = prompt('研习室文章链接（可留空）', '');
       if (url === null) return;
-      await window.patchTopic(topic.id, { status: 'published', ...(url.trim() ? { published_url: url.trim() } : {}) }, '已标为发出');
-      body.dataset.sig = '';
+      await window.patchTopic(topic.id, { status: 'published', ...(url.trim() ? { published_url: url.trim() } : {}) }, '研习室已发出');
     };
   },
-};
+});

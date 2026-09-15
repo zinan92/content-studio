@@ -119,7 +119,7 @@ async function renderRunner(topic, info) {
     html = `<div class="vp-run running"><div class="vp-run-h"><span class="spin"></span><b>Claude 正在后台跑口播 workflow</b><span class="muted">已跑 ${mins(run.started_at)} 分钟</span><span class="spacer"></span><button class="btn small ghost" type="button" id="runCancel">中止</button></div>
       <pre class="vp-log-tail">${esc(run.log_tail || '（还没有输出，长任务一般跑完才汇报）')}</pre></div>`;
     clearTimeout(VP.poll);
-    VP.poll = setTimeout(() => { if (S.view === 'video' && VD.tab === 'edit' && VD.topicId === topic.id) { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); } }, 8000);
+    VP.poll = setTimeout(() => { if (S.view === 'work' && VD.tab === 'edit' && VD.topicId === topic.id) { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); } }, 8000);
   } else if (info.gate && info.layout === 'v2.6') {
     html = '<div class="vp-run" id="gateBox"><span class="spin"></span> 正在读取审批材料…</div>';
   } else if (info.layout === 'v2.6' && !info.delivered) {
@@ -187,7 +187,7 @@ async function renderOpening(topic) {
   if (!d.subtitles && !d.result) { el.innerHTML = '<div class="op op-idle"><b>开头 15 秒</b><span>录完把粗剪和字幕放进项目文件夹，这里会检查主线有没有在前 15 秒说出来。</span></div>'; return; }
   const r = d.result;
   const btn = `<button class="btn small ${r ? '' : 'primary'}" type="button" id="opRun" ${d.state === 'running' ? 'disabled' : ''}>${d.state === 'running' ? '检查中…' : r ? '重新检查' : '检查开头 15 秒'}</button>`;
-  if (d.state === 'running') setTimeout(() => { if (S.view === 'video') renderOpening(topic); }, 4000);
+  if (d.state === 'running') setTimeout(() => { if (S.view === 'work') renderOpening(topic); }, 4000);
   el.innerHTML = `<div class="op ${r ? (r.passed ? 'op-pass' : 'op-fail') : ''}">
     <div class="op-h"><b>开头 15 秒</b>${r ? `<span class="pill ${r.passed ? 'hot' : 'low'}">${r.passed ? `过了 · ${r.stated_at.toFixed(1)} 秒说出主线` : r.stated_at === null ? '没过 · 前 60 秒没说出主线' : `没过 · 第 ${r.stated_at.toFixed(1)} 秒才说出主线`}</span>` : ''}<span class="spacer"></span>${btn}</div>
     ${d.state === 'failed' ? `<p class="bad">${esc(d.error || '检查失败')}</p>` : ''}

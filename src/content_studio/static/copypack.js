@@ -14,7 +14,7 @@ function xLen(text) {
 async function loadCopy(topicId, force) {
   if (!force && CP.data[topicId] && Date.now() - CP.data[topicId]._at < (CP.data[topicId].state === 'running' ? 4000 : 30000)) return CP.data[topicId];
   CP.data[topicId] = { ...(await api(`/api/topics/${topicId}/copy`)), _at: Date.now() };
-  if (CP.data[topicId].state === 'running') setTimeout(() => { if (S.view === 'video' && !CP.dirty) { $('#videoBody').dataset.sig = ''; renderView(); } }, 5000);
+  if (CP.data[topicId].state === 'running') setTimeout(() => { if (S.view === 'work' && !CP.dirty) { $('#videoBody').dataset.sig = ''; renderView(); } }, 5000);
   return CP.data[topicId];
 }
 
