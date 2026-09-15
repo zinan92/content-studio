@@ -638,3 +638,14 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .pn-confirm .acts{display:flex;gap:8px}
 .pn-history{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:12.5px}
 .pn-history li{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+/* ===== opening 15s ===== */
+.op{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:12px 0;display:flex;flex-direction:column;gap:6px}
+.op-idle{flex-direction:row;gap:10px;align-items:baseline;color:var(--ink-2);font-size:13px}
+.op-pass{border-color:var(--accent)}
+.op-fail{border-color:var(--warn);background:var(--warn-soft)}
+.op-h{display:flex;gap:8px;align-items:center}
+.op-h .spacer{flex:1}
+.op-line{margin:0;font-size:13px;display:grid;grid-template-columns:72px 1fr;gap:8px}
+.op-line span{color:var(--ink-3)}
+.op-fixes{margin:4px 0;padding-left:20px;font-size:13.5px}

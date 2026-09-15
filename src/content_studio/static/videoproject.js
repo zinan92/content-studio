@@ -65,6 +65,7 @@ window.VIDEO_TABS.push({
         ${info.gate.key === 'H1' && a['analysis/worktable.html'] && !a['analysis/worktable.json'] ? `<div class="vp-import"><a class="btn small primary" href="${fileUrl(info.name, 'analysis/worktable.html')}" target="_blank" rel="noopener">打开 worktable ↗</a><label class="btn small">选完了：选择导出的 worktable.json<input type="file" accept=".json,application/json" id="wtFile" hidden></label><button class="btn small ghost" type="button" id="wtPaste">粘贴 JSON 导入</button></div>` : ''}</div></div>` : ''}
       ${info.blocked_reason ? `<div class="banner warn"><div><b>卡住了：</b>${esc(info.blocked_reason)}</div></div>` : ''}
       <div id="vpRunner"></div>
+      <div id="vpOpening"></div>
       <div class="vp-summary"><span class="pill ${info.delivered ? 'hot' : 'mid'}">${esc(info.summary)}</span>${info.layout !== 'v2.6' ? '<span class="muted">（按旧版目录识别）</span>' : ''}</div>
       ${info.stages.length ? `<div class="vp-stages">${info.stages.map((s) => `<div class="vp-stage ${s.state}"><b>${s.key} ${esc(s.label)}</b><span>${s.passed}/${s.total}</span></div>`).join('')}</div>
         <details class="vp-steps"><summary>14 步明细</summary><ol>${info.steps.map((s) => `<li class="${s.done ? 'done' : s.step === info.current_step ? 'now' : ''}"><b>Step ${s.step} ${esc(s.name)}</b><span>${esc(s.evidence)}</span></li>`).join('')}</ol></details>` : ''}
@@ -96,6 +97,7 @@ window.VIDEO_TABS.push({
       if (text && text.trim()) importWorktable({ text });
     };
     renderRunner(topic, info);
+    renderOpening(topic);
     $('#vpRefresh').onclick = async () => { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); };
     $('#vpUnlink').onclick = async () => { try { await api(`/api/topics/${topic.id}/video-project`, { method: 'PUT', body: { name: null } }); toast('已取消关联'); await refreshVideoTab(); } catch (err) { toast(err.message); } };
     $('#vpCmd').onclick = () => navigator.clipboard.writeText(info.continue_command).then(() => toast('已复制，贴到 Claude 或 Codex'), () => toast(info.continue_command));
@@ -173,5 +175,30 @@ async function renderGate(topic, info, el) {
       toast(`已批准 ${data.gate.key}`);
       delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView();
     } catch (err) { toast(err.message); }
+  };
+}
+
+/* 开头 15 秒：主线有没有在前 15 秒说出来（读项目里已有的字幕） */
+async function renderOpening(topic) {
+  const el = $('#vpOpening');
+  if (!el) return;
+  let d;
+  try { d = await api(`/api/topics/${topic.id}/opening`); } catch (err) { el.innerHTML = ''; return; }
+  if (!d.subtitles && !d.result) { el.innerHTML = '<div class="op op-idle"><b>开头 15 秒</b><span>录完把粗剪和字幕放进项目文件夹，这里会检查主线有没有在前 15 秒说出来。</span></div>'; return; }
+  const r = d.result;
+  const btn = `<button class="btn small ${r ? '' : 'primary'}" type="button" id="opRun" ${d.state === 'running' ? 'disabled' : ''}>${d.state === 'running' ? '检查中…' : r ? '重新检查' : '检查开头 15 秒'}</button>`;
+  if (d.state === 'running') setTimeout(() => { if (S.view === 'video') renderOpening(topic); }, 4000);
+  el.innerHTML = `<div class="op ${r ? (r.passed ? 'op-pass' : 'op-fail') : ''}">
+    <div class="op-h"><b>开头 15 秒</b>${r ? `<span class="pill ${r.passed ? 'hot' : 'low'}">${r.passed ? `过了 · ${r.stated_at.toFixed(1)} 秒说出主线` : r.stated_at === null ? '没过 · 前 60 秒没说出主线' : `没过 · 第 ${r.stated_at.toFixed(1)} 秒才说出主线`}</span>` : ''}<span class="spacer"></span>${btn}</div>
+    ${d.state === 'failed' ? `<p class="bad">${esc(d.error || '检查失败')}</p>` : ''}
+    ${r ? `<p class="op-line"><span>主线</span>${esc(r.thesis)}</p>
+      <p class="op-line"><span>前 15 秒</span>${esc(r.first_15s)}</p>
+      ${r.quote ? `<p class="op-line"><span>主线出现</span>「${esc(r.quote)}」</p>` : ''}
+      ${r.before ? `<p class="op-line"><span>之前在讲</span>${esc(r.before)}</p>` : ''}
+      <ol class="op-fixes">${r.fixes.map((f) => `<li>${esc(f)}</li>`).join('')}</ol>
+      <small class="muted">依据：${esc(r.source_label)}字幕 ${esc(r.source)} · ${day(r.generated_at)}</small>` : `<p class="muted">会读${esc(d.subtitles.label)}字幕（${esc(d.subtitles.path)}）的前 60 秒。</p>`}
+  </div>`;
+  $('#opRun').onclick = async () => {
+    try { const res = await api(`/api/topics/${topic.id}/opening`, { method: 'POST' }); toast(res.message); renderOpening(topic); } catch (err) { toast(err.message); }
   };
 }
