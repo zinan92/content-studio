@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -162,22 +163,23 @@ def test_pending_platform_accounts_cannot_sync(store: StudioStore) -> None:
         sync_account(store, account["id"], client_factory=lambda: FakeClient([]), sleep=_no_sleep)
 
 
-def test_auto_enqueue_respects_threshold_cap_and_does_not_duplicate(store: StudioStore) -> None:
-    store.update_settings({"auto_enqueue_limit": 1})
+def test_auto_enqueue_only_big_breakouts_and_caps_per_day(store: StudioStore) -> None:
+    store.update_settings({"auto_enqueue_limit": 1, "threshold": 2.0})
     account = add_account(store, f"https://www.douyin.com/user/{SEC}")
     store.upsert_videos(
         account["id"],
-        [normalize_post(_post(str(i), likes)) for i, likes in enumerate([100, 100, 100, 900, 1200], start=1)],
+        [normalize_post(_post(str(i), likes)) for i, likes in enumerate([100, 100, 100, 300, 1100, 1200], start=1)],
     )
+    # 300 likes is 3× — above the display threshold but below the auto-teardown bar of 5×.
     first = auto_enqueue_outliers(store)
-    assert [job["video_id"] for job in first] == ["5"]
-    # The cap counts auto jobs still waiting, across every sync call.
-    assert auto_enqueue_outliers(store) == []
+    assert [job["video_id"] for job in first] == ["6"]
     store.update_job(first[0]["id"], stage="done")
-    second = auto_enqueue_outliers(store)
-    assert [job["video_id"] for job in second] == ["4"]
-    store.update_job(second[0]["id"], stage="done")
+    # Finishing a job does not free today's quota.
     assert auto_enqueue_outliers(store) == []
+    tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
+    second = auto_enqueue_outliers(store, now=tomorrow)
+    assert [job["video_id"] for job in second] == ["5"]
+    assert auto_enqueue_outliers(store, now=tomorrow + timedelta(days=1)) == []
 
 
 def test_auto_enqueue_skips_videos_that_already_have_reports(store: StudioStore) -> None:

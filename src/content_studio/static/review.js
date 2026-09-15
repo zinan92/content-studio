@@ -27,7 +27,7 @@ window.VIEWS.weekly = {
     const gen = `<button class="btn ${r.data ? '' : 'primary'}" type="button" id="rvGen">${r.data ? '重新复盘' : '复盘这一周'}</button>`;
     if (r.state === 'running') { body.innerHTML = '<div class="panel empty"><span class="spin"></span><b>正在复盘这一周</b><span>一般 1–3 分钟。</span></div>'; return; }
     if (!r.data) {
-      body.innerHTML = `<div class="panel empty"><b>${r.state === 'failed' ? esc(r.error || '生成失败') : '这周还没复盘'}</b><span>用这 7 天你发的视频数据、拆解报告和对标爆款，总结做对了什么、问题在哪、下周调整什么。先同步一下我的数据，结果更准。</span>${gen}</div>`;
+      body.innerHTML = `<div class="panel empty"><b>${r.state === 'failed' ? esc(r.error || '生成失败') : '这周还没复盘'}</b><span>用这 7 天你发的视频数据、拆解报告和对标爆款，看做对了什么、问题在哪，定下周只改的一件事。先同步一下我的数据，结果更准。</span>${gen}</div>`;
     } else {
       const d = r.data;
       body.innerHTML = `<div class="panel">
@@ -38,9 +38,7 @@ window.VIEWS.weekly = {
           <div><h3>做对了</h3><ul class="rv-list">${reviewItems(d.wins, 'win') || '<li class="muted">这周没有</li>'}</ul></div>
           <div><h3>问题</h3><ul class="rv-list">${reviewItems(d.problems, 'problem') || '<li class="muted">这周没有</li>'}</ul></div>
         </div>
-        ${d.patterns.length ? `<div class="rv-block"><h3>规律</h3><ul>${d.patterns.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
-        <div class="rv-block"><h3>下周调整</h3><ol>${d.next_week.map((p) => `<li>${esc(p)}</li>`).join('')}</ol></div>
-        <div class="rv-block rv-exp"><h3>下周小实验</h3><p><b>假设：</b>${esc(d.experiment.hypothesis)}</p><p><b>怎么做：</b>${esc(d.experiment.how)}</p><p><b>看什么：</b>${esc(d.experiment.measure)}</p></div>
+        ${d.next_week.length ? `<div class="rv-block rv-exp"><h3>下周只改一件事</h3><p>${esc(d.next_week[0])}</p>${d.next_week.length > 1 ? `<small class="muted">（旧版复盘还列了：${d.next_week.slice(1).map(esc).join('；')}）</small>` : ''}</div>` : ''}
         <div class="tbl-wrap"><table class="rv-table"><thead><tr><th class="l">这周的视频</th><th>点赞</th><th>倍数</th><th>收藏/赞</th><th>涨粉</th><th>均看</th><th>2s 跳出</th><th>报告</th></tr></thead>
           <tbody>${d.videos.map((v) => `<tr><td class="l"><span class="clamp">${esc(cleanTitle(v.title))}</span></td><td>${fmt(v.likes)}</td><td>${v.multiple === null ? '—' : v.multiple + '×'}</td><td>${pct(v.collect_per_like)}</td><td>${fmt(v.fans)}</td><td>${v.avg_watch_seconds === null ? '—' : v.avg_watch_seconds + '秒'}</td><td>${pct(v.bounce_2s)}</td><td>${v.report ? `<button class="btn small" type="button" data-report="${esc(v.video_id)}">看</button>` : '—'}</td></tr>`).join('')}</tbody></table></div>
       </div>`;

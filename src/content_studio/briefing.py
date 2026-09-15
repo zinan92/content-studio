@@ -41,6 +41,7 @@ def gather_inputs(
     own_videos: list[dict[str, Any]] | None = None,
     existing_topics: list[dict[str, Any]] | None = None,
     adjustments: list[str] | None = None,
+    breakouts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     root = vault.vault_root(vault_raw)
     dailies = []
@@ -69,6 +70,7 @@ def gather_inputs(
         "notes": notes,
         "own_videos": own_videos or [],
         "adjustments": [a for a in (adjustments or []) if a][:3],
+        "breakouts": [{"title": (b.get("title") or "")[:60], "account": b.get("account_nickname") or "", "multiple": b.get("multiple")} for b in (breakouts or [])][:6],
         "existing_topics": [{"title": t["title"], "status": t["status"]} for t in (existing_topics or [])][:30],
         "allowed_paths": sorted({d["path"] for d in dailies} | {n["path"] for n in notes}),
         "allowed_urls": sorted(urls),
@@ -80,6 +82,7 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
     notes = "\n".join(
         f"- [{n['kind']}{'·已发' if n.get('published_mark') else ''}] {n['title']}（path: {n['path']}{'；url: ' + n['url'] if n['url'] else ''}）：{n['summary']}" for n in inputs["notes"]
     ) or "（没有新笔记）"
+    breakouts = "\n".join(f"- {b['account']}｜{b['title']}｜{b['multiple']}×" for b in inputs.get("breakouts", [])) or "（近两天没有）"
     adjust = "\n".join(f"- {a}" for a in inputs.get("adjustments", [])) or "（还没有复盘）"
     status_name = {"todo": "待写", "drafting": "草稿中", "ready": "待发", "published": "已发出"}
     topics = "\n".join(f"- {t['title']}（{status_name.get(t['status'], t['status'])}）" for t in inputs.get("existing_topics", [])) or "（没有）"
@@ -95,6 +98,9 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 
 ## 近 2 天的剪藏 / 收藏，近 7 天 Park 自己的原始输出
 {notes}
+
+## 对标账号近两天的爆款（只当由头和参考，不能写进 sources）
+{breakouts}
 
 ## Park 最近的视频表现（倍数 = 点赞 ÷ 账号点赞中位数）
 {videos}

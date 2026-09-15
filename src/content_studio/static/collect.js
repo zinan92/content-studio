@@ -130,23 +130,3 @@ window.TODAY_CARDS.push({
     $$('[data-read]', el).forEach((b) => (b.onclick = () => openNote(b.dataset.read)));
   },
 });
-
-window.TODAY_CARDS.push({
-  id: 'inbox',
-  order: 20,
-  title: '昨天进来了什么',
-  async render(el) {
-    if (!S.state.vault.ok) { el.innerHTML = '<div class="panel-h"><h2>昨天进来了什么</h2></div>'; return; }
-    try { await loadInbox(false); } catch (err) { el.innerHTML = `<div class="panel-h"><h2>昨天进来了什么</h2></div><div class="empty"><span>${esc(err.message)}</span></div>`; return; }
-    if (C.days !== 1 || C.source) { el.innerHTML = '<div class="panel-h"><h2>昨天进来了什么</h2><small>在素材库里切换了筛选</small></div>'; return; }
-    const items = C.items;
-    const counts = SOURCE_TABS.slice(1).map(([k, l]) => `${l} ${items.filter((i) => i.source === k).length}`).join(' · ');
-    const pending = items.filter((i) => !i.triage);
-    el.innerHTML = `<div class="panel-h"><h2>昨天进来了什么</h2><small>${counts}</small></div>
-      ${pending.length ? `<div class="inbox-mini">${pending.slice(0, 5).map((i) => `<div class="inbox-mini-row"><span class="src-tag src-${i.source}">${esc(i.source_label)}</span><button type="button" class="linklike clamp" data-note="${esc(i.path)}">${esc(i.title)}</button><div class="acts">${triageButtons(i)}</div></div>`).join('')}</div>
-        <div class="card-foot">${pending.length > 5 ? `还有 ${pending.length - 5} 条 · ` : ''}<button class="linklike" type="button" data-go="collect">去素材库处理 →</button></div>`
-        : `<div class="empty"><span>${items.length ? `${items.length} 条都处理完了` : '昨天到现在没有新进项'}</span></div>`}`;
-    bindTriage(el);
-    $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
-  },
-});

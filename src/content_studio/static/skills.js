@@ -1,5 +1,5 @@
 'use strict';
-/* Skills：Park 做内容在用的 skill，按生产阶段分组 */
+/* Skills：Park 做内容在用的 skill，按生产阶段分组；放在「设置与 Skills」里 */
 window.VIEWS = window.VIEWS || {};
 window.TODAY_CARDS = window.TODAY_CARDS || [];
 
@@ -14,7 +14,7 @@ function copyText(text) {
   else toast(text);
 }
 
-window.VIEWS.skills = {
+window.renderSkills = {
   async render() {
     const body = $('#skillsBody');
     if (body.dataset.done) return;
@@ -36,24 +36,5 @@ window.VIEWS.skills = {
         </article>`).join('')}</div></section>`;
       }).join('')}`;
     $$('[data-copy]', body).forEach((b) => (b.onclick = () => copyText(b.dataset.copy)));
-    if (SK.focus) { const el = document.getElementById(`skill-${SK.focus}`); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); } SK.focus = null; }
   },
 };
-
-window.TODAY_CARDS.push({
-  id: 'skills',
-  order: 40,
-  title: '自媒体工具栏',
-  async render(el) {
-    if (el.dataset.done) return;
-    let data;
-    try { data = await loadSkills(); } catch (err) { el.innerHTML = ''; return; }
-    el.dataset.done = '1';
-    el.innerHTML = `<div class="panel-h"><h2>自媒体工具栏</h2><small>点一下看怎么调用</small></div>
-      <div class="toolbar">${data.stages.map((stage) => {
-        const list = data.skills.filter((s) => s.stage === stage.key);
-        return list.length ? `<div class="toolbar-row"><span>${esc(stage.label)}</span><div class="chips">${list.map((s) => `<button type="button" class="chip ${s.own ? 'own' : ''}" data-skill="${esc(s.name)}">${esc(s.title)}</button>`).join('')}</div></div>` : '';
-      }).join('')}</div>`;
-    $$('[data-skill]', el).forEach((b) => (b.onclick = () => { SK.focus = b.dataset.skill; const view = $('#skillsBody'); delete view.dataset.done; go('skills'); }));
-  },
-});

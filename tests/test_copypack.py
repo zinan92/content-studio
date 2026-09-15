@@ -35,11 +35,13 @@ def test_generate_retries_with_length_errors_then_succeeds(tmp_path: Path) -> No
         calls.append(prompt)
         data = _good()
         if len(calls) == 1:
-            data["xiaohongshu"]["title"] = "这是一个明显超过二十个字的小红书标题所以一定会被拦下来"
+            data["channels"]["title"] = "这是一个明显超过十六个字的视频号标题所以会被拦下"
         return data
 
     result = copypack.generate_copy({"title": "t"}, "提纲", copy_fn=fake)
-    assert "小红书标题" in calls[1] and result["x"]["title"] == ""
+    # Only the three platforms Park publishes to are generated; the others are not even asked for.
+    assert "视频号标题" in calls[1] and set(result) == {"douyin", "channels", "yanxishi"}
+    assert "xiaohongshu" not in calls[0] and "douyin" in calls[0]
     path = copypack.save_copy(tmp_path, 1, result)
     data = copypack.read_copy(tmp_path, 1)
     assert path.is_file() and data["checks"]["douyin"] == []

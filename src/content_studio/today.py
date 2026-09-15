@@ -5,7 +5,7 @@ asks Park to tick something the workbench can already see.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 
@@ -140,3 +140,37 @@ def build_plan(
         }
     )
     return steps
+
+
+# Three things decide Park's day: read, shoot, ship. Every other step is shown under one of them.
+GROUPS = (
+    ("read", "读", "brief", ("read", "brief", "triage")),
+    ("shoot", "拍", "video", ("pick", "video")),
+    ("ship", "发", "data", ("data", "article", "review")),
+)
+
+
+def group_plan(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key = {s["key"]: s for s in steps}
+    groups = []
+    for key, title, core_key, members in GROUPS:
+        sub = [by_key[k] for k in members if k in by_key]
+        core = by_key.get(core_key) or sub[0]
+        lead = next((s for s in sub if s.get("attention")), None) or core
+        groups.append({"key": key, "title": title, "done": core["done"], "detail": lead["detail"], "go": lead.get("go"),
+                       "attention": any(s.get("attention") for s in sub), "manual": core.get("manual", False), "manual_key": core_key if core.get("manual") else None,
+                       "sub": [{"key": s["key"], "title": s["title"], "done": s["done"], "detail": s["detail"], "go": s.get("go")} for s in sub if s is not lead]})
+    return groups
+
+
+def shooting_streak(today: date, shot_days: set[str]) -> dict[str, Any]:
+    """Consecutive days with a shoot or a published video, counting back from today (or yesterday if today is still open)."""
+    today_done = today.isoformat() in shot_days
+    cursor = today if today_done else today - timedelta(days=1)
+    days = 0
+    while cursor.isoformat() in shot_days:
+        days += 1
+        cursor -= timedelta(days=1)
+    last = max((d for d in shot_days if d <= today.isoformat()), default=None)
+    gap = (today - date.fromisoformat(last)).days if last else None
+    return {"days": days, "today_done": today_done, "broken": not today_done and days == 0, "last_day": last, "days_since_last": gap}

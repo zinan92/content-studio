@@ -119,13 +119,11 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 - summary：这一周一句话。
 - wins：做对的 1–3 条，每条 {{"text": "", "video_ids": ["..."]}}，text 里要有数字。
 - problems：问题 1–3 条，同样结构，落到具体做法（开头、跑题、选题、标题），不要空话。
-- patterns：从这周数据看出的规律 0–3 条（字符串）；样本太少就明说「样本不足」，不要硬总结。
-- next_week：下周最该调整的 2–3 件事（字符串），每条可执行。
-- experiment：下周做一个小实验 {{"hypothesis": "", "how": "", "measure": ""}}。
+- next_week：下周只改一件事，恰好 1 条（字符串），要具体可执行，并说明用哪个数看有没有改好。
 video_ids 只能用上面出现过的 id。不要编造没有给出的数据。{retry}
 
 ## 输出格式
-{{"summary": "", "wins": [], "problems": [], "patterns": [], "next_week": [], "experiment": {{"hypothesis": "", "how": "", "measure": ""}}}}"""
+{{"summary": "", "wins": [], "problems": [], "next_week": [""]}}"""
 
 
 def validate(raw: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
@@ -143,13 +141,8 @@ def validate(raw: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
                 problems.append(f"{key}[{i}].text 缺失")
             elif not item.get("video_ids") or any(vid not in ids for vid in item["video_ids"]):
                 problems.append(f"{key}[{i}].video_ids 必须是输入里的视频 id")
-    if not isinstance(raw.get("patterns"), list) or len(raw["patterns"]) > 3:
-        problems.append("patterns 需要 0–3 条")
-    if not isinstance(raw.get("next_week"), list) or not 2 <= len(raw["next_week"]) <= 3:
-        problems.append("next_week 需要 2–3 条")
-    experiment = raw.get("experiment")
-    if not isinstance(experiment, dict) or not all(str(experiment.get(k) or "").strip() for k in ("hypothesis", "how", "measure")):
-        problems.append("experiment 需要 hypothesis、how、measure")
+    if not isinstance(raw.get("next_week"), list) or len(raw["next_week"]) != 1 or not str(raw["next_week"][0] or "").strip():
+        problems.append("next_week 需要恰好 1 条")
     return problems
 
 
@@ -172,6 +165,8 @@ def generate_review(inputs: dict[str, Any], *, review_fn: ReviewFn | None = None
             for key in ("wins", "problems"):
                 for item in raw[key]:
                     item["videos"] = [{"video_id": vid, "title": titles[vid]} for vid in item["video_ids"]]
+            raw.pop("patterns", None)
+            raw.pop("experiment", None)
             return {**raw, "week": inputs["week"], "since": inputs["since"], "until": inputs["until"],
                     "videos": inputs["videos"], "generated_at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}
         error = "；".join(problems[:6])

@@ -14,30 +14,24 @@
     <div class="brand"><b>内容工作台</b><span id="brandSub">Park · 本机</span></div>
     <nav class="nav" id="nav">
       <button data-view="today" type="button" class="nav-today">今天 <span class="count" id="navToday"></span></button>
-      <div class="nav-group" data-group="collect"><div class="nav-label">收集</div>
-        <button data-view="collect" type="button">素材库 <span class="count" id="navCollect"></span></button>
-      </div>
-      <div class="nav-group" data-group="plan"><div class="nav-label">选题</div>
+      <div class="nav-group" data-group="main">
         <button data-view="brief" type="button">每日统筹</button>
         <button data-view="topics" type="button">选题 <span class="count" id="navTopics"></span></button>
-        <button data-view="hot" type="button">热点</button>
-        <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
-      </div>
-      <div class="nav-group" data-group="make"><div class="nav-label">加工</div>
-        <button data-view="article" type="button">文章</button>
         <button data-view="video" type="button">视频</button>
-        <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
-      </div>
-      <div class="nav-group" data-group="ship"><div class="nav-label">发出</div></div>
-      <div class="nav-group" data-group="review"><div class="nav-label">复盘</div>
-        <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
-        <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
+        <button data-view="article" type="button">文章</button>
         <button data-view="weekly" type="button">每周复盘</button>
       </div>
-      <div class="nav-group" data-group="tools"><div class="nav-label">工具</div>
-        <button data-view="skills" type="button">Skills</button>
-        <button data-view="settings" type="button">设置</button>
-      </div>
+      <details class="nav-more" id="navMore">
+        <summary>更多</summary>
+        <div class="nav-group">
+          <button data-view="collect" type="button">素材库 <span class="count" id="navCollect"></span></button>
+          <button data-view="mine" type="button">我的视频 <span class="count" id="navMine">—</span></button>
+          <button data-view="report" type="button">拆解报告 <span class="count" id="navR">—</span></button>
+          <button data-view="radar" type="button">对标雷达 <span class="count" id="navHot">—</span></button>
+          <button data-view="queue" type="button">拆解队列 <span class="count" id="navQ">—</span></button>
+          <button data-view="settings" type="button">设置与 Skills</button>
+        </div>
+      </details>
     </nav>
     <div class="rail-foot">
       <label class="acct-switch" id="acctSwitchWrap"><span>当前账号</span><select id="acctSwitch" aria-label="当前账号"></select></label>
@@ -56,7 +50,7 @@
         <div>
           <div class="eyebrow" id="todayDate">今天</div>
           <h1 id="todayTitle">今天做什么</h1>
-          <p id="todayIntro">收集 → 选题 → 加工 → 发出 → 复盘。下面每一块都来自你的 Obsidian、对标账号和发出记录。</p>
+          <p id="todayIntro">每天只看三件事：读、拍、发。</p>
         </div>
       </div>
       <div class="today-grid" id="todayGrid"></div>
@@ -70,8 +64,9 @@
 
     <!-- BRIEF -->
     <section class="view wide" id="v-brief">
-      <div class="head"><div><div class="eyebrow">选题 · 每日统筹</div><h1>今天读什么，今天拍什么</h1><p>只根据你今天的日报、近 2 天剪藏和近 7 天原始输出来统筹；素材都能点开核对。建议不是定稿，拍什么由你决定。</p></div></div>
+      <div class="head"><div><div class="eyebrow">选题 · 每日统筹</div><h1>今天读什么，今天拍什么</h1><p>根据今天的日报、近 2 天剪藏、近 7 天原始输出和对标爆款来统筹；素材都能点开核对。拍什么由你决定。</p></div></div>
       <div id="briefBody"></div>
+      <div id="briefHot"></div>
     </section>
 
     <!-- TOPICS -->
@@ -98,21 +93,11 @@
       <div id="weeklyBody"></div>
     </section>
 
-    <!-- HOT -->
-    <section class="view" id="v-hot">
-      <div class="head"><div><div class="eyebrow">选题</div><h1>热点</h1><p>近两天什么在火：对标账号的爆款、你日报里的头条、剪藏里反复出现的话题。每条都能直接做成选题。</p></div></div>
-      <div id="hotBody"></div>
-    </section>
 
-    <!-- SKILLS -->
-    <section class="view wide" id="v-skills">
-      <div class="head"><div><div class="eyebrow">工具</div><h1>Skills</h1><p>你做内容时在用的 skill，按生产阶段放。点灰色那行复制调用方式，贴到 Claude 或 Codex 里用。</p></div></div>
-      <div id="skillsBody"></div>
-    </section>
 
     <!-- SETTINGS -->
     <section class="view" id="v-settings">
-      <div class="head"><div><div class="eyebrow">工具</div><h1>设置</h1><p>只保存在本机。</p></div></div>
+      <div class="head"><div><div class="eyebrow">更多</div><h1>设置与 Skills</h1><p>只保存在本机。</p></div></div>
       <div class="panel">
         <form class="settings" id="settingsForm">
           <label><span>Obsidian 库路径</span><input id="setVault" autocomplete="off" placeholder="~/park-hands"><small id="setVaultNote"></small></label>
@@ -126,6 +111,7 @@
         <div id="myAccounts"></div>
         <form class="linkbox" id="myAcctForm"><input id="myAcctIn" placeholder="我的另一个抖音主页链接 https://www.douyin.com/user/…" aria-label="我的主页链接" autocomplete="off"><button class="btn" type="submit">添加我的账号</button></form>
       </div>
+      <details class="panel settings-skills"><summary class="panel-h"><h2>Skills</h2><small>做内容时在用的 skill，点开看调用方式</small></summary><div id="skillsBody"></div></details>
     </section>
 
     <!-- MINE -->
@@ -147,7 +133,7 @@
         <div>
           <div class="eyebrow">抖音 · 对标账号</div>
           <h1>对标雷达</h1>
-          <p>每个账号用<b>自己的</b>点赞中位数做基准：平时 5000 赞的号突然一条 20 万赞，就是 40 倍样本。超过门槛的新爆款会自动进拆解队列。</p>
+          <p>每个账号用<b>自己的</b>点赞中位数做基准：平时 5000 赞的号突然一条 20 万赞，就是 40 倍样本。超过 5× 的新爆款会自动拆解，每天最多 2 条；没看的对标报告 7 天后自动归档。</p>
         </div>
       </div>
       <div class="controls">

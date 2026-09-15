@@ -101,16 +101,23 @@ window.TODAY_CARDS.push({
   id: 'plan',
   order: 0,
   wide: true,
-  title: '今日主线',
+  title: '今天：读 · 拍 · 发',
   async render(el) {
-    try { await loadPlan(false); } catch (err) { el.innerHTML = `<div class="panel-h"><h2>今日主线</h2></div><div class="empty"><span>${esc(err.message)}</span></div>`; return; }
+    try { await loadPlan(false); } catch (err) { el.innerHTML = `<div class="panel-h"><h2>今天：读 · 拍 · 发</h2></div><div class="empty"><span>${esc(err.message)}</span></div>`; return; }
     const p = TP.plan;
-    const firstOpen = p.steps.findIndex((s) => !s.done);
-    el.innerHTML = `<div class="panel-h"><h2>今日主线</h2><small>${p.done}/${p.steps.length} 完成</small></div>
-      <ol class="plan">${p.steps.map((s, i) => `<li class="${s.done ? 'done' : i === firstOpen ? 'now' : ''} ${s.attention ? 'attention' : ''}">
-        <span class="plan-dot">${s.done ? '✓' : i + 1}</span>
-        <div class="plan-body"><b>${esc(s.title)}</b><span>${esc(s.detail)}</span></div>
-        <div class="acts">${s.manual ? `<label class="manual"><input type="checkbox" data-manual="${s.key}" ${s.done ? 'checked' : ''}> 拍完了</label>` : ''}${s.go && s.go !== 'today' ? `<button class="btn small ${i === firstOpen || s.attention ? 'primary' : ''}" type="button" data-go="${s.go}">${s.attention ? '去处理' : '去做'}</button>` : ''}</div>
+    const firstOpen = p.groups.findIndex((g) => !g.done);
+    const k = p.streak;
+    const streak = k.today_done
+      ? `<span class="streak ok">连续拍摄 <b>${k.days}</b> 天</span>`
+      : k.days > 0
+        ? `<span class="streak warn">已连续 <b>${k.days}</b> 天 · 今天还没拍</span>`
+        : `<span class="streak broken">连拍断了${k.days_since_last ? ` · 已 <b>${k.days_since_last}</b> 天没拍` : ''}</span>`;
+    const subList = (g) => g.sub.length ? `<ul class="plan-sub">${g.sub.map((s) => `<li class="${s.done ? 'done' : ''}">${s.done ? '✓' : '·'} ${esc(s.title)}：${esc(s.detail)}${!s.done && s.go && s.go !== 'today' ? ` <button class="linklike" type="button" data-go="${s.go}">去</button>` : ''}</li>`).join('')}</ul>` : '';
+    el.innerHTML = `<div class="panel-h"><h2>今天：读 · 拍 · 发</h2><small>${streak}</small></div>
+      <ol class="plan plan-3">${p.groups.map((g, i) => `<li class="${g.done ? 'done' : i === firstOpen ? 'now' : ''} ${g.attention ? 'attention' : ''}">
+        <span class="plan-dot">${g.done ? '✓' : esc(g.title)}</span>
+        <div class="plan-body"><b>${esc(g.title)}</b><span>${esc(g.detail)}</span>${subList(g)}</div>
+        <div class="acts">${g.manual ? `<label class="manual"><input type="checkbox" data-manual="${g.manual_key}" ${p.steps.find((s) => s.key === g.manual_key && s.done) ? 'checked' : ''}> 拍完了</label>` : ''}${g.go && g.go !== 'today' ? `<button class="btn small ${i === firstOpen || g.attention ? 'primary' : ''}" type="button" data-go="${g.go}">${g.attention ? '去处理' : '去做'}</button>` : ''}</div>
       </li>`).join('')}</ol>`;
     $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
     $$('[data-manual]', el).forEach((box) => (box.onchange = async () => {
@@ -120,19 +127,5 @@ window.TODAY_CARDS.push({
         renderView();
       } catch (err) { toast(err.message); }
     }));
-  },
-});
-
-window.TODAY_CARDS.push({
-  id: 'topics',
-  order: 30,
-  title: '进行中的选题',
-  async render(el) {
-    try { await loadTopics(false); } catch (err) { el.innerHTML = ''; return; }
-    const active = TP.topics.filter((t) => t.status !== 'published');
-    el.innerHTML = `<div class="panel-h"><h2>进行中的选题</h2><small>${active.length} 个</small></div>
-      ${active.length ? `<div class="inbox-mini">${active.slice(0, 5).map((t) => `<div class="inbox-mini-row"><span class="src-tag">${STATUS_COLS.find(([k]) => k === t.status)[1]}</span><span class="clamp">${esc(t.title)}</span><span class="muted">${FORMAT_NAME[t.formats]}</span></div>`).join('')}</div>` : '<div class="empty"><span>还没有选题。去素材库挑一条「做成选题」。</span></div>'}
-      <div class="card-foot"><button class="linklike" type="button" data-go="topics">打开选题 →</button></div>`;
-    $$('[data-go]', el).forEach((b) => (b.onclick = () => go(b.dataset.go)));
   },
 });

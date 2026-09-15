@@ -19,7 +19,8 @@ TOPIC_FORMATS = ("article", "video", "both")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "threshold": 5.0,
-    "auto_enqueue_limit": 8,
+    "auto_enqueue_limit": 2,
+    "auto_enqueue_threshold": 5.0,
     "sync_pages": 3,
     "sync_delay_seconds": 1.5,
     "obsidian_vault": "~/park-hands",
@@ -251,6 +252,9 @@ class StudioStore:
 
     def daily_checks(self, day: str) -> dict[str, str]:
         return {row["key"]: row["checked_at"] for row in self._rows("SELECT key, checked_at FROM daily_checks WHERE day = ?", (day,))}
+
+    def checked_days(self, key: str) -> set[str]:
+        return {row["day"] for row in self._rows("SELECT day FROM daily_checks WHERE key = ?", (key,))}
 
     def set_daily_check(self, day: str, key: str, checked: bool) -> dict[str, str]:
         with self.tx() as conn:
@@ -518,6 +522,8 @@ class StudioStore:
             raise StoreError("爆款门槛需在 1× 到 100× 之间")
         if "auto_enqueue_limit" in cleaned and not 0 <= cleaned["auto_enqueue_limit"] <= 50:
             raise StoreError("自动入队上限需在 0 到 50 之间")
+        if "auto_enqueue_threshold" in cleaned and not 1 <= cleaned["auto_enqueue_threshold"] <= 100:
+            raise StoreError("自动拆解门槛需在 1× 到 100× 之间")
         if "sync_pages" in cleaned and not 1 <= cleaned["sync_pages"] <= 5:
             raise StoreError("同步页数需在 1 到 5 之间")
         if "sync_delay_seconds" in cleaned and cleaned["sync_delay_seconds"] < 1.5:

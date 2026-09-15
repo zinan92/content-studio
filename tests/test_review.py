@@ -24,7 +24,7 @@ def _inputs():
 
 def _good():
     return {"summary": "s", "wins": [{"text": "6.5 倍", "video_ids": ["a"]}], "problems": [{"text": "盯盘开头慢", "video_ids": ["b"]}],
-            "patterns": ["样本不足"], "next_week": ["一", "二"], "experiment": {"hypothesis": "h", "how": "w", "measure": "m"}}
+            "next_week": ["开头 15 秒内说出主线，看 2 秒跳出"]}
 
 
 def test_inputs_keep_last_week_with_computed_numbers() -> None:
@@ -44,6 +44,9 @@ def test_generate_attaches_titles_and_rejects_unknown_ids() -> None:
     bad = _good()
     bad["wins"][0]["video_ids"] = ["invented"]
     assert any("video_ids" in p for p in review.validate(bad, inputs))
+    two = {**_good(), "next_week": ["一", "二"]}
+    assert "next_week 需要恰好 1 条" in review.validate(two, inputs)
+    assert "patterns" not in review.generate_review(inputs, review_fn=lambda p: {**_good(), "patterns": ["x"]}, now=NOW)
     with pytest.raises(review.ReviewError, match="连续 3 次"):
         review.generate_review(inputs, review_fn=lambda p: bad)
 

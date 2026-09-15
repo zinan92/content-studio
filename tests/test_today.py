@@ -94,3 +94,28 @@ def test_data_step_prioritises_teardown() -> None:
     step = _plan(followups=followups)["data"]
     assert step["done"] is False and "满 48 小时" in step["detail"] and "发了三天" in step["detail"]
     assert "10 小时" in _plan(followups=followups[:1])["data"]["detail"]
+
+
+def test_plan_groups_into_read_shoot_ship_with_attention_first() -> None:
+    from content_studio.today import group_plan
+
+    steps = build_plan(today=DAY, dailies=[], inbox=[], topics=[_topic(formats="video", video_project="p")], reports=[], checks={},
+                       video_states={1: {"gate": {"key": "H1", "title": "选 Hook"}}})
+    groups = group_plan(steps)
+    assert [g["title"] for g in groups] == ["读", "拍", "发"]
+    shoot = groups[1]
+    assert shoot["attention"] and "H1" in shoot["detail"] and shoot["go"] == "video"
+    assert {s["key"] for s in shoot["sub"]} == {"pick"}
+    assert sum(len(g["sub"]) + 1 for g in groups) == len(steps)
+
+
+def test_shooting_streak_counts_back_and_flags_a_broken_chain() -> None:
+    from content_studio.today import shooting_streak
+
+    days = {"2026-09-12", "2026-09-13", "2026-09-14"}
+    assert shooting_streak(DAY, days) == {"days": 3, "today_done": True, "broken": False, "last_day": "2026-09-14", "days_since_last": 0}
+    open_today = shooting_streak(date(2026, 9, 15), days)
+    assert open_today["days"] == 3 and not open_today["broken"]
+    broken = shooting_streak(date(2026, 9, 17), days)
+    assert broken["days"] == 0 and broken["broken"] and broken["days_since_last"] == 3
+    assert shooting_streak(DAY, set())["last_day"] is None
