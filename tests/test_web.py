@@ -281,14 +281,13 @@ def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_pat
 
     assert client.get("/api/vault/note", params={"path": "Clippings/a.md"}).json()["body"] == "正文"
     assert client.get("/api/vault/note", params={"path": "_secrets/k.md"}).status_code == 404
-    raw = client.get("/api/vault/raw", params={"path": f"009_morning brief/{today}.html"})
-    assert raw.status_code == 200 and "sandbox" in raw.headers["content-security-policy"]
+    assert client.get("/api/vault/raw", params={"path": f"009_morning brief/{today}.html"}).status_code == 404
 
     dailies = client.get("/api/today/dailies").json()["items"]
-    brief = [d for d in dailies if d["key"] == "morning_brief"][0]
-    assert brief["path"] and brief["checked_at"] is None
-    client.put("/api/today/checks", json={"day": today, "key": "morning_brief", "checked": True})
-    assert [d for d in client.get("/api/today/dailies").json()["items"] if d["key"] == "morning_brief"][0]["checked_at"]
+    ai = [d for d in dailies if d["key"] == "ai_daily"][0]
+    assert [d["key"] for d in dailies] == ["ai_daily"] and ai["checked_at"] is None
+    client.put("/api/today/checks", json={"day": today, "key": "ai_daily", "checked": True})
+    assert [d for d in client.get("/api/today/dailies").json()["items"] if d["key"] == "ai_daily"][0]["checked_at"]
     assert client.put("/api/today/checks", json={"day": today, "key": "nope", "checked": True}).status_code == 400
     assert (root / "Clippings" / "a.md").read_text(encoding="utf-8").endswith("正文")
 

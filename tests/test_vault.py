@@ -38,8 +38,10 @@ def root(tmp_path: Path) -> Path:
 def test_dailies_match_both_date_formats(root: Path) -> None:
     items = {item["key"]: item for item in vault.dailies(str(root), date(2026, 9, 14))}
     assert items["ai_daily"]["path"] == "006_ai daily newsletter/26-09-14.md"
-    assert items["finance_daily"]["path"] is None
-    assert items["morning_brief"]["kind"] == "html"
+    # 财经日报和晨报属于交易线，工作台不再读它们
+    assert set(items) == {"ai_daily"}
+    with pytest.raises(vault.VaultError):
+        vault.read_note(str(root), "009_morning brief/2026-09-14.html")
 
 
 def test_inbox_lists_recent_notes_with_titles_and_summaries(root: Path) -> None:

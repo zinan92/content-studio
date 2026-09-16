@@ -53,8 +53,7 @@ def test_inputs_collect_dailies_notes_and_allowed_sources(tmp_path: Path) -> Non
     inputs = briefing.gather_inputs(str(tmp_path), DAY, own_videos=[{"title": "我的", "likes": 10, "multiple": 1.2}],
                                     existing_topics=[{"title": "为什么用了 AI 更累", "status": "published"}], adjustments=["开头直接说结论"],
                                     breakouts=[{"title": "对标爆款标题", "account_nickname": "千雪", "multiple": 12.0}])
-    assert [d["label"] for d in inputs["dailies"]] == ["AI 日报", "晨报"]
-    assert "黄金" in inputs["dailies"][1]["text"] and "x{}" not in inputs["dailies"][1]["text"]
+    assert [d["label"] for d in inputs["dailies"]] == ["AI 日报"]
     assert {n["path"] for n in inputs["notes"]} == {"Clippings/c.md", "003_park原始输出/r.md", "003_park原始输出/已发 老观点.md"}
     assert "https://x.com/1" in inputs["allowed_urls"] and "https://y.com/2" in inputs["allowed_urls"]
     prompt = briefing.build_prompt(inputs)
