@@ -246,6 +246,7 @@ function renderView() {
   if (S.view === 'mine') renderMine();
   if (S.view === 'radar') renderRadar();
   if (S.view === 'report') { renderReport(); renderQueue(); }
+  if (window.renderAnna) window.renderAnna();
 }
 
 /* ================= SETTINGS ================= */

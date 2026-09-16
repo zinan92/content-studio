@@ -18,6 +18,7 @@
       <button type="button" data-view="board" data-stage="work"><i class="node"></i><span class="flow-k">02</span><span class="flow-t">加工中<small>正在做哪几条</small></span><b class="count" id="navWork"></b></button>
       <button type="button" data-view="output" data-stage="out"><i class="node"></i><span class="flow-k">03</span><span class="flow-t">已发出<small>数据和复盘</small></span><b class="count" id="navOut"></b></button>
     </nav>
+    <button type="button" class="rail-anna" id="railAnna"><i class="an-dot"></i><span>Anna<small>内容主编 · 问她</small></span></button>
     <button type="button" class="rail-set" data-view="settings">设置与 Skills</button>
     <div class="rail-foot">
       <label class="acct-switch" id="acctSwitchWrap"><span>当前账号</span><select id="acctSwitch" aria-label="当前账号"></select></label>
@@ -133,6 +134,8 @@
       <details class="panel settings-skills"><summary class="panel-h"><h2>Skills</h2><small>做内容时在用的 skill，点开看调用方式</small></summary><div id="skillsBody"></div></details>
     </section>
   </main>
+
+  <aside class="anna" id="anna" hidden aria-label="Anna"></aside>
 </div>
 
 <dialog id="addDlg">
@@ -158,6 +161,7 @@
 <script src="/static/article.js"></script>
 <script src="/static/output.js"></script>
 <script src="/static/skills.js"></script>
+<script src="/static/anna.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

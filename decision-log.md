@@ -184,3 +184,12 @@
 - **Alternatives rejected:** 让 Park 手动重连素材；同时支持新旧两个目录（vault 里已经没有旧目录，多一条路径只会长期留坑）。
 - **Evidence:** 迁移前库里有 3 条 triage、4 个选题引用 `Clippings/...`；重启后进项页 Clippings 条目正常，选题 9、10 的素材仍可读。
 - **Gotchas:** 改名函数是幂等的，跑第二次返回 0；drafts 里的 outline.meta.json 仍存着旧路径字符串，只用于显示来源，不影响读取。
+
+## 2026-09-16 — Anna 常驻工作台右栏，所有对话都 route 给她
+
+- **Context:** Park 想在工作台里跟一个「有血有肉的员工」对话，而不是自己点功能。先后讨论过三段各配一个助手、MCP 工具箱、DeepSeek Harness；最终决定内容线只有 Anna 一个角色，所有事归她。
+- **Decision:** 新增 `anna.py` 与右栏面板。角色 = Obsidian 里的 `001_role/content_editor Anna.md` + 其 knowledge + 本机 park-content-qa skill，每轮重新读，改 Markdown 即改人。每轮把 Park 正在看的页面整理成 `<工作台>` 块发给她（进项 / 看板 / 某条视频 / 已发出各不同），对话按页面分线程、按 `scope` 存库，用 Claude Code 的 session 续聊。她只动嘴：回答末尾的 `[动作]` 行由页面变成按钮，Park 点了才调用现有 API。模型默认 Claude Code Sonnet，命令可配置。
+- **Why:** 用 skill（Markdown）而不是 MCP：Park 的原话「Skill 就是文字，改 Markdown 就能改人」；工作台已有全部数据，缺的只是对话层。Claude Code 而不是 Codex：本机已登录、其余功能同源、可续聊、一轮约 10–15 秒。
+- **Alternatives rejected:** 三段三个助手（角色没被验证有独立需求）；MCP 工具箱（多一层打包，收益要等换框架时才有）；DeepSeek Harness（alpha、无安全审计、主模型要 API 付费、自带能跑命令的工具）；让 Anna 直接调用工具（工作台外网可达，聊天框会变成 shell）。
+- **Evidence:** 真实问「这个提纲第一句够不够狠」，14 秒回答，引用了提纲原句和三点评分 2/5，给出具体改法并附「重写提纲」按钮。
+- **Gotchas:** `--system-prompt` 每轮都传（约 35KB），resume 失败时自动开新会话；同一页面同时只跑一轮；面板宽 380px，1180px 以下 320px，900px 以下变成右侧浮层；角色文件不在仓库里，找不到时用一段最小人设兜底。
