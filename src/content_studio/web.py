@@ -80,6 +80,12 @@ class BriefTopicBody(BaseModel):
     index: int
 
 
+class AnnaBody(BaseModel):
+    scope: str
+    message: str
+    note_path: str | None = None
+
+
 class VideoLinkBody(BaseModel):
     name: str | None = None
 
@@ -208,6 +214,7 @@ def create_app(
     review_fn: Callable[[str], dict] | None = None,
     opening_fn: Callable[[str], dict] | None = None,
     qa_fn: Callable[[str], dict] | None = None,
+    anna_fn: Callable[[str, str, str | None], dict] | None = None,
     runs_dir: Path | None = None,
     runner_command: str | None = None,
     publishers: dict[str, dict[str, Any]] | None = None,
@@ -901,6 +908,175 @@ def create_app(
         )
         store.update_topic(topic_id, video_project=name)
         return video_project.inspect(video_root(), name)
+
+    # -- Anna: the resident editor (right column) ---------------------------------
+
+    from . import anna as anna_mod
+
+    anna_busy: set[str] = set()
+    anna_errors: dict[str, str] = {}
+    anna_lock = threading.Lock()
+
+    def _anna_scope(scope: str) -> tuple[str, str, int | None]:
+        kind, _, rest = scope.partition(":")
+        if kind == "work":
+            if not rest.isdigit():
+                raise ValueError("这条视频不存在")
+            return "work", anna_mod.SCOPE_LABELS["work"], int(rest)
+        if kind not in anna_mod.SCOPE_LABELS:
+            raise ValueError("未知页面")
+        return kind, anna_mod.SCOPE_LABELS[kind], None
+
+    def _anna_context(kind: str, topic_id: int | None, note_path: str | None) -> str:
+        """What Park is looking at right now, as plain text for one turn."""
+        from . import board, opening, outline, qa, writer
+
+        lines: list[str] = []
+        if kind == "input":
+            day_value = date.today()
+            for item in vault.dailies(vault_path(), day_value):
+                if item.get("path"):
+                    note = vault.read_note(vault_path(), item["path"])
+                    lines.append(f"## 今天的{item['label']}\n{(note.get('body') or '')[:5000]}")
+                else:
+                    lines.append(f"## 今天的{item['label']}：还没出")
+            triage = store.triage()
+            used = {p: t for t in store.topics(include_archived=True) for p in (t.get("note_paths") or [])}
+            items = vault.inbox(vault_path(), since=datetime.now(timezone.utc) - timedelta(days=7))[:30]
+            rows = []
+            for i in items:
+                state = "已进加工中" if i["path"] in used else {"topic": "已拿来做", "shot": "拍过了", "ignored": "已忽略"}.get((triage.get(i["path"]) or {}).get("status"), "还没处理")
+                rows.append(f"- [{i['source_label']}] {i['title']}（{state}）{'：' + i['summary'][:80] if i.get('summary') else ''}")
+            lines.append("## 近 7 天进来的（Clippings / 我收藏的 / 我写的）\n" + ("\n".join(rows) or "没有新东西"))
+            if note_path:
+                try:
+                    note = vault.read_note(vault_path(), note_path)
+                    lines.append(f"## Park 正在读的这篇：{note['title']}\n{(note.get('body') or '')[:8000]}")
+                except (vault.VaultError, OSError):
+                    pass
+        elif kind == "board":
+            data = get_board(None)
+            rec = data["recommend"]
+            if rec["items"]:
+                lines.append("## 今天推荐拍\n" + "\n".join(
+                    f"- {'首选' if v['primary'] else '备选'}：{v['title']}｜{v['why']}｜钩子：{v['hook']}｜三点：{json.dumps(v.get('qa') or {}, ensure_ascii=False)}" for v in rec["items"]))
+            stage_names = dict(board.STAGES)
+            lines.append("## 看板\n" + ("\n".join(
+                f"- [{stage_names.get(c['stage'], c['stage'])}] {c['title']}｜在等：{c['next']['text']}" + (f"｜三点 {c['qa']['total']}/15（{c['qa']['verdict']}）" if c.get("qa") else "") for c in data["cards"]) or "看板是空的"))
+            k = data["streak"]
+            lines.append(f"## 拍摄\n连续拍摄 {k.get('days')} 天；今天{'已经拍了' if k.get('today_done') else '还没拍'}；距上次拍 {k.get('days_since_last')} 天")
+        elif kind == "work" and topic_id is not None:
+            topic = store.topic(topic_id)
+            lines.append(f"## 这条视频\n标题：{topic['title']}\n状态：{topic.get('status')}{'（已归档）' if topic.get('archived_at') else ''}\n备注：{topic.get('memo') or '（无）'}")
+            draft = outline.read_outline(topic)
+            lines.append("## 拍摄提纲\n" + (draft["markdown"] if draft else "还没写"))
+            q = qa.load(drafts_root, topic_id)
+            if q:
+                lines.append("## 三点评分\n" + "\n".join(f"- {label} {q[key]['score']}/5：{q[key]['reason']}" for key, label in qa.POINTS) + f"\n- 结论：{q['verdict']}｜最该改：{q['fix']}" + (f"｜不要讲过头：{q['caution']}" if q.get("caution") else ""))
+            op = opening.load(drafts_root, topic_id)
+            if op:
+                lines.append(f"## 开头 15 秒检查\n{'通过' if op.get('passed') else '没通过'}；主线在第 {op.get('stated_at')} 秒说出；前 15 秒字幕：{op.get('first_15s', '')[:400]}\n改法：{'；'.join(op.get('fixes') or [])}")
+            if topic.get("video_project"):
+                try:
+                    info = video_project.inspect(video_root(), topic["video_project"])
+                    gate = info.get("gate") or {}
+                    lines.append(f"## 剪辑进度\n项目：{info.get('name')}；{info.get('summary')}；第 {info.get('current_step')} 步{'；已交付成片' if info.get('delivered') else ''}{'；等你：' + gate.get('title', '') if gate else ''}")
+                except VideoProjectError as exc:
+                    lines.append(f"## 剪辑进度\n读不到项目：{exc}")
+            if topic.get("published_video_id"):
+                v = store.video(topic["published_video_id"])
+                if v:
+                    me = store.self_account()
+                    median = store.account_median(me["id"]) if me else None
+                    mult = round(v["likes"] / median, 1) if median and v.get("likes") is not None else None
+                    creator = _creator_rows(creator_db).get(v["video_id"]) or {}
+                    lines.append(f"## 发出后的数据\n{v.get('published_at', '')[:10]} 发出；点赞 {v.get('likes')}（是自己中位数的 {mult} 倍）；播放 {v.get('views')}；收藏 {v.get('collects')}；评论 {v.get('comments')}；分享 {v.get('shares')}"
+                                 + (f"；2 秒跳出 {creator.get('bounce_rate_2s')}；平均观看 {creator.get('avg_view_second')} 秒；涨粉 {creator.get('fan_increment')}" if creator else ""))
+            sources = writer.gather_sources(vault_path(), topic.get("note_paths") or [])
+            if sources:
+                budget = 9000
+                chunks = []
+                for src in sources:
+                    body = src["body"][: max(0, budget)]
+                    budget -= len(body)
+                    chunks.append(f"### {src['title']}\n{body}")
+                lines.append("## 关联的素材\n" + "\n\n".join(chunks))
+        elif kind == "output":
+            me = store.self_account()
+            if me is None:
+                lines.append("## 已发出\n还没有连接自己的抖音号")
+            else:
+                median = store.account_median(me["id"])
+                creator = _creator_rows(creator_db)
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()[:10]
+                rows = []
+                for v in [x for x in store.videos(me["id"]) if not x["is_image_post"] and (x["published_at"] or "") >= cutoff][:40]:
+                    c = creator.get(v["video_id"]) or {}
+                    mult = round(v["likes"] / median, 1) if median and v.get("likes") is not None else None
+                    extra = f"；2 秒跳出 {round(c['bounce_rate_2s'] * 100)}%；平均观看 {round(c['avg_view_second'])} 秒；涨粉 {c.get('fan_increment')}；主页访问 {c.get('homepage_visit_count')}" if c.get("avg_view_second") is not None else ""
+                    rows.append(f"- {(v['published_at'] or '')[:10]}｜{(v['title'] or '').split(chr(10))[0][:40]}｜点赞 {v['likes']}（{mult}×）；收藏 {v.get('collects')}；评论 {v.get('comments')}；分享 {v.get('shares')}{extra}")
+                lines.append(f"## 近 90 天发出的视频（点赞中位数 {median}）\n" + ("\n".join(rows) or "没有"))
+                rv = get_review()
+                if rv.get("data"):
+                    lines.append("## 最近一次每周复盘\n" + json.dumps(rv["data"], ensure_ascii=False)[:3000])
+                k = today_plan.shooting_streak(date.today(), shot_days())
+                lines.append(f"## 拍摄\n连续拍摄 {k.get('days')} 天；距上次拍 {k.get('days_since_last')} 天")
+        else:
+            lines.append("Park 在设置页。")
+        return "\n\n".join(lines)
+
+    def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None) -> None:
+        try:
+            context = _anna_context(kind, topic_id, note_path)
+            chat = store.anna_chat(scope)
+            reply = anna_mod.run_turn(scope=scope, scope_label=label, context=context, message=message, session_id=chat["session_id"], **({"turn_fn": anna_fn} if anna_fn else {}))
+            store.append_anna(scope, {k: reply[k] for k in ("role", "text", "actions", "at")}, session_id=reply.get("session_id"))
+        except Exception as exc:  # noqa: BLE001 - shown in the panel
+            logger.warning("anna %s failed: %s", scope, exc)
+            with anna_lock:
+                anna_errors[scope] = str(exc)[:300] or type(exc).__name__
+        finally:
+            with anna_lock:
+                anna_busy.discard(scope)
+
+    @app.get("/api/anna")
+    def get_anna(scope: str) -> dict[str, Any]:
+        kind, label, topic_id = _anna_scope(scope)
+        chat = store.anna_chat(scope)
+        with anna_lock:
+            busy = scope in anna_busy
+            error = anna_errors.get(scope)
+        title = store.topic(topic_id)["title"] if kind == "work" and topic_id is not None else None
+        return {"scope": scope, "label": label, "title": title, "messages": chat["messages"], "busy": busy, "error": error, "soul": [Path(p).name for p in anna_mod.load_soul()["sources"]]}
+
+    @app.post("/api/anna")
+    def post_anna(body: AnnaBody) -> dict[str, Any]:
+        kind, label, topic_id = _anna_scope(body.scope)
+        message = body.message.strip()
+        if not message:
+            raise ValueError("先说点什么")
+        if len(message) > 4000:
+            raise ValueError("一次最多 4000 字")
+        if kind == "work" and topic_id is not None:
+            store.topic(topic_id)
+        with anna_lock:
+            if body.scope in anna_busy:
+                return {"started": False, "message": "Anna 还在想上一条"}
+            anna_busy.add(body.scope)
+            anna_errors.pop(body.scope, None)
+        store.append_anna(body.scope, {"role": "park", "text": message, "at": now_iso()})
+        threading.Thread(target=_anna_turn, args=(body.scope, kind, label, topic_id, message, body.note_path), name=f"anna-{body.scope}", daemon=True).start()
+        return {"started": True}
+
+    @app.delete("/api/anna")
+    def delete_anna(scope: str) -> dict[str, Any]:
+        _anna_scope(scope)
+        with anna_lock:
+            if scope in anna_busy:
+                raise ValueError("Anna 还在想，等她答完再清")
+            anna_errors.pop(scope, None)
+        store.clear_anna(scope)
+        return {"ok": True}
 
     # -- three-point QA (痛点具象度 / 认知反差度 / 交付可行性) --------------------
 

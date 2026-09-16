@@ -137,6 +137,12 @@ CREATE TABLE IF NOT EXISTS reviews (
     data TEXT,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS anna_chats (
+    scope TEXT PRIMARY KEY,
+    session_id TEXT,
+    messages TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     topic_id INTEGER NOT NULL,
@@ -207,6 +213,30 @@ class StudioStore:
             for name, kind in columns.items():
                 if name not in existing:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+
+    # -- Anna (resident editor) chats, one thread per page ---------------------
+
+    def anna_chat(self, scope: str) -> dict[str, Any]:
+        row = self._row("SELECT * FROM anna_chats WHERE scope = ?", (scope,))
+        if row is None:
+            return {"scope": scope, "session_id": None, "messages": [], "updated_at": None}
+        return {**row, "messages": json.loads(row["messages"] or "[]")}
+
+    def append_anna(self, scope: str, message: dict[str, Any], *, session_id: str | None = None, keep: int = 60) -> dict[str, Any]:
+        chat = self.anna_chat(scope)
+        messages = (chat["messages"] + [message])[-keep:]
+        sid = session_id if session_id is not None else chat["session_id"]
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO anna_chats(scope, session_id, messages, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(scope) DO UPDATE SET session_id = excluded.session_id, messages = excluded.messages, updated_at = excluded.updated_at",
+                (scope, sid, json.dumps(messages, ensure_ascii=False), now_iso()),
+            )
+        return self.anna_chat(scope)
+
+    def clear_anna(self, scope: str) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM anna_chats WHERE scope = ?", (scope,))
 
     def rename_note_prefix(self, old_prefix: str, new_prefix: str) -> int:
         """Follow a renamed vault folder: triage rows and topic note_paths keep pointing at the notes."""

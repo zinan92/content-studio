@@ -65,6 +65,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         write_fn=_fake_writer,
         brief_fn=_fake_brief,
         opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
+        anna_fn=_fake_anna,
         qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "开头"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n## 主线\nb\n## 提纲\n- 开头：a\n- x\n- y\n- 结尾：z\n<<<END>>>",
     )
@@ -83,6 +84,14 @@ def _fake_writer(prompt: str) -> str:
     if "炸掉" in prompt:
         raise RuntimeError("boom")
     return f"好的\n<<<ARTICLE>>>\n{ARTICLE}\n<<<END>>>\n"
+
+
+def _fake_anna(system: str, user: str, session_id: str | None) -> dict:
+    assert "让对的人看得更久" in system or "Anna" in system
+    if "炸掉" in user:
+        raise RuntimeError("boom")
+    seen = "看到提纲" if "## 拍摄提纲" in user else "没有提纲"
+    return {"text": f"{seen}｜上一轮 {session_id}\n[动作] 按三点评分", "session_id": "sess-1"}
 
 
 def _fake_brief(prompt: str) -> dict:
@@ -649,3 +658,40 @@ def test_board_auto_briefing_and_used_notes(client: TestClient, tmp_path: Path) 
     inbox = {i["path"]: i for i in client.get("/api/vault/inbox?days=1").json()["items"]}
     assert inbox["003_park原始输出/累.md"]["used_by"]["topic_id"] == topic["id"]
     assert inbox["003_park原始输出/问卷.md"]["triage"] == "shot" and inbox["003_park原始输出/问卷.md"]["used_by"] is None
+
+
+def test_anna_chat_per_scope_with_context_and_actions(client: TestClient) -> None:
+    import time
+
+    assert client.get("/api/anna", params={"scope": "nope"}).status_code == 400
+    topic = client.post("/api/topics", json={"title": "问 Anna", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/outline", json={"markdown": "# 提纲\n## 主线\nx\n## 提纲\n- 开头：a\n- b\n- c\n- 结尾：d"})
+    scope = f"work:{topic['id']}"
+    empty = client.get("/api/anna", params={"scope": scope}).json()
+    assert empty["messages"] == [] and empty["title"] == "问 Anna" and empty["label"] == "这条视频"
+    assert client.post("/api/anna", json={"scope": scope, "message": "  "}).status_code == 400
+    assert client.post("/api/anna", json={"scope": scope, "message": "能拍吗"}).json()["started"] is True
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": scope}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    assert [m["role"] for m in chat["messages"]] == ["park", "anna"]
+    assert chat["messages"][1]["text"] == "看到提纲｜上一轮 None" and chat["messages"][1]["actions"] == [{"kind": "qa", "label": "按三点评分", "arg": ""}]
+    client.post("/api/anna", json={"scope": scope, "message": "再问"})
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": scope}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    assert chat["messages"][-1]["text"] == "看到提纲｜上一轮 sess-1"  # the second turn resumes the session
+    assert client.get("/api/anna", params={"scope": "board"}).json()["messages"] == []  # threads are per page
+    client.post("/api/anna", json={"scope": "board", "message": "炸掉"})
+    for _ in range(200):
+        board = client.get("/api/anna", params={"scope": "board"}).json()
+        if not board["busy"]:
+            break
+        time.sleep(0.02)
+    assert "boom" in board["error"] and [m["role"] for m in board["messages"]] == ["park"]
+    assert client.delete("/api/anna", params={"scope": scope}).json()["ok"] is True
+    assert client.get("/api/anna", params={"scope": scope}).json()["messages"] == []
