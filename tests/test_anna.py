@@ -34,6 +34,13 @@ def test_soul_reads_role_knowledge_and_skill(tmp_path: Path) -> None:
     assert "让对的人看得更久" in fallback["text"] and fallback["sources"] == []
 
 
+def test_workbench_rules_forbid_laundering_qa_caution_into_a_confident_quote() -> None:
+    # Regression: Anna once turned a QA "不要讲过头" caution (an unverified 1840 historical
+    # detail) into a ready-to-read direct-quote suggestion, with the warning dropped entirely.
+    system = anna.system_prompt("# Anna")
+    assert "不要讲过头" in system and "不能把这些细节讲成确定的事实或可以直接念的引语" in system
+
+
 def test_run_turn_composes_context_and_resumes_session() -> None:
     seen = []
 
