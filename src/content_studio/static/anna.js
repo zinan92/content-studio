@@ -1,7 +1,8 @@
 'use strict';
 /* Anna · 常驻右栏的内容主编：Park 在哪一页，她就看着哪一页的资料；只动嘴，动作变成按钮 */
 
-const AN = { open: (() => { try { return localStorage.getItem('cs-anna') !== 'closed'; } catch (_) { return true; } })(), scope: null, data: null, poll: null, draft: {} };
+// Open by default on a desk; on a phone the panel covers the page, so it waits for a tap.
+const AN = { open: (() => { try { const saved = localStorage.getItem('cs-anna'); return saved ? saved === 'open' : window.innerWidth > 900; } catch (_) { return window.innerWidth > 900; } })(), scope: null, data: null, poll: null, draft: {} };
 
 const ANNA_PROMPTS = {
   input: ['今天有什么值得拿来做的？', '这篇讲的是什么，能不能拍？', '最近进来的东西里哪条最有反差？'],
