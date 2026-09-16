@@ -208,3 +208,11 @@
   - 素材/选题去重、专注阅读视图、报告库筛选——都是真实但更大的改动，且选题 2 和 3 不是简单重复：2 号已经写了文章草稿，3 号有提纲、三点评分和文案，贸然合并会丢工作，留给 Park 决定怎么处理。
 - **Evidence:** 真实核对 `threshold=2.5` vs `auto_enqueue_threshold=5.0`（sqlite 直查 + grep 调用点）；真实复盘存储 `6.8×`/likes 1918 vs `/api/mine` 现在 `6.7×`/likes 2046；真实 Anna 对话记录里的原话引用建议；选题 2/3 各自的 drafts 目录内容不同（2 有 article.md，3 有 qa.json/copy.json）。
 - **Gotchas:** `next_action` 的 qa 参数是可选的，不传时行为不变，旧调用点不受影响；QA 覆盖只在没有关联项目时生效，一旦开始剪辑就不再用旧的评分拦人。
+
+## 2026-09-16 — Anna 面板滚动：消息和面板共用了 `anna` 这个 class
+
+- **Context:** 修过一次 flex 溢出后，Park 仍看到 Anna 的第一条回复一直停在上面、后面的气泡叠上去。
+- **Decision:** 真正的根因是命名冲突：面板用 `.anna` 定样式（`position:sticky; height:100vh`），而 Anna 的每条消息也带 `anna` class，于是每条回复都变成一屏高、贴顶不动的块。消息改用 `from-anna` / `from-park`，面板样式改用 `#anna` 选择器；消息再加 `flex-shrink:0`，长回复不会被压扁。
+- **Why:** 上一次只量了面板外框高度，没有量每个气泡，所以没发现。
+- **Evidence:** 修复前真实对话 6 条消息里 3 条被压到 138px（内容 595–628px）或撑到 900px 并 sticky；修复后高度 61/150/61/595/102/628，滚动到 11 个位置、以及真实鼠标滚轮滚动，重叠数都是 0，sticky 数为 0。
+- **Gotchas:** 以后在 Anna 面板里加新元素，不要再用 `anna` 作 class 名；验证滚动要逐个检查相邻气泡的上下边界，不能只看容器。
