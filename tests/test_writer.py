@@ -55,9 +55,9 @@ def test_gives_up_after_attempts_and_login_errors_are_not_retried(tmp_path: Path
 
 
 def test_prompt_uses_sources_and_keeps_park_as_author(tmp_path: Path) -> None:
-    (tmp_path / "Clippings").mkdir()
-    (tmp_path / "Clippings" / "a.md").write_text("---\ntitle: 剪藏\nsource: https://x.com/1\n---\n别人的观点", encoding="utf-8")
-    sources = writer.gather_sources(str(tmp_path), ["Clippings/a.md", "_secrets/x.md"])
+    (tmp_path / "002_clippings").mkdir()
+    (tmp_path / "002_clippings" / "a.md").write_text("---\ntitle: 剪藏\nsource: https://x.com/1\n---\n别人的观点", encoding="utf-8")
+    sources = writer.gather_sources(str(tmp_path), ["002_clippings/a.md", "_secrets/x.md"])
     prompt = writer.build_prompt(_topic(memo="写给小白"), sources)
     assert "khazix-writer" in prompt and "作者是 Park" in prompt and "别人的观点" in prompt and "写给小白" in prompt
     assert len(sources) == 1

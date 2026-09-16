@@ -22,3 +22,15 @@ def test_benchmark_breakouts_split_recent_and_week(tmp_path: Path) -> None:
     assert result["fallback"] == []
     assert [v["video_id"] for v in hot.benchmark_breakouts(store, threshold=5, now=now + timedelta(days=2))["fallback"]] == ["hot1", "hot2"]
     store.close()
+
+
+def test_rename_note_prefix_follows_a_renamed_vault_folder(tmp_path: Path) -> None:
+    store = StudioStore(tmp_path / "rename.sqlite3")
+    store.set_triage("Clippings/a.md", "topic")
+    store.set_triage("003_park原始输出/b.md", "shot")
+    topic = store.create_topic(title="t", note_paths=["Clippings/a.md", "003_park原始输出/b.md"])
+    assert store.rename_note_prefix("Clippings", "002_clippings") == 2
+    assert set(store.triage()) == {"002_clippings/a.md", "003_park原始输出/b.md"}
+    assert store.topic(topic["id"])["note_paths"] == ["002_clippings/a.md", "003_park原始输出/b.md"]
+    assert store.rename_note_prefix("Clippings", "002_clippings") == 0
+    store.close()

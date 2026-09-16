@@ -263,8 +263,8 @@ def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_pat
     from datetime import date as _date
 
     root = tmp_path / "vault"
-    (root / "Clippings").mkdir(parents=True)
-    (root / "Clippings" / "a.md").write_text("---\ntitle: 剪藏A\n---\n正文", encoding="utf-8")
+    (root / "002_clippings").mkdir(parents=True)
+    (root / "002_clippings" / "a.md").write_text("---\ntitle: 剪藏A\n---\n正文", encoding="utf-8")
     (root / "009_morning brief").mkdir()
     today = _date.today().isoformat()
     (root / "009_morning brief" / f"{today}.html").write_text("<script>alert(1)</script>", encoding="utf-8")
@@ -274,12 +274,12 @@ def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_pat
 
     inbox = client.get("/api/vault/inbox").json()["items"]
     assert [i["title"] for i in inbox] == ["剪藏A"] and inbox[0]["triage"] is None
-    assert client.put("/api/vault/triage", json={"path": "Clippings/a.md", "status": "ignored"}).status_code == 200
+    assert client.put("/api/vault/triage", json={"path": "002_clippings/a.md", "status": "ignored"}).status_code == 200
     assert client.get("/api/vault/inbox").json()["items"][0]["triage"] == "ignored"
     assert client.put("/api/vault/triage", json={"path": "_secrets/k.md", "status": "topic"}).status_code == 404
-    assert client.put("/api/vault/triage", json={"path": "Clippings/a.md", "status": "bogus"}).status_code == 400
+    assert client.put("/api/vault/triage", json={"path": "002_clippings/a.md", "status": "bogus"}).status_code == 400
 
-    assert client.get("/api/vault/note", params={"path": "Clippings/a.md"}).json()["body"] == "正文"
+    assert client.get("/api/vault/note", params={"path": "002_clippings/a.md"}).json()["body"] == "正文"
     assert client.get("/api/vault/note", params={"path": "_secrets/k.md"}).status_code == 404
     assert client.get("/api/vault/raw", params={"path": f"009_morning brief/{today}.html"}).status_code == 404
 
@@ -289,7 +289,7 @@ def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_pat
     client.put("/api/today/checks", json={"day": today, "key": "ai_daily", "checked": True})
     assert [d for d in client.get("/api/today/dailies").json()["items"] if d["key"] == "ai_daily"][0]["checked_at"]
     assert client.put("/api/today/checks", json={"day": today, "key": "nope", "checked": True}).status_code == 400
-    assert (root / "Clippings" / "a.md").read_text(encoding="utf-8").endswith("正文")
+    assert (root / "002_clippings" / "a.md").read_text(encoding="utf-8").endswith("正文")
 
 
 def test_topics_from_triage_and_today_plan(client: TestClient, tmp_path: Path) -> None:

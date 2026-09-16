@@ -175,3 +175,12 @@
 - **Alternatives rejected:** 保留但默认折叠（仍然进推荐 prompt）；把所有 newsletter 目录合并改名（会动到三条每天出东西的流水线，收益只是好看）。
 - **Evidence:** `/api/mine` 18 条视频标题与倍数；最好的几条是「AI 时代的明牌机会」21.7×、「how to be successful」10.6×，都是认知类；最接近金融的「AI 时代盯盘的人 100% 亏钱」1.3×。
 - **Gotchas:** 晨报的 HTML 不再可读，`/api/vault/raw` 对 `009_morning brief` 返回 404；如果以后要拍财经内容，先拍两条 AI × 金融验证数据，再考虑把财经日报接回来。
+
+## 2026-09-16 — Obsidian 的 Clippings 目录改名为 002_clippings
+
+- **Context:** Park 统一 vault 编号，把 Web Clipper 的保存目录改成 `002_clippings` 并重命名了文件夹。
+- **Decision:** `INBOX_SOURCES` 的剪藏目录改为 `002_clippings`（显示名仍是 Clippings）；服务启动时跑一次 `rename_note_prefix("Clippings", "002_clippings")`，把 `inbox_triage` 和 `topics.note_paths` 里的旧路径改过来。
+- **Why:** 选题和「拿来做 / 拍过了」的记录都按笔记路径存；只改目录不改库，会让已有选题的素材读不到、进项页重新显示成没处理过。
+- **Alternatives rejected:** 让 Park 手动重连素材；同时支持新旧两个目录（vault 里已经没有旧目录，多一条路径只会长期留坑）。
+- **Evidence:** 迁移前库里有 3 条 triage、4 个选题引用 `Clippings/...`；重启后进项页 Clippings 条目正常，选题 9、10 的素材仍可读。
+- **Gotchas:** 改名函数是幂等的，跑第二次返回 0；drafts 里的 outline.meta.json 仍存着旧路径字符串，只用于显示来源，不影响读取。
