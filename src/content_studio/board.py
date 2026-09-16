@@ -32,7 +32,7 @@ def stage_for(topic: dict[str, Any], project: dict[str, Any] | None) -> str:
     return "outline"
 
 
-def next_action(topic: dict[str, Any], stage: str, project: dict[str, Any] | None, opening: dict[str, Any] | None) -> dict[str, Any]:
+def next_action(topic: dict[str, Any], stage: str, project: dict[str, Any] | None, opening: dict[str, Any] | None, qa: dict[str, Any] | None = None) -> dict[str, Any]:
     """One line telling Park what this card is waiting for, and whether it is waiting on him."""
     if topic.get("outline_state") == "running":
         return {"text": "提纲生成中", "mine": False}
@@ -42,6 +42,12 @@ def next_action(topic: dict[str, Any], stage: str, project: dict[str, Any] | Non
         return {"text": "写拍摄提纲", "mine": True}
     if stage == "record":
         if not project:
+            # A verdict of thin/patch means the outline exists but the QA gate hasn't cleared it —
+            # "提纲好了" would tell Park it's ready when the QA panel right below says the opposite.
+            if qa and qa.get("verdict") == "thin":
+                return {"text": "素材太薄，先补一处再录", "mine": True}
+            if qa and qa.get("verdict") == "patch":
+                return {"text": "三点没过，先补再录", "mine": True}
             return {"text": "提纲好了，可以录", "mine": True}
         return {"text": "录完把粗剪和字幕放进项目文件夹", "mine": True}
     if project and project.get("gate"):
@@ -68,5 +74,5 @@ def card(topic: dict[str, Any], project: dict[str, Any] | None, opening: dict[st
         "gate": project.get("gate") if project else None,
         "opening": {"passed": opening.get("passed"), "stated_at": opening.get("stated_at")} if opening else None,
         "qa": {"total": qa.get("total"), "verdict": qa.get("verdict")} if qa else None,
-        "next": next_action(topic, stage, project, opening),
+        "next": next_action(topic, stage, project, opening, qa),
     }

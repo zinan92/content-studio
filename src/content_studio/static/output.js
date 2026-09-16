@@ -96,6 +96,7 @@ function reviewBlock(r) {
   const items = (list, cls) => list.map((it) => `<li class="${cls}"><span>${esc(it.text)}</span>${(it.videos || []).map((v) => `<button type="button" class="linklike" data-report="${esc(v.video_id)}">${esc(cleanTitle(v.title).slice(0, 18))}</button>`).join('')}</li>`).join('');
   return `<section class="panel review">
     <div class="panel-h"><h2>这周复盘 <small>${esc(d.since)} – ${esc(d.until)}</small></h2>${gen}</div>
+    <p class="rv-snapshot">数字算于 ${day(r.updated_at)}，和现在的图表可能差一点（视频还在涨赞）</p>
     ${d.next_week && d.next_week.length ? `<div class="focus"><span>下周只改一件事</span><p>${esc(d.next_week[0])}</p></div>` : ''}
     <p class="rv-summary">${esc(d.summary)}</p>
     <div class="rv-grid">
