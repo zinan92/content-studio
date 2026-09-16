@@ -63,9 +63,9 @@ async function runAnnaAction(kind, arg, scope) {
 }
 
 function annaMessage(m, scope) {
-  if (m.role === 'park') return `<div class="an-msg park"><div class="an-bubble">${esc(m.text)}</div><small>${annaTime(m.at)}</small></div>`;
+  if (m.role === 'park') return `<div class="an-msg from-park"><div class="an-bubble">${esc(m.text)}</div><small>${annaTime(m.at)}</small></div>`;
   const acts = (m.actions || []).map((a) => annaActionButton(a, scope)).join('');
-  return `<div class="an-msg anna"><div class="an-bubble md">${renderMarkdown(m.text || '')}</div>${acts ? `<div class="an-acts">${acts}</div>` : ''}<small>Anna · ${annaTime(m.at)}</small></div>`;
+  return `<div class="an-msg from-anna"><div class="an-bubble md">${renderMarkdown(m.text || '')}</div>${acts ? `<div class="an-acts">${acts}</div>` : ''}<small>Anna · ${annaTime(m.at)}</small></div>`;
 }
 
 async function renderAnna() {
@@ -90,7 +90,7 @@ async function renderAnna() {
   const draft = $('#anIn') && AN.scope === scope ? $('#anIn').value : (AN.draft[scope] || '');
   box.innerHTML = `<div class="an-h"><div><b>Anna</b><span class="an-role">内容主编</span></div><small class="an-where">${esc(where)}</small>
       <div class="an-tools"><button class="linklike" type="button" id="anClear" title="清掉这一页的对话，下次从头聊">清空</button><button class="linklike" type="button" id="anClose" aria-label="收起">×</button></div></div>
-    <div class="an-list" id="anList">${list}${d.busy ? '<div class="an-msg anna"><div class="an-bubble an-wait"><span class="spin"></span>Anna 在看资料…</div></div>' : ''}${d.error && !d.busy ? `<div class="an-msg anna"><div class="an-bubble bad">${esc(d.error)}</div></div>` : ''}</div>
+    <div class="an-list" id="anList">${list}${d.busy ? '<div class="an-msg from-anna"><div class="an-bubble an-wait"><span class="spin"></span>Anna 在看资料…</div></div>' : ''}${d.error && !d.busy ? `<div class="an-msg from-anna"><div class="an-bubble bad">${esc(d.error)}</div></div>` : ''}</div>
     <form class="an-form" id="anForm"><textarea id="anIn" rows="2" placeholder="问 Anna…（回车发送，Shift+回车换行）">${esc(draft)}</textarea><button class="btn primary" type="submit" ${d.busy ? 'disabled' : ''}>发送</button></form>`;
   const listEl = $('#anList');
   if (wasScrolled || !AN.rendered) listEl.scrollTop = listEl.scrollHeight;
