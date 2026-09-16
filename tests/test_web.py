@@ -695,3 +695,23 @@ def test_anna_chat_per_scope_with_context_and_actions(client: TestClient) -> Non
     assert "boom" in board["error"] and [m["role"] for m in board["messages"]] == ["park"]
     assert client.delete("/api/anna", params={"scope": scope}).json()["ok"] is True
     assert client.get("/api/anna", params={"scope": scope}).json()["messages"] == []
+
+
+def test_anna_input_scope_reads_real_inbox_without_naive_aware_crash(client: TestClient, tmp_path: Path) -> None:
+    # Regression: vault.inbox() compares file mtimes (naive) against `since`; the input-scope
+    # context builder must pass a naive `since` too, or this raises "can't compare offset-naive
+    # and offset-aware datetimes" the moment there is anything in the Clippings folder.
+    import time
+
+    vault = tmp_path / "vault"
+    (vault / "002_clippings").mkdir(parents=True)
+    (vault / "002_clippings" / "note.md").write_text("正文", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(vault)})
+    assert client.post("/api/anna", json={"scope": "input", "message": "今天有什么"}).json()["started"] is True
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": "input"}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    assert chat["error"] is None
+    assert chat["messages"][-1]["role"] == "anna"

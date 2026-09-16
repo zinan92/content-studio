@@ -942,7 +942,7 @@ def create_app(
                     lines.append(f"## 今天的{item['label']}：还没出")
             triage = store.triage()
             used = {p: t for t in store.topics(include_archived=True) for p in (t.get("note_paths") or [])}
-            items = vault.inbox(vault_path(), since=datetime.now(timezone.utc) - timedelta(days=7))[:30]
+            items = vault.inbox(vault_path(), since=vault.window_start(7))[:30]  # vault.inbox compares against naive local mtimes
             rows = []
             for i in items:
                 state = "已进加工中" if i["path"] in used else {"topic": "已拿来做", "shot": "拍过了", "ignored": "已忽略"}.get((triage.get(i["path"]) or {}).get("status"), "还没处理")
