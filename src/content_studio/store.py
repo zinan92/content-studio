@@ -208,6 +208,23 @@ class StudioStore:
                 if name not in existing:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
+    def rename_note_prefix(self, old_prefix: str, new_prefix: str) -> int:
+        """Follow a renamed vault folder: triage rows and topic note_paths keep pointing at the notes."""
+        changed = 0
+        with self.tx() as conn:
+            cursor = conn.execute(
+                "UPDATE inbox_triage SET path = ? || substr(path, ?) WHERE path LIKE ? || '/%'",
+                (new_prefix, len(old_prefix) + 1, old_prefix),
+            )
+            changed += cursor.rowcount
+            for row in conn.execute("SELECT id, note_paths FROM topics").fetchall():
+                paths = json.loads(row["note_paths"] or "[]")
+                moved = [f"{new_prefix}/{p[len(old_prefix) + 1:]}" if p.startswith(f"{old_prefix}/") else p for p in paths]
+                if moved != paths:
+                    conn.execute("UPDATE topics SET note_paths = ? WHERE id = ?", (json.dumps(moved, ensure_ascii=False), row["id"]))
+                    changed += 1
+        return changed
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()

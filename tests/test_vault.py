@@ -25,11 +25,11 @@ def root(tmp_path: Path) -> Path:
     _write(tmp_path / "007_finance daily newsletter" / "2026-09-13-finance-daily-newsletter.md", "x")
     _write(tmp_path / "009_morning brief" / "2026-09-14.html", "<h1>brief</h1>")
     _write(
-        tmp_path / "Clippings" / "new.md",
+        tmp_path / "002_clippings" / "new.md",
         '---\ntitle: "起号逻辑"\nsource: "https://x.com/a/status/1"\ncreated: 2026-09-14\n---\n![Image](https://x/y.jpg)\n**正文**第一段 [链接](https://z)',
         datetime(2026, 9, 14, 9),
     )
-    _write(tmp_path / "Clippings" / "old.md", "---\ncreated: 2026-08-01\n---\nold", old)
+    _write(tmp_path / "002_clippings" / "old.md", "---\ncreated: 2026-08-01\n---\nold", old)
     _write(tmp_path / "003_park原始输出" / "ai与人" / "灵感.md", "# 不是我用AI\n今天想到", datetime(2026, 9, 13, 22))
     _write(tmp_path / "_secrets" / "token.md", "secret")
     return tmp_path
@@ -53,20 +53,20 @@ def test_inbox_lists_recent_notes_with_titles_and_summaries(root: Path) -> None:
     assert vault.inbox(str(root), since=datetime(2026, 9, 13), sources=("raw",))[0]["source"] == "raw"
 
 
-@pytest.mark.parametrize("relative", ["_secrets/token.md", "../etc/passwd", "Clippings/../_secrets/token.md", "/etc/hosts", "Clippings"])
+@pytest.mark.parametrize("relative", ["_secrets/token.md", "../etc/passwd", "002_clippings/../_secrets/token.md", "/etc/hosts", "002_clippings"])
 def test_paths_outside_allowed_folders_are_refused(root: Path, relative: str) -> None:
     with pytest.raises(vault.VaultError):
         vault.read_note(str(root), relative)
 
 
 def test_symlink_escape_is_refused(root: Path) -> None:
-    (root / "Clippings" / "link.md").symlink_to(root / "_secrets" / "token.md")
+    (root / "002_clippings" / "link.md").symlink_to(root / "_secrets" / "token.md")
     with pytest.raises(vault.VaultError):
-        vault.read_note(str(root), "Clippings/link.md")
+        vault.read_note(str(root), "002_clippings/link.md")
 
 
 def test_read_note_and_missing_vault(root: Path) -> None:
-    note = vault.read_note(str(root), "Clippings/new.md")
+    note = vault.read_note(str(root), "002_clippings/new.md")
     assert note["title"] == "起号逻辑" and "正文" in note["body"] and note["meta"]["source"].startswith("https://")
     with pytest.raises(vault.VaultError, match="找不到"):
         vault.inbox(str(root / "nope"), since=datetime(2026, 9, 1))

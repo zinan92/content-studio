@@ -34,7 +34,7 @@ DAILY_SOURCES = (
 )
 
 INBOX_SOURCES = (
-    InboxSource("clipping", "Clippings", "Clippings"),
+    InboxSource("clipping", "Clippings", "002_clippings"),
     InboxSource("saved", "我收藏的", "002_个人收藏"),
     InboxSource("raw", "我写的", "003_park原始输出"),
 )

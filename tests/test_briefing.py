@@ -17,8 +17,8 @@ def _vault(tmp_path: Path) -> Path:
     (tmp_path / "006_ai daily newsletter" / "26-09-14.md").write_text("- **A** | [Codex 新功能](https://x.com/1)\n", encoding="utf-8")
     (tmp_path / "009_morning brief").mkdir()
     (tmp_path / "009_morning brief" / "2026-09-14.html").write_text("<style>x{}</style><h1>晨报</h1><p>黄金</p>", encoding="utf-8")
-    (tmp_path / "Clippings").mkdir()
-    (tmp_path / "Clippings" / "c.md").write_text("---\ntitle: 剪藏\nsource: https://y.com/2\ncreated: 2026-09-13\n---\n正文", encoding="utf-8")
+    (tmp_path / "002_clippings").mkdir()
+    (tmp_path / "002_clippings" / "c.md").write_text("---\ntitle: 剪藏\nsource: https://y.com/2\ncreated: 2026-09-13\n---\n正文", encoding="utf-8")
     (tmp_path / "003_park原始输出").mkdir()
     (tmp_path / "003_park原始输出" / "r.md").write_text("# 原始输出\n想法", encoding="utf-8")
     _pin_mtimes(tmp_path)
@@ -54,7 +54,7 @@ def test_inputs_collect_dailies_notes_and_allowed_sources(tmp_path: Path) -> Non
                                     existing_topics=[{"title": "为什么用了 AI 更累", "status": "published"}], adjustments=["开头直接说结论"],
                                     breakouts=[{"title": "对标爆款标题", "account_nickname": "千雪", "multiple": 12.0}])
     assert [d["label"] for d in inputs["dailies"]] == ["AI 日报"]
-    assert {n["path"] for n in inputs["notes"]} == {"Clippings/c.md", "003_park原始输出/r.md", "003_park原始输出/已发 老观点.md"}
+    assert {n["path"] for n in inputs["notes"]} == {"002_clippings/c.md", "003_park原始输出/r.md", "003_park原始输出/已发 老观点.md"}
     assert "https://x.com/1" in inputs["allowed_urls"] and "https://y.com/2" in inputs["allowed_urls"]
     prompt = briefing.build_prompt(inputs)
     assert "千雪｜对标爆款标题｜12.0×" in prompt
@@ -114,7 +114,7 @@ def test_retry_then_fail_and_login_passthrough(tmp_path: Path) -> None:
 
 
 def test_empty_material_is_explained(tmp_path: Path) -> None:
-    (tmp_path / "Clippings").mkdir()
+    (tmp_path / "002_clippings").mkdir()
     inputs = briefing.gather_inputs(str(tmp_path), DAY)
     with pytest.raises(briefing.BriefingError, match="没有可统筹"):
         briefing.generate_briefing(inputs, brief_fn=lambda p: {})

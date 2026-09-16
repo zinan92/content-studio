@@ -218,6 +218,8 @@ def create_app(
     store.recover_interrupted_writes()
     store.recover_interrupted_briefings()
     store.recover_interrupted_publishes()
+    # 2026-09-16: the vault's Clippings folder was renamed to 002_clippings.
+    store.rename_note_prefix("Clippings", "002_clippings")
     briefing_lock = threading.Lock()
     review_lock = threading.Lock()
     drafts_root = (drafts_dir or writer.DEFAULT_DRAFTS_DIR).expanduser()
