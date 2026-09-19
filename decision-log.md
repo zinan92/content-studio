@@ -223,3 +223,12 @@
 - **Decision:** `DAILY_SOURCES` 恢复为 AI 日报、财经日报、K 线日报；晨报是三份的汇总，不再单列。
 - **Why:** Park 的话是决定；工作台是他的桌面，他要看什么就摆什么。之前那条推理只解释了推荐材料，不该替他决定桌上放什么。
 - **Gotchas:** 推荐 prompt 现在会再次带上行情日报的正文；若发现推荐被行情稀释，可以在 briefing.gather_inputs 里只喂 AI 日报而不动进项页。
+
+## 2026-09-19 — 加工中改成单焦点 pipeline
+
+- **Context:** Park：「任何时候我只能有一条 video in production」「提纲里两条、录制里六七条 doesn't make sense」「要一条 pipeline，milestone 能退回」「首选备选不显眼」「不同意推荐就回更大的池子选」「对标火了的要主动放到首页」。
+- **Decision:** 看板不再按阶段分四列。结构变成：今天推荐拍（首选高亮，动作：今天做这条 / 放进选题池 / 暂不拍）→ 正在做的这一条（六个 milestone：选题 → 提纲 → 录制 → 剪辑 → 待发 → 已发出，后三个标「机器」；可退回提纲）→ 对标这周爆了 → 选题池（做这条 / 暂不拍 14 天 / 不做了）+ 剪辑和待发。数据上：topics 加 `is_focus`（全表唯一）、`snoozed_until`、`manual_stage`；阶段仍由文件推导，`manual_stage='outline'` 只在没关联项目时把已有提纲的卡退回提纲，新提纲写完自动清掉。
+- **Why:** 焦点是人的注意力，不是文件状态；文件状态继续决定 milestone，焦点决定页面上放大的是哪一条。
+- **Alternatives rejected:** 用 status 字段表示焦点（status 已被文章线用作 published，语义混）；把暂缓做成删除（Park 说的是 postpone，不是不做）。
+- **Evidence:** 真实数据：8 条在池子里、0 条焦点；点首选「今天做这条」后焦点卡出现，milestone 停在录制，next 显示「素材太薄，先补一处再录」，池子 7 条。
+- **Gotchas:** `/api/board` 仍返回 `cards`/`stages`（旧调用和测试用）；焦点卡只认 mine 阶段（提纲/录制），一旦进剪辑就自动从焦点位让出来。

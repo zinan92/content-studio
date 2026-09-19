@@ -78,6 +78,16 @@ class BriefingBody(BaseModel):
 class BriefTopicBody(BaseModel):
     day: str
     index: int
+    focus: bool = False   # "今天做这条": becomes the one video in production
+    snooze: bool = False  # "暂不拍": keeps it out of the pool for two weeks
+
+
+class SnoozeBody(BaseModel):
+    days: int = 14
+
+
+class StageBody(BaseModel):
+    stage: str | None = None  # "outline" = step back to the outline; None = clear the override
 
 
 class AnnaBody(BaseModel):
@@ -220,6 +230,7 @@ def create_app(
     publishers: dict[str, dict[str, Any]] | None = None,
 ) -> FastAPI:
     from . import writer
+    from . import board as board_mod
 
     store = StudioStore(store_path)
     store.recover_interrupted_writes()
@@ -769,11 +780,53 @@ def create_app(
         )
         note_paths = [s["path"] for s in video.get("sources", []) if s.get("path") and not s["path"].startswith(("006_", "007_", "009_"))]
         me = store.self_account()
-        existing = next((t for t in store.topics() if t["title"] == video["title"]), None)
-        if existing:
-            return {"topic": existing}
-        topic = store.create_topic(video["title"], note_paths=note_paths, formats="both", memo=memo, account_id=me["id"] if me else None)
+        topic = next((t for t in store.topics() if t["title"] == video["title"]), None)
+        if topic is None:
+            topic = store.create_topic(video["title"], note_paths=note_paths, formats="both", memo=memo, account_id=me["id"] if me else None)
+        if body.snooze:
+            topic = store.update_topic(topic["id"], snoozed_until=(date.today() + timedelta(days=board_mod.SNOOZE_DAYS)).isoformat(), is_focus=0)
+        elif body.focus:
+            store.set_focus(topic["id"])
+            topic = store.topic(topic["id"])
         return {"topic": topic}
+
+    # -- the one video in production ----------------------------------------
+
+    @app.post("/api/topics/{topic_id}/focus")
+    def focus_topic(topic_id: int) -> dict[str, Any]:
+        topic = store.topic(topic_id)
+        if topic.get("archived_at"):
+            raise ValueError("这条已经归档了")
+        previous = store.focus_topic()
+        store.set_focus(topic_id)
+        return {"topic": store.topic(topic_id), "previous": previous["title"] if previous and previous["id"] != topic_id else None}
+
+    @app.delete("/api/topics/{topic_id}/focus")
+    def unfocus_topic(topic_id: int) -> dict[str, Any]:
+        store.topic(topic_id)
+        current = store.focus_topic()
+        if current and current["id"] == topic_id:
+            store.set_focus(None)
+        return {"topic": store.topic(topic_id)}
+
+    @app.post("/api/topics/{topic_id}/snooze")
+    def snooze_topic(topic_id: int, body: SnoozeBody) -> dict[str, Any]:
+        store.topic(topic_id)
+        days = min(max(body.days, 1), 90)
+        return {"topic": store.update_topic(topic_id, snoozed_until=(date.today() + timedelta(days=days)).isoformat(), is_focus=0)}
+
+    @app.delete("/api/topics/{topic_id}/snooze")
+    def unsnooze_topic(topic_id: int) -> dict[str, Any]:
+        store.topic(topic_id)
+        return {"topic": store.update_topic(topic_id, snoozed_until=None)}
+
+    @app.post("/api/topics/{topic_id}/stage")
+    def set_stage(topic_id: int, body: StageBody) -> dict[str, Any]:
+        """Step the focus video back to 提纲 (or clear that override) — the pipeline can move backwards."""
+        store.topic(topic_id)
+        if body.stage not in (None, "outline"):
+            raise ValueError("只能退回到提纲")
+        return {"topic": store.update_topic(topic_id, manual_stage=body.stage)}
 
     # -- article line ------------------------------------------------------
 
@@ -822,7 +875,7 @@ def create_app(
                 store.topic(topic_id), vault_raw=vault_path(), drafts_dir=drafts_root, adjustments=latest_adjustments(),
                 **({"write_fn": outline_fn} if outline_fn else {})
             )
-            store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None)
+            store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None, manual_stage=None)
             _run_qa(topic_id)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("outline topic %s failed: %s", topic_id, exc)
@@ -1497,7 +1550,9 @@ def create_app(
             "items": [
                 {"index": i, "title": videos[i]["title"], "why": videos[i].get("why_today") or "", "hook": videos[i].get("hook") or "",
                  "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")), "qa": videos[i].get("qa"),
-                 "topic_id": (taken.get(videos[i]["title"]) or {}).get("id"), "dropped": bool((taken.get(videos[i]["title"]) or {}).get("archived_at"))}
+                 "topic_id": (taken.get(videos[i]["title"]) or {}).get("id"), "dropped": bool((taken.get(videos[i]["title"]) or {}).get("archived_at")),
+                 "snoozed": board_mod.is_snoozed(taken.get(videos[i]["title"]) or {}, day_value.isoformat()),
+                 "focus": bool((taken.get(videos[i]["title"]) or {}).get("is_focus"))}
                 for i in ordered[:2]
             ],
         }
@@ -1523,13 +1578,31 @@ def create_app(
                 except VideoProjectError:
                     project = None
             cards.append(board.card(topic, project, opening.load(drafts_root, topic["id"]), qa.load(drafts_root, topic["id"])))
+        today_key = target.isoformat()
+        focus = next((c for c in cards if c["focus"] and c["mine"]), None)
+        snoozed = [c for c in cards if c["snoozed_until"] and c["snoozed_until"] > today_key and c is not focus]
+        pool = [c for c in cards if c["mine"] and c is not focus and c not in snoozed]
+        machine = [c for c in cards if not c["mine"]]
         return {
             "stages": [{"key": k, "label": label} for k, label in board.STAGES],
+            "milestones": [{"key": k, "label": label} for k, label in board.MILESTONES],
             "cards": cards,
+            "focus": focus,
+            "pool": pool,
+            "machine": machine,
+            "snoozed": snoozed,
+            "attention": attention_breakouts(),
             "recommend": recommendations(target, store.topics(include_archived=True)),
             "streak": today_plan.shooting_streak(target, shot_days()),
             "project_root_ok": root is not None,
         }
+
+    def attention_breakouts(days: int = 7, limit: int = 3) -> list[dict[str, Any]]:
+        """Benchmark videos that blew up this week: brought to the board so Park never has to go looking."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()[:10]
+        fresh = [v for v in store.outliers(float(store.settings()["threshold"])) if (v.get("published_at") or "") >= cutoff]
+        return [{"video_id": v["video_id"], "title": v["title"], "account": v.get("account_nickname"), "multiple": v["multiple"], "likes": v["likes"],
+                 "published_at": v["published_at"], "url": v.get("url"), **teardown_state(v["video_id"])} for v in fresh[:limit]]
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:

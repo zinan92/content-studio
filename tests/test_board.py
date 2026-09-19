@@ -43,3 +43,19 @@ def test_next_action_defers_to_a_failing_qa_verdict_instead_of_calling_it_ready(
     # A linked project overrides "可以录" regardless of stage; QA no longer applies once录制开始.
     recording = board.card(topic, {"layout": "fresh", "current_step": None, "delivered": False}, None, {"total": 7, "verdict": "thin"})
     assert recording["next"]["text"] == "录完把粗剪和字幕放进项目文件夹"
+
+
+def test_focus_pool_and_step_back() -> None:
+    picked = board.card(_topic(), None)
+    assert picked["milestone"] == 0 and picked["mine"] and not picked["focus"]
+    outlined = board.card(_topic(outline_path="o.md", is_focus=1), None)
+    assert outlined["stage"] == "record" and outlined["milestone"] == 2 and outlined["focus"]
+    # Park stepped back to the outline: the file still exists but the pipeline shows 提纲 again.
+    back = board.card(_topic(outline_path="o.md", manual_stage="outline"), None)
+    assert back["stage"] == "outline" and back["milestone"] == 1 and back["next"]["text"] == "写拍摄提纲"
+    # Once a project is linked the override no longer applies.
+    assert board.stage_for(_topic(outline_path="o.md", manual_stage="outline"), {"layout": "fresh", "current_step": None, "delivered": False}) == "record"
+    editing = board.card(_topic(), {"layout": "v2.6", "current_step": 5, "delivered": False, "summary": "Step 5"})
+    assert editing["milestone"] == 3 and not editing["mine"]
+    assert board.card(_topic(published_video_id="v"), None)["milestone"] == 5
+    assert board.is_snoozed(_topic(snoozed_until="2026-09-30"), "2026-09-19") and not board.is_snoozed(_topic(snoozed_until="2026-09-19"), "2026-09-19")
