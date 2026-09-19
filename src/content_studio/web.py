@@ -1027,6 +1027,9 @@ def create_app(
 
     from . import anna as anna_mod
 
+    # One conversation across every page: switching pages changes what Anna sees, not who you talk to.
+    ANNA_THREAD = "main"
+    store.merge_anna_threads(ANNA_THREAD)
     anna_busy: set[str] = set()
     anna_errors: dict[str, str] = {}
     anna_lock = threading.Lock()
@@ -1139,29 +1142,48 @@ def create_app(
             lines.append("Park 在设置页。")
         return "\n\n".join(lines)
 
+    def _anna_page_label(scope: str) -> str:
+        """「进项」「加工中」「《某条视频》」— shown next to each message so Park sees where it was said."""
+        try:
+            kind, label, topic_id = _anna_scope(scope)
+            if kind == "work" and topic_id is not None:
+                return f"《{store.topic(topic_id)['title'][:14]}》"
+            return label
+        except (ValueError, StoreError):
+            return ""
+
     def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None) -> None:
         try:
             context = _anna_context(kind, topic_id, note_path)
-            chat = store.anna_chat(scope)
+            chat = store.anna_chat(ANNA_THREAD)
+            if topic_id is not None:
+                label = f"{label}《{store.topic(topic_id)['title']}》"
             reply = anna_mod.run_turn(scope=scope, scope_label=label, context=context, message=message, session_id=chat["session_id"], **({"turn_fn": anna_fn} if anna_fn else {}))
-            store.append_anna(scope, {k: reply[k] for k in ("role", "text", "actions", "at")}, session_id=reply.get("session_id"))
+            store.append_anna(ANNA_THREAD, {k: reply[k] for k in ("role", "text", "actions", "at", "scope")}, session_id=reply.get("session_id"))
         except Exception as exc:  # noqa: BLE001 - shown in the panel
             logger.warning("anna %s failed: %s", scope, exc)
             with anna_lock:
-                anna_errors[scope] = str(exc)[:300] or type(exc).__name__
+                anna_errors[ANNA_THREAD] = str(exc)[:300] or type(exc).__name__
         finally:
             with anna_lock:
-                anna_busy.discard(scope)
+                anna_busy.discard(ANNA_THREAD)
 
     @app.get("/api/anna")
     def get_anna(scope: str) -> dict[str, Any]:
         kind, label, topic_id = _anna_scope(scope)
-        chat = store.anna_chat(scope)
+        chat = store.anna_chat(ANNA_THREAD)
         with anna_lock:
-            busy = scope in anna_busy
-            error = anna_errors.get(scope)
+            busy = ANNA_THREAD in anna_busy
+            error = anna_errors.get(ANNA_THREAD)
         title = store.topic(topic_id)["title"] if kind == "work" and topic_id is not None else None
-        return {"scope": scope, "label": label, "title": title, "messages": chat["messages"], "busy": busy, "error": error, "soul": [Path(p).name for p in anna_mod.load_soul()["sources"]]}
+        pages: dict[str, str] = {}
+        messages = []
+        for m in chat["messages"]:
+            where = m.get("scope") or ""
+            if where and where not in pages:
+                pages[where] = _anna_page_label(where)
+            messages.append({**m, "page": pages.get(where, "")})
+        return {"scope": scope, "label": label, "title": title, "messages": messages, "busy": busy, "error": error, "soul": [Path(p).name for p in anna_mod.load_soul()["sources"]]}
 
     @app.post("/api/anna")
     def post_anna(body: AnnaBody) -> dict[str, Any]:
@@ -1174,22 +1196,21 @@ def create_app(
         if kind == "work" and topic_id is not None:
             store.topic(topic_id)
         with anna_lock:
-            if body.scope in anna_busy:
+            if ANNA_THREAD in anna_busy:
                 return {"started": False, "message": "Anna 还在想上一条"}
-            anna_busy.add(body.scope)
-            anna_errors.pop(body.scope, None)
-        store.append_anna(body.scope, {"role": "park", "text": message, "at": now_iso()})
+            anna_busy.add(ANNA_THREAD)
+            anna_errors.pop(ANNA_THREAD, None)
+        store.append_anna(ANNA_THREAD, {"role": "park", "text": message, "at": now_iso(), "scope": body.scope})
         threading.Thread(target=_anna_turn, args=(body.scope, kind, label, topic_id, message, body.note_path), name=f"anna-{body.scope}", daemon=True).start()
         return {"started": True}
 
     @app.delete("/api/anna")
-    def delete_anna(scope: str) -> dict[str, Any]:
-        _anna_scope(scope)
+    def delete_anna(scope: str | None = None) -> dict[str, Any]:
         with anna_lock:
-            if scope in anna_busy:
+            if ANNA_THREAD in anna_busy:
                 raise ValueError("Anna 还在想，等她答完再清")
-            anna_errors.pop(scope, None)
-        store.clear_anna(scope)
+            anna_errors.pop(ANNA_THREAD, None)
+        store.clear_anna(ANNA_THREAD)
         return {"ok": True}
 
     # -- three-point QA (痛点具象度 / 认知反差度 / 交付可行性) --------------------

@@ -687,15 +687,19 @@ def test_anna_chat_per_scope_with_context_and_actions(client: TestClient) -> Non
             break
         time.sleep(0.02)
     assert chat["messages"][-1]["text"] == "看到提纲｜上一轮 sess-1"  # the second turn resumes the session
-    assert client.get("/api/anna", params={"scope": "board"}).json()["messages"] == []  # threads are per page
+    # One conversation across pages: the board sees the same four messages, each tagged with where it was said.
+    board_view = client.get("/api/anna", params={"scope": "board"}).json()
+    assert [m["role"] for m in board_view["messages"]] == ["park", "anna", "park", "anna"]
+    assert board_view["label"] == "加工中" and board_view["messages"][0]["page"] == "《问 Anna》" and board_view["messages"][0]["scope"] == scope
     client.post("/api/anna", json={"scope": "board", "message": "炸掉"})
     for _ in range(200):
         board = client.get("/api/anna", params={"scope": "board"}).json()
         if not board["busy"]:
             break
         time.sleep(0.02)
-    assert "boom" in board["error"] and [m["role"] for m in board["messages"]] == ["park"]
-    assert client.delete("/api/anna", params={"scope": scope}).json()["ok"] is True
+    assert "boom" in board["error"] and [m["role"] for m in board["messages"]][-1] == "park"
+    assert board["messages"][-1]["page"] == "加工中"
+    assert client.delete("/api/anna", params={"scope": "board"}).json()["ok"] is True
     assert client.get("/api/anna", params={"scope": scope}).json()["messages"] == []
 
 

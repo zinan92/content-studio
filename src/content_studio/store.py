@@ -243,6 +243,30 @@ class StudioStore:
             )
         return self.anna_chat(scope)
 
+    def merge_anna_threads(self, into: str = "main") -> int:
+        """Fold the old one-thread-per-page chats into one conversation, oldest first.
+
+        Each message keeps the page it was said on (`scope`) so its action buttons still
+        point at the right video. The CLI session starts fresh: the old ones each only
+        knew one page.
+        """
+        rows = self._rows("SELECT scope, messages FROM anna_chats WHERE scope != ?", (into,))
+        if not rows:
+            return 0
+        merged = list(self.anna_chat(into)["messages"])
+        for row in rows:
+            for message in json.loads(row["messages"] or "[]"):
+                merged.append({**message, "scope": message.get("scope") or row["scope"]})
+        merged.sort(key=lambda m: m.get("at") or "")
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO anna_chats(scope, session_id, messages, updated_at) VALUES (?, NULL, ?, ?) "
+                "ON CONFLICT(scope) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at",
+                (into, json.dumps(merged[-60:], ensure_ascii=False), now_iso()),
+            )
+            conn.execute("DELETE FROM anna_chats WHERE scope != ?", (into,))
+        return len(rows)
+
     def clear_anna(self, scope: str) -> None:
         with self.tx() as conn:
             conn.execute("DELETE FROM anna_chats WHERE scope = ?", (scope,))

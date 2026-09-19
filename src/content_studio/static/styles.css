@@ -783,11 +783,24 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .rail-anna.on{border-color:var(--rail-ink)}
 .rail-anna.on .an-dot{background:#5DCAA5}
 /* Anna floats: a window you summon and dismiss, not a column that squeezes the page. */
-#anna{position:fixed;right:24px;top:76px;bottom:76px;width:min(440px,calc(100vw - 48px));height:auto;z-index:8;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:0 24px 60px rgba(18,21,25,.22),0 2px 8px rgba(18,21,25,.08);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;animation:anna-in .18s ease-out}
+#anna{position:fixed;right:24px;top:76px;bottom:76px;width:min(440px,calc(100vw - 48px));height:auto;z-index:8;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:0 24px 60px rgba(18,21,25,.22),0 2px 8px rgba(18,21,25,.08);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:visible;animation:anna-in .18s ease-out}
 @keyframes anna-in{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){#anna{animation:none}}
 .an-h .btn.small{font-size:12px}
-.an-h{padding:16px 18px 12px;border-bottom:1px solid var(--line-soft);display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.an-h{padding:16px 18px 12px;border-bottom:1px solid var(--line-soft);display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;cursor:grab;user-select:none;touch-action:none}
+#anna.an-dragging{user-select:none;transition:none;animation:none}
+#anna.an-dragging .an-h{cursor:grabbing}
+.an-edge{position:absolute;z-index:2;touch-action:none}
+.an-edge.w{left:-4px;top:12px;bottom:12px;width:9px;cursor:ew-resize}
+.an-edge.e{right:-4px;top:12px;bottom:12px;width:9px;cursor:ew-resize}
+.an-edge.n{top:-4px;left:12px;right:12px;height:9px;cursor:ns-resize}
+.an-edge.s{bottom:-4px;left:12px;right:12px;height:9px;cursor:ns-resize}
+.an-edge.nw,.an-edge.sw,.an-edge.ne,.an-edge.se{width:16px;height:16px}
+.an-edge.nw{left:-4px;top:-4px;cursor:nwse-resize}
+.an-edge.se{right:-4px;bottom:-4px;cursor:nwse-resize}
+.an-edge.sw{left:-4px;bottom:-4px;cursor:nesw-resize}
+.an-edge.ne{right:-4px;top:-4px;cursor:nesw-resize}
+@media (max-width:900px){.an-edge{display:none}.an-h{cursor:default}}
 .an-h b{font-size:16px}
 .an-role{font-size:12px;color:var(--ink-3);margin-left:8px}
 .an-where{grid-column:1;color:var(--ink-3);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
