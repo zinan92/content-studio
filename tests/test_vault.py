@@ -38,8 +38,9 @@ def root(tmp_path: Path) -> Path:
 def test_dailies_match_both_date_formats(root: Path) -> None:
     items = {item["key"]: item for item in vault.dailies(str(root), date(2026, 9, 14))}
     assert items["ai_daily"]["path"] == "006_ai daily newsletter/26-09-14.md"
-    # 财经日报和晨报属于交易线，工作台不再读它们
-    assert set(items) == {"ai_daily"}
+    assert [k for k in items] == ["ai_daily", "finance_daily", "kline_daily"]
+    assert items["finance_daily"]["path"] is None  # 9/13 file, not today's
+    # 晨报 is a digest of the three dailies and stays out of the workbench
     with pytest.raises(vault.VaultError):
         vault.read_note(str(root), "009_morning brief/2026-09-14.html")
 
