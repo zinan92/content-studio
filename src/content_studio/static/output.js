@@ -106,6 +106,66 @@ function reviewBlock(r) {
   </section>`;
 }
 
+/* ---- 触达：第一 KPI，各平台合计 ---- */
+const RE = { data: null, at: 0, editing: null };
+async function loadReach(force) {
+  if (!force && RE.data && Date.now() - RE.at < 20000) return RE.data;
+  RE.data = await api('/api/reach?days=14');
+  RE.at = Date.now();
+  return RE.data;
+}
+
+function reachBars(days) {
+  const W = 560, H = 96, pad = 4, n = days.length, bw = (W - pad * 2) / n;
+  const max = Math.max(1, ...days.map((d) => d.total));
+  const bars = days.map((d, i) => {
+    const h = Math.round((d.total / max) * (H - 26));
+    const x = pad + i * bw;
+    const last = i === n - 1;
+    return `<rect class="rb ${last ? 'today' : ''}" x="${(x + 2).toFixed(1)}" y="${H - 18 - h}" width="${(bw - 4).toFixed(1)}" height="${h}" rx="2"><title>${d.day} · ${fmt(d.total)}</title></rect>
+      ${i % 2 === n % 2 ? `<text class="axis" x="${(x + bw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle">${d.day.slice(5).replace('-', '/')}</text>` : ''}`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="reach-svg" role="img" aria-label="近 14 天每天触达">${bars}</svg>`;
+}
+
+function reachBlock(r) {
+  const today = new Date().toLocaleDateString('sv-SE');
+  const rows = r.platforms.map((p) => `<div class="rp-row ${p.on ? '' : 'off'}">
+      <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}><b>${esc(p.label)}</b></label>
+      <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}>
+      ${p.auto
+        ? `<span class="rp-views num">${p.today === null || p.today === undefined ? '—' : fmt(p.today)}</span><small>自动 · ${esc(ago(r.douyin_synced_at))}</small>`
+        : `<input class="rp-views" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="今天播放"><small>手填</small>`}
+    </div>`).join('');
+  return `<section class="reach">
+    <div class="reach-hero">
+      <div class="reach-big"><span>今天触达</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>
+      <div class="reach-side">
+        <div><span>近 7 天日均</span><b class="num">${fmt(r.avg7)}</b></div>
+        <div><span>按这个节奏 30 天</span><b class="num">${fmt(r.pace30)}</b></div>
+      </div>
+      <div class="reach-chart">${reachBars(r.days)}</div>
+    </div>
+    <details class="reach-platforms"><summary><b>各平台</b><small>${r.platforms.filter((p) => p.on).length} 个开了 · 抖音自动，其他先手填今天的播放，接上数据后自动</small></summary>
+      <div class="rp-list">${rows}</div>
+    </details>
+  </section>`;
+}
+
+function bindReach(root, body) {
+  const save = async (platform, views) => {
+    try { RE.data = await api('/api/reach', { method: 'PUT', body: { day: new Date().toLocaleDateString('sv-SE'), platform, views } }); RE.at = Date.now(); toast('记下了'); body.dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }
+  };
+  $$('[data-rp-views]', root).forEach((i) => (i.onchange = () => save(i.dataset.rpViews, i.value === '' ? null : Number(i.value))));
+  const saveAccounts = async () => {
+    const accounts = {};
+    $$('[data-rp-on]', root).forEach((box) => { if (!box.disabled) accounts[box.dataset.rpOn] = { on: box.checked, handle: ($(`[data-rp-handle="${box.dataset.rpOn}"]`, root) || {}).value || '' }; });
+    try { await api('/api/settings', { method: 'PUT', body: { platform_accounts: accounts } }); RE.data = null; body.dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }
+  };
+  $$('[data-rp-on]', root).forEach((box) => (box.onchange = saveAccounts));
+  $$('[data-rp-handle]', root).forEach((i) => (i.onchange = saveAccounts));
+}
+
 window.VIEWS.output = {
   async render() {
     const body = $('#outputBody');
@@ -114,9 +174,10 @@ window.VIEWS.output = {
       body.innerHTML = '<div class="panel empty"><b>还没连上你的抖音号</b><span>去「我的视频」连接后，这里会画出每条视频的数据。</span><button class="btn primary" type="button" onclick="go(\'mine\')">去连接</button></div>';
       return;
     }
-    let review, board;
-    try { [review, board] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
-    const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, S.jobs.map((j) => j.stage).join()]);
+    let review, board, reach;
+    try { [review, board, reach] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null, loadReach(false)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
+    const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, S.jobs.map((j) => j.stage).join(), RE.at]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
 
@@ -152,8 +213,10 @@ window.VIEWS.output = {
       </div>`;
     }).join('');
 
-    body.innerHTML = `<div class="kpi-strip">
-        <div class="kpi-big"><span>近 30 天发了</span><b class="num">${last30.length}</b><small>条视频</small></div>
+    const last7 = rows.filter((r) => now - r.t < 7 * 86400000);
+    body.innerHTML = `${reachBlock(reach)}
+      <div class="kpi-strip">
+        <div class="kpi-big ${last7.length === 0 ? 'bad' : ''}"><span>近 7 天发了</span><b class="num">${last7.length}</b><small>条视频 · 近 30 天 ${last30.length} 条</small></div>
         <div class="kpi-big ${k && !k.today_done && !k.days ? 'bad' : ''}"><span>连续拍摄</span><b class="num">${k ? (k.today_done || k.days ? k.days : 0) : '—'}</b><small>${k && !k.today_done && !k.days && k.days_since_last ? `已经 ${k.days_since_last} 天没拍` : '天'}</small></div>
         <div class="kpi-big"><span>倍数中位数</span><b class="num">${medMult === null ? '—' : medMult.toFixed(1) + '×'}</b><small>近 30 天 · 1× = 账号平时水平</small></div>
         <div class="kpi-big"><span>涨粉</span><b class="num">${fmt(fans30)}</b><small>近 30 天合计</small></div>
@@ -175,6 +238,7 @@ window.VIEWS.output = {
       </div>`;
     bindTips(body);
     bindTeardownButtons(body);
+    bindReach(body, body);
     const gen = $('#rvGen');
     if (gen) gen.onclick = async () => {
       try { const res = await api('/api/review/generate', { method: 'POST' }); toast(res.message); await loadReview(true); body.dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }

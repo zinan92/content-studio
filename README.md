@@ -93,6 +93,7 @@ python3 -m content_studio serve
 | 发布 · 标题和简介 | 一个标题 + 一段简介，所有平台共用，只提示各平台字数；可「用提纲填」；视频号 / B 站 / YouTube 可标为已发 | 已完成 |
 | 一键发布 | 视频号 / B 站 / YouTube，每次都要 Park 确认 | 已完成 |
 | 研习室文章 | 可选：卡兹克写作出草稿，编辑、复制、下载 .md、交给研习室 | 已完成 |
+| 触达 KPI | 第一 KPI：今天各平台播放合计、近 7 天日均、按这个节奏 30 天；抖音按每日快照自动算，视频号/小红书/公众号/小程序/X/B 站/YouTube/小宇宙先手填今天的播放；每天 9:30 自动同步抖音 | 已完成 |
 | 已发出概览 | KPI + 倍数图 + 留存与涨粉走势 + 这周复盘 + 满 48 小时待拆解 | 已完成 |
 | 我的视频 | 作品数据 + 创作者后台（涨粉、完播、跳出、均看） | 已完成 |
 | 对标雷达 | 账号自身中位数算倍数；≥5× 自动拆解，每天最多 2 条 | 已完成 |
@@ -155,6 +156,7 @@ python3 -m content_studio serve
 | `POST` `GET` `PUT` | `/api/topics/{id}/outline` | 拍摄提纲 |
 | `GET` `POST` | `/api/topics/{id}/qa` | 三点评分（读结果 / 重评） |
 | `POST` `DELETE` | `/api/topics/{id}/focus` · `/api/topics/{id}/snooze` · `POST /api/topics/{id}/stage` | 做这条 / 放回池子 · 暂不拍 / 恢复 · 退回提纲 |
+| `GET` `PUT` | `/api/reach?days=14` | 触达：每天各平台合计、日均、30 天节奏；手填某平台某天的播放 |
 | `GET` `POST` `DELETE` | `/api/anna?scope=input\|board\|work:{id}\|output` | Anna 对话：读线程 / 发一句 / 清空 |
 | `GET` `PUT` `POST` | `/api/topics/{id}/video-project` · `…/worktable` · `/api/video-projects` | 口播项目进度与 worktable 导入 |
 | `GET` `PUT` | `/api/topics/{id}/publish` | 关联已发视频与数据 |
