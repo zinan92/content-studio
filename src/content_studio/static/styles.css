@@ -44,7 +44,6 @@ button,input,select,textarea{font:inherit;color:inherit}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 [hidden]{display:none!important}
 .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
-.app.with-anna{grid-template-columns:236px minmax(0,1fr) 380px}
 
 /* ---- rail: the three stages as one line ---- */
 .rail{background:var(--rail);color:var(--rail-ink);padding:22px 14px 16px;display:flex;flex-direction:column;gap:26px;position:sticky;top:0;height:100vh}
@@ -773,7 +772,11 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .rail-anna .an-dot{width:9px;height:9px;border-radius:50%;background:var(--rail-dim);flex:none}
 .rail-anna.on{border-color:var(--rail-ink)}
 .rail-anna.on .an-dot{background:#5DCAA5}
-#anna{position:sticky;top:0;height:100vh;border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-width:0;min-height:0}
+/* Anna floats: a window you summon and dismiss, not a column that squeezes the page. */
+#anna{position:fixed;right:22px;bottom:22px;width:min(420px,calc(100vw - 44px));height:min(680px,calc(100vh - 44px));z-index:8;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:0 24px 60px rgba(18,21,25,.22),0 2px 8px rgba(18,21,25,.08);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;animation:anna-in .18s ease-out}
+@keyframes anna-in{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){#anna{animation:none}}
+.an-h .btn.small{font-size:12px}
 .an-h{padding:16px 18px 12px;border-bottom:1px solid var(--line-soft);display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
 .an-h b{font-size:16px}
 .an-role{font-size:12px;color:var(--ink-3);margin-left:8px}
@@ -804,9 +807,8 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .an-chip:hover{border-color:var(--accent);color:var(--ink)}
 .an-form{display:flex;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--line-soft);align-items:flex-end}
 .an-form textarea{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);color:var(--ink);font:inherit;font-size:13.5px;resize:none;min-width:0}
-@media (max-width:1180px){.app.with-anna{grid-template-columns:236px minmax(0,1fr) 320px}}
-@media (max-width:900px){.app.with-anna{grid-template-columns:236px minmax(0,1fr)}#anna{position:fixed;inset:0;left:auto;width:min(420px,100vw);z-index:8;box-shadow:var(--shadow)}}
-@media (max-width:760px){.app.with-anna{grid-template-columns:1fr}#anna{width:100vw}.rail-anna{flex:1 1 100%}}
+@media (max-width:900px){#anna{right:12px;bottom:12px;width:calc(100vw - 24px);height:min(70vh,calc(100vh - 24px))}}
+@media (max-width:760px){#anna{inset:0;width:100vw;height:100vh;border-radius:0}.rail-anna{flex:1 1 100%}}
 .qa{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:16px 22px 0;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
 .qa-wait{flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}
 .qa-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
