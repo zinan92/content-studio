@@ -294,7 +294,7 @@ def test_vault_endpoints_are_read_only_and_sandboxed(client: TestClient, tmp_pat
 
     dailies = client.get("/api/today/dailies").json()["items"]
     ai = [d for d in dailies if d["key"] == "ai_daily"][0]
-    assert [d["key"] for d in dailies] == ["ai_daily"] and ai["checked_at"] is None
+    assert [d["key"] for d in dailies] == ["ai_daily", "finance_daily", "kline_daily"] and ai["checked_at"] is None
     client.put("/api/today/checks", json={"day": today, "key": "ai_daily", "checked": True})
     assert [d for d in client.get("/api/today/dailies").json()["items"] if d["key"] == "ai_daily"][0]["checked_at"]
     assert client.put("/api/today/checks", json={"day": today, "key": "nope", "checked": True}).status_code == 400

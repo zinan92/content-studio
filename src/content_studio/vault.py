@@ -27,10 +27,12 @@ class InboxSource:
     folder: str
 
 
-# Only the AI daily feeds video topics. 财经日报 / K 线日报 / 晨报 serve trading decisions,
-# never a video so far, so they stay out of the workbench and out of the recommendation prompt.
+# Park reads all three dailies in the morning (2026-09-19: he asked for 财经 and K 线 back).
+# 晨报 is a digest of these three, so it stays out to avoid showing the same thing twice.
 DAILY_SOURCES = (
     DailySource("ai_daily", "AI 日报", "006_ai daily newsletter", (".md",)),
+    DailySource("finance_daily", "财经日报", "007_finance daily newsletter", (".md",)),
+    DailySource("kline_daily", "K 线日报", "007_kline daily newsletter", (".md",)),
 )
 
 INBOX_SOURCES = (
