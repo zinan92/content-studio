@@ -268,8 +268,9 @@ button.chip-state{cursor:pointer}
 
 /* ---- 03 已发出 ---- */
 /* ---- 触达 hero ---- */
-.q{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink-3);font:600 10px/1 var(--mono);cursor:help;padding:0;vertical-align:1px;margin-left:2px}
-.q:hover{border-color:var(--ink-2);color:var(--ink)}
+.help-q{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:15px;height:15px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--ink-3);font:600 10px/1 var(--mono);cursor:help;padding:0;vertical-align:1px;margin-left:2px}
+.help-q:hover{border-color:var(--ink-2);color:var(--ink)}
+.kpi-big span .help-q,.reach-big span .help-q,.reach-side span .help-q{font-size:10px;color:var(--ink-3)}
 .reach-svg .rb-none{stroke:var(--line);stroke-width:2}
 .reach-svg .hit{fill:transparent}
 .kpi-strip.week .kpi-big b{font-size:28px}

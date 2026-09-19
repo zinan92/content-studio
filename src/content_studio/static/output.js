@@ -27,7 +27,7 @@ function bindTips(root) {
     el.onmouseenter = (e) => { tip.textContent = el.dataset.tip; tip.hidden = false; place(e); };
     el.onmousemove = place;
     el.onmouseleave = () => { tip.hidden = true; };
-    if (el.classList.contains('q')) el.onclick = (e) => { e.stopPropagation(); const same = !tip.hidden && tip.textContent === el.dataset.tip; tip.textContent = el.dataset.tip; tip.hidden = same; place(e); };
+    if (el.classList.contains('help-q')) el.onclick = (e) => { e.stopPropagation(); const same = !tip.hidden && tip.textContent === el.dataset.tip; tip.textContent = el.dataset.tip; tip.hidden = same; place(e); };
   });
   document.addEventListener('click', () => { tip.hidden = true; }, { once: true });
 }
@@ -135,7 +135,7 @@ function reachBars(days) {
   return `<svg viewBox="0 0 ${W} ${H}" class="reach-svg" role="img" aria-label="近 14 天每天触达">${bars}</svg>`;
 }
 
-const q = (text) => `<button class="q" type="button" data-tip="${esc(text)}" aria-label="怎么算的">?</button>`;
+const q = (text) => `<button class="help-q" type="button" data-tip="${esc(text)}" aria-label="怎么算的">?</button>`;
 
 function reachBlock(r) {
   const today = new Date().toLocaleDateString('sv-SE');
