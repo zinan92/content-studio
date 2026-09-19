@@ -34,3 +34,16 @@ def test_rename_note_prefix_follows_a_renamed_vault_folder(tmp_path: Path) -> No
     assert store.topic(topic["id"])["note_paths"] == ["002_clippings/a.md", "003_park原始输出/b.md"]
     assert store.rename_note_prefix("Clippings", "002_clippings") == 0
     store.close()
+
+
+def test_merge_anna_threads_folds_pages_into_one_conversation(tmp_path: Path) -> None:
+    store = StudioStore(tmp_path / "anna.sqlite3")
+    store.append_anna("input", {"role": "park", "text": "进项的问题", "at": "2026-09-19T01:00:00+00:00"}, session_id="s-in")
+    store.append_anna("work:3", {"role": "park", "text": "视频的问题", "at": "2026-09-19T00:30:00+00:00"}, session_id="s-w")
+    store.append_anna("input", {"role": "anna", "text": "答", "at": "2026-09-19T01:00:10+00:00", "actions": []})
+    assert store.merge_anna_threads("main") == 2
+    main = store.anna_chat("main")
+    assert [m["text"] for m in main["messages"]] == ["视频的问题", "进项的问题", "答"]
+    assert [m["scope"] for m in main["messages"]] == ["work:3", "input", "input"] and main["session_id"] is None
+    assert store.merge_anna_threads("main") == 0 and store.anna_chat("input")["messages"] == []
+    store.close()
