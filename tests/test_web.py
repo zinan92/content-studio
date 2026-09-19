@@ -647,12 +647,14 @@ def test_board_auto_briefing_and_used_notes(client: TestClient, tmp_path: Path) 
     board = client.get("/api/board").json()
     assert [s["label"] for s in board["stages"]] == ["提纲", "录制", "剪辑", "待发"]
     assert board["recommend"]["state"] == "done" and board["recommend"]["items"][0]["primary"] is True
-    assert board["recommend"]["items"][0]["topic_id"] is None and board["cards"] == []
-
-    topic = client.post("/api/briefing/topic", json={"day": board["recommend"]["day"], "index": board["recommend"]["items"][0]["index"]}).json()["topic"]
-    board = client.get("/api/board").json()
-    assert board["recommend"]["items"][0]["topic_id"] == topic["id"] and board["recommend"]["items"][0]["dropped"] is False
+    # Recommendations land in the pool by themselves; the card only highlights them.
+    assert board["recommend"]["items"][0]["topic_id"] is not None and len(board["pool"]) == len(board["recommend"]["items"])
     assert board["cards"][0]["stage"] == "outline" and board["cards"][0]["next"]["text"] == "写拍摄提纲"
+
+    topic = client.post("/api/briefing/topic", json={"day": board["recommend"]["day"], "index": board["recommend"]["items"][0]["index"], "focus": True}).json()["topic"]
+    board = client.get("/api/board").json()
+    assert board["recommend"]["items"][0]["topic_id"] == topic["id"] and board["recommend"]["items"][0]["focus"] is True and board["focus"]["id"] == topic["id"]
+    assert len(client.get("/api/topics").json()) == len(board["recommend"]["items"])  # no duplicate created
 
     client.put("/api/vault/triage", json={"path": "003_park原始输出/问卷.md", "status": "shot"})
     inbox = {i["path"]: i for i in client.get("/api/vault/inbox?days=1").json()["items"]}

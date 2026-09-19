@@ -701,6 +701,12 @@ def create_app(
                                             exclude_paths={path for path, row in store.triage().items() if row.get("status") in ("shot", "ignored")})
             data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
             store.set_briefing(key, state="done", data=data)
+            # Park: 首选和备选都该回到选题池 — every recommendation becomes a pool topic, the card just highlights them.
+            for video in data.get("videos") or []:
+                try:
+                    _topic_from_recommendation(video)
+                except Exception as exc:  # noqa: BLE001 - a bad title must not fail the briefing
+                    logger.warning("briefing topic %s skipped: %s", video.get("title"), exc)
         except Exception as exc:  # noqa: BLE001 - shown on the briefing card
             logger.warning("briefing %s failed: %s", key, exc)
             store.set_briefing(key, state="failed", error=str(exc)[:300] or type(exc).__name__)
@@ -774,22 +780,28 @@ def create_app(
         threading.Thread(target=_run_briefing, args=(target,), name="briefing", daemon=True).start()
         return {"started": True, "message": "开始统筹，一般 1–3 分钟"}
 
-    @app.post("/api/briefing/topic")
-    def briefing_topic(body: BriefTopicBody) -> dict[str, Any]:
-        record = store.briefing(parse_day(body.day).isoformat())
-        videos = ((record or {}).get("data") or {}).get("videos") or []
-        if not 0 <= body.index < len(videos):
-            raise ValueError("这条视频建议不存在")
-        video = videos[body.index]
+    def _topic_from_recommendation(video: dict[str, Any]) -> dict[str, Any]:
+        """The pool topic for a recommended video: found by title (archived ones count), else created."""
+        existing = next((t for t in store.topics(include_archived=True) if t["title"] == video["title"]), None)
+        if existing:
+            return existing
         memo = "\n".join(
             [f"Hook：{video['hook']}", f"主张：{video['claim']}", "骨架：", *[f"{i + 1}. {line}" for i, line in enumerate(video["outline"])]]
             + ([f"注意：{video['caution']}"] if video.get("caution") else [])
         )
         note_paths = [s["path"] for s in video.get("sources", []) if s.get("path") and not s["path"].startswith(("006_", "007_", "009_"))]
         me = store.self_account()
-        topic = next((t for t in store.topics() if t["title"] == video["title"]), None)
-        if topic is None:
-            topic = store.create_topic(video["title"], note_paths=note_paths, formats="both", memo=memo, account_id=me["id"] if me else None)
+        return store.create_topic(video["title"], note_paths=note_paths, formats="both", memo=memo, account_id=me["id"] if me else None)
+
+    @app.post("/api/briefing/topic")
+    def briefing_topic(body: BriefTopicBody) -> dict[str, Any]:
+        record = store.briefing(parse_day(body.day).isoformat())
+        videos = ((record or {}).get("data") or {}).get("videos") or []
+        if not 0 <= body.index < len(videos):
+            raise ValueError("这条视频建议不存在")
+        topic = _topic_from_recommendation(videos[body.index])
+        if topic.get("archived_at"):
+            topic = store.update_topic(topic["id"], archived_at=None)
         if body.snooze:
             topic = store.update_topic(topic["id"], snoozed_until=(date.today() + timedelta(days=board_mod.SNOOZE_DAYS)).isoformat(), is_focus=0)
         elif body.focus:

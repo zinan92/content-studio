@@ -2,7 +2,7 @@
 /* 02 加工中：今天推荐拍 → 正在做的这一条（选题 → 提纲 → 录制 → 剪辑 → 待发 → 已发出）→ 选题池 → 机器在做的 */
 window.VIEWS = window.VIEWS || {};
 
-const BD = { data: null, at: 0, showSnoozed: false };
+const BD = { data: null, at: 0, showSnoozed: false, recOpen: false };
 const EFFORT_NAME = { 低: '好拍', 中: '要准备', 高: '费劲' };
 const QA_SHORT = { go: '可以拍', patch: '先补再拍', thin: '素材太薄' };
 
@@ -64,14 +64,17 @@ function recFoot(v, hasFocus) {
   if (v.dropped) return '<span class="chip-state">不做了</span>';
   if (v.focus) return `<button class="btn small" type="button" data-work="${v.topic_id}">正在做这条 →</button>`;
   if (v.snoozed) return `<span class="chip-state">已暂缓两周</span><button class="linklike" type="button" data-unsnooze="${v.topic_id}">恢复</button>`;
-  if (v.topic_id) return `<button class="btn small primary" type="button" data-focus="${v.topic_id}">今天做这条</button><button class="btn small" type="button" data-work="${v.topic_id}">在选题池 →</button>`;
+  if (v.topic_id) return `<button class="btn small primary" type="button" data-focus="${v.topic_id}">${hasFocus ? '换成做这条' : '今天做这条'}</button><button class="btn small ghost" type="button" data-snooze="${v.topic_id}">暂不拍</button><button class="linklike" type="button" data-work="${v.topic_id}">已在选题池 →</button>`;
   return `<button class="btn small primary" type="button" data-rec-focus="${v.index}">${hasFocus ? '换成做这条' : '今天做这条'}</button>
-    <button class="btn small" type="button" data-rec-take="${v.index}">放进选题池</button>
     <button class="btn small ghost" type="button" data-rec-snooze="${v.index}">暂不拍</button>`;
 }
 
 function recommendBlock(r, hasFocus) {
-  const head = `<div class="rec-h"><h2>今天推荐拍</h2><small>${r.generated_at ? `根据今天的日报和你写的东西 · ${hmTime(r.generated_at)}` : ''}</small><span class="spacer"></span>${r.items.length ? '<button class="linklike" type="button" data-rec-generate>重新推荐</button>' : ''}</div>`;
+  // With a video already in production the recommendation steps aside: one line, click to expand.
+  if (hasFocus && !BD.recOpen && r.items.length) {
+    return `<button class="rec-fold" type="button" id="recFold"><b>今天推荐拍</b><span>${r.items.map((v) => esc(v.title)).join(' · ')}</span><small>展开</small></button>`;
+  }
+  const head = `<div class="rec-h"><h2>今天推荐拍</h2>${hasFocus ? '<button class="linklike" type="button" id="recFold">收起</button>' : ''}<small>${r.generated_at ? `根据今天的日报和你写的东西 · ${hmTime(r.generated_at)}` : ''}</small><span class="spacer"></span>${r.items.length ? '<button class="linklike" type="button" data-rec-generate>重新推荐</button>' : ''}</div>`;
   if (r.state === 'running') return `<section class="rec">${head}<div class="rec-wait"><span class="spin"></span>正在读今天的日报和你最近写的东西，挑两条…</div></section>`;
   if (r.state === 'failed' && !r.items.length) return `<section class="rec">${head}<div class="rec-wait bad">${esc(r.error || '推荐失败')} <button class="btn small" type="button" data-rec-generate>再试一次</button></div></section>`;
   if (!r.items.length) return `<section class="rec">${head}<div class="rec-wait">每天早上日报出来后（约 9:00）会自动推荐。<button class="btn small" type="button" data-rec-generate>现在就推荐</button></div></section>`;
@@ -144,7 +147,7 @@ window.VIEWS.board = {
     const body = $('#boardBody');
     let d;
     try { d = await loadBoard(false); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
-    const sig = JSON.stringify([BD.at, BD.showSnoozed]);
+    const sig = JSON.stringify([BD.at, BD.showSnoozed, BD.recOpen]);
     if (body.dataset.sig === sig || (document.activeElement && document.activeElement.id === 'newIn')) return;
     body.dataset.sig = sig;
     const k = d.streak;
@@ -184,6 +187,8 @@ window.VIEWS.board = {
     $$('[data-rec-generate]', body).forEach((b) => (b.onclick = async () => {
       try { const r = await api('/api/briefing/generate', { method: 'POST', body: { day: d.recommend.day } }); toast(r.message || '开始推荐'); await window.refreshBoard(); renderView(); } catch (err) { toast(err.message); }
     }));
+    const rf = $('#recFold');
+    if (rf) rf.onclick = () => { BD.recOpen = !BD.recOpen; body.dataset.sig = ''; renderView(); };
     const fold = $('#snoozedFold');
     if (fold) fold.onclick = () => { BD.showSnoozed = !BD.showSnoozed; body.dataset.sig = ''; renderView(); };
     if (typeof bindTeardownButtons === 'function') bindTeardownButtons(body);

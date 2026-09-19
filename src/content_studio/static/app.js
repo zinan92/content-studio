@@ -99,7 +99,7 @@ function bindTeardownButtons(root) {
 window.VIEWS = window.VIEWS || {};
 const CORE_VIEWS = ['mine', 'radar', 'report', 'settings'];
 const OUTPUT_FAMILY = ['output', 'mine', 'radar', 'report'];
-const SUBNAV = [['output', '概览'], ['mine', '我的视频'], ['radar', '对标雷达'], ['report', '拆解报告']];
+const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷达'], ['report', '拆解报告']];
 const S = {
   view: 'board',
   workId: null,
@@ -232,13 +232,16 @@ $('#acctSwitch').onchange = async (e) => {
   await refreshAll();
 };
 
-$('#syncAllBtn').onclick = async () => {
+async function syncAll(btn) {
+  if (btn) btn.disabled = true;
   try {
     const res = await api('/api/sync', { method: 'POST' });
     toast(res.message);
     await refreshAll();
-  } catch (err) { toast(err.message); }
-};
+  } catch (err) { toast(err.message); } finally { if (btn) btn.disabled = false; }
+}
+$('#syncAllBtn').onclick = () => syncAll($('#syncAllBtn'));
+$$('[data-sync-all]').forEach((b) => (b.onclick = () => syncAll(b)));
 
 function renderView() {
   if (!S.state) return;
@@ -264,7 +267,7 @@ function renderSettings() {
   const mineList = st.my_accounts || [];
   $('#myAccounts').innerHTML = mineList.length
     ? `<div class="acct-list">${mineList.map((a) => `<div class="acct-row"><b>${esc(a.nickname || '同步中…')}</b><span>${esc(a.platform)} · 粉丝 ${fmt(a.follower_count)}</span></div>`).join('')}</div>`
-    : '<div class="empty"><span>还没有连接自己的账号，去「已发出 → 我的视频」连接。</span></div>';
+    : '<div class="empty"><span>还没有连接自己的账号，去「已发出 → 总览」连接。</span></div>';
 }
 
 $('#settingsForm').onsubmit = async (e) => {

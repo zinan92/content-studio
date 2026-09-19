@@ -22,11 +22,14 @@ const median = (xs) => {
 function bindTips(root) {
   let tip = $('#chartTip');
   if (!tip) { tip = document.createElement('div'); tip.id = 'chartTip'; tip.className = 'chart-tip'; tip.hidden = true; document.body.appendChild(tip); }
+  const place = (e) => { tip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 300)}px`; tip.style.top = `${e.clientY + 14}px`; };
   $$('[data-tip]', root).forEach((el) => {
-    el.onmouseenter = () => { tip.textContent = el.dataset.tip; tip.hidden = false; };
-    el.onmousemove = (e) => { tip.style.left = `${e.clientX + 14}px`; tip.style.top = `${e.clientY + 14}px`; };
+    el.onmouseenter = (e) => { tip.textContent = el.dataset.tip; tip.hidden = false; place(e); };
+    el.onmousemove = place;
     el.onmouseleave = () => { tip.hidden = true; };
+    if (el.classList.contains('q')) el.onclick = (e) => { e.stopPropagation(); const same = !tip.hidden && tip.textContent === el.dataset.tip; tip.textContent = el.dataset.tip; tip.hidden = same; place(e); };
   });
+  document.addEventListener('click', () => { tip.hidden = true; }, { once: true });
 }
 
 /* Bars on a time axis: one bar per video, height = multiple of the account median. */
@@ -116,17 +119,23 @@ async function loadReach(force) {
 }
 
 function reachBars(days) {
-  const W = 560, H = 96, pad = 4, n = days.length, bw = (W - pad * 2) / n;
+  const W = 560, H = 100, pad = 4, n = days.length, bw = (W - pad * 2) / n;
   const max = Math.max(1, ...days.map((d) => d.total));
   const bars = days.map((d, i) => {
-    const h = Math.round((d.total / max) * (H - 26));
-    const x = pad + i * bw;
+    const h = Math.round((d.total / max) * (H - 30));
+    const x = pad + i * bw, cx = (x + bw / 2).toFixed(1);
     const last = i === n - 1;
-    return `<rect class="rb ${last ? 'today' : ''}" x="${(x + 2).toFixed(1)}" y="${H - 18 - h}" width="${(bw - 4).toFixed(1)}" height="${h}" rx="2"><title>${d.day} · ${fmt(d.total)}</title></rect>
-      ${i % 2 === n % 2 ? `<text class="axis" x="${(x + bw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle">${d.day.slice(5).replace('-', '/')}</text>` : ''}`;
+    const label = `${d.day.slice(5).replace('-', '/')}`;
+    const mark = d.total
+      ? `<rect class="rb ${last ? 'today' : ''}" x="${(x + 3).toFixed(1)}" y="${H - 20 - h}" width="${(bw - 6).toFixed(1)}" height="${h}" rx="2"/>`
+      : `<line class="rb-none" x1="${(x + 5).toFixed(1)}" x2="${(x + bw - 5).toFixed(1)}" y1="${H - 20}" y2="${H - 20}"/>`;
+    return `${mark}<rect class="hit" x="${x.toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${H}" data-tip="${esc(`${d.day}\n${d.total ? fmt(d.total) + ' 播放' : '那天没同步，不是 0'}${Object.keys(d.by_platform).length > 1 ? '\n' + Object.entries(d.by_platform).map(([k, v]) => `${k} ${fmt(v)}`).join(' · ') : ''}`)}"/>
+      <text class="axis" x="${cx}" y="${H - 5}" text-anchor="middle">${i % 2 === (n - 1) % 2 ? label : ''}</text>`;
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" class="reach-svg" role="img" aria-label="近 14 天每天触达">${bars}</svg>`;
 }
+
+const q = (text) => `<button class="q" type="button" data-tip="${esc(text)}" aria-label="怎么算的">?</button>`;
 
 function reachBlock(r) {
   const today = new Date().toLocaleDateString('sv-SE');
@@ -139,10 +148,10 @@ function reachBlock(r) {
     </div>`).join('');
   return `<section class="reach">
     <div class="reach-hero">
-      <div class="reach-big"><span>今天触达</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>
+      <div class="reach-big"><span>今天触达 ${q(`今天各平台播放的合计。\n抖音：今天同步的播放数 − 上次同步的播放数，逐条视频相加（老视频第一次同步只当基线，不算）。\n其他平台：你手填的今天播放。\n今天包含：${r.platforms.filter((p) => p.today).map((p) => `${p.label} ${fmt(p.today)}`).join('、') || '还没有数'}`)}</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>
       <div class="reach-side">
-        <div><span>近 7 天日均</span><b class="num">${fmt(r.avg7)}</b></div>
-        <div><span>按这个节奏 30 天</span><b class="num">${fmt(r.pace30)}</b></div>
+        <div><span>近 7 天日均 ${q('最近 7 天每天触达的平均值（没同步的日子算 0，所以偏低）。')}</span><b class="num">${fmt(r.avg7)}</b></div>
+        <div><span>按这个节奏 30 天 ${q('近 7 天日均 × 30。不是预测，是照现在的节奏一个月能到多少。')}</span><b class="num">${fmt(r.pace30)}</b></div>
       </div>
       <div class="reach-chart">${reachBars(r.days)}</div>
     </div>
@@ -202,28 +211,24 @@ window.VIEWS.output = {
     const medMult = median(last30.map((r) => r.multiple));
     const medWatch = median(last30.map((r) => r.watch));
 
-    const recent = rows.filter((r) => now - r.t < 7 * 86400000).reverse();
-    const recentRows = recent.map((v) => {
-      const hours = (now - v.t) / 3600000;
-      const due = hours >= 48 && !v.has_report && !(v.job && v.job.stage !== 'failed');
-      return `<div class="recent-row">
-        <span class="pill ${v.multiple >= 3 ? 'hot' : v.multiple >= 1 ? 'mid' : 'low'}">${v.multiple.toFixed(1)}×</span>
-        <div class="recent-main"><b class="clamp">${esc(v.title)}</b><small>${hours < 48 ? Math.round(hours) + ' 小时前' : Math.round(hours / 24) + ' 天前'} · ${fmt(v.likes)} 赞${v.watch ? ` · 均看 ${Math.round(v.watch)} 秒` : ''}${v.fans !== null ? ` · 涨粉 ${fmt(v.fans)}` : ''}</small></div>
-        <div class="acts">${due ? `<button class="btn small primary" type="button" data-enqueue="${esc(v.video_id)}" data-source="已发出 · 满 48 小时">满 48 小时，拆解</button>` : teardownButton(v, { source: '已发出 · 我的视频' })}</div>
-      </div>`;
-    }).join('');
 
     const last7 = rows.filter((r) => now - r.t < 7 * 86400000);
+    const sum7 = (key) => last7.reduce((a, r) => a + (r[key] || 0), 0);
+    const douyin7 = reach.days.slice(-7).reduce((a, d) => a + (d.by_platform.douyin || 0), 0);
+    const fans7 = last7.reduce((a, r) => a + (r.fans || 0), 0);
+    const watch7 = median(last7.map((r) => r.watch));
+    const followers = m.account.follower_count;
+    const wk = '只算最近 7 天发出的视频';
     body.innerHTML = `${reachBlock(reach)}
-      <div class="kpi-strip">
-        <div class="kpi-big ${last7.length === 0 ? 'bad' : ''}"><span>近 7 天发了</span><b class="num">${last7.length}</b><small>条视频 · 近 30 天 ${last30.length} 条</small></div>
-        <div class="kpi-big ${k && !k.today_done && !k.days ? 'bad' : ''}"><span>连续拍摄</span><b class="num">${k ? (k.today_done || k.days ? k.days : 0) : '—'}</b><small>${k && !k.today_done && !k.days && k.days_since_last ? `已经 ${k.days_since_last} 天没拍` : '天'}</small></div>
-        <div class="kpi-big"><span>倍数中位数</span><b class="num">${medMult === null ? '—' : medMult.toFixed(1) + '×'}</b><small>近 30 天 · 1× = 账号平时水平</small></div>
-        <div class="kpi-big"><span>涨粉</span><b class="num">${fmt(fans30)}</b><small>近 30 天合计</small></div>
-        <div class="kpi-big ${medWatch !== null && medWatch < 15 ? 'bad' : ''}"><span>平均观看</span><b class="num">${medWatch === null ? '—' : Math.round(medWatch) + '秒'}</b><small>中位数 · 主线要在 15 秒内</small></div>
+      <div class="kpi-strip week">
+        <div class="kpi-big ${last7.length === 0 ? 'bad' : ''}"><span>近 7 天发了 ${q('最近 7 天发出的视频条数（图文不算）。')}</span><b class="num">${last7.length}</b><small>条 · 近 30 天 ${last30.length} 条</small></div>
+        <div class="kpi-big"><span>播放 ${q('最近 7 天抖音每天涨的播放相加（同上面的触达口径，只算抖音）。没同步的日子算 0。')}</span><b class="num">${fmt(douyin7)}</b><small>7 天 · 抖音</small></div>
+        <div class="kpi-big"><span>点赞 ${q(wk + '的点赞合计，取最近一次同步的数。')}</span><b class="num">${fmt(sum7('likes'))}</b><small>评论 ${fmt(sum7('comments'))} · 收藏 ${fmt(sum7('collects'))}</small></div>
+        <div class="kpi-big"><span>涨粉 ${q(wk + '带来的涨粉相加，来自创作者后台；总粉丝是主页显示的粉丝数，最近一次同步。')}</span><b class="num">${fmt(fans7)}</b><small>总粉丝 ${followers === null || followers === undefined ? '—' : fmt(followers)}</small></div>
+        <div class="kpi-big ${watch7 !== null && watch7 < 15 ? 'bad' : ''}"><span>平均观看 ${q(wk + '的平均观看秒数的中位数，来自创作者后台。主线要在 15 秒内说出来。')}</span><b class="num">${watch7 === null ? '—' : Math.round(watch7) + '秒'}</b><small>${k ? `连续拍摄 ${k.today_done || k.days ? k.days : 0} 天` : ''}</small></div>
       </div>
       <section class="panel chart-panel">
-        <div class="panel-h"><h2>每条视频的倍数 <small>近 90 天 · 点赞 ÷ 账号中位数 ${fmt(med)}</small></h2><small class="legend"><i class="lg hot"></i>≥3× <i class="lg ok"></i>1–3× <i class="lg low"></i>&lt;1×</small></div>
+        <div class="panel-h"><h2>每条视频的倍数 <small>近 90 天 · 点赞 ÷ 账号中位数 ${fmt(med)}</small> ${q('每条视频的点赞除以你账号非置顶作品的点赞中位数。1× = 平时水平，≥3× 算爆。')}</h2><small class="legend"><i class="lg hot"></i>≥3× <i class="lg ok"></i>1–3× <i class="lg low"></i>&lt;1×</small></div>
         <div class="chart-box">${multipleChart(rows)}</div>
       </section>
       <div class="mini-grid">
@@ -232,10 +237,7 @@ window.VIEWS.output = {
         <section class="panel mini"><div class="panel-h"><h2>每条涨粉</h2><small>按发布先后</small></div>${miniChart({ rows: withCreator, value: (r) => r.fans, format: (v) => fmt(v) })}</section>
         <section class="panel mini"><div class="panel-h"><h2>收藏 / 赞</h2><small>高 = 观众想留着</small></div>${miniChart({ rows: rows.slice(-16), value: (r) => (r.likes ? (r.collects || 0) / r.likes : null), format: (v) => pct(v, 0) })}</section>
       </div>
-      <div class="out-two">
-        ${reviewBlock(review)}
-        <section class="panel"><div class="panel-h"><h2>这 7 天发的</h2><small>${esc(ago(m.account.last_synced_at))}</small></div>${recentRows || '<div class="empty"><span>这 7 天没有发视频</span></div>'}</section>
-      </div>`;
+      ${reviewBlock(review)}`;
     bindTips(body);
     bindTeardownButtons(body);
     bindReach(body, body);
