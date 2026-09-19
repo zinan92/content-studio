@@ -715,3 +715,37 @@ def test_anna_input_scope_reads_real_inbox_without_naive_aware_crash(client: Tes
         time.sleep(0.02)
     assert chat["error"] is None
     assert chat["messages"][-1]["role"] == "anna"
+
+
+def test_board_is_a_single_focus_pipeline(client: TestClient) -> None:
+    a = client.post("/api/topics", json={"title": "A", "formats": "video"}).json()
+    b = client.post("/api/topics", json={"title": "B", "formats": "video"}).json()
+    c = client.post("/api/topics", json={"title": "C", "formats": "video"}).json()
+    board = client.get("/api/board").json()
+    assert board["focus"] is None and sorted(p["id"] for p in board["pool"]) == sorted([a["id"], b["id"], c["id"]])
+    assert [m["key"] for m in board["milestones"]] == ["topic", "outline", "record", "edit", "ready", "shipped"]
+
+    assert client.post(f"/api/topics/{a['id']}/focus").json()["previous"] is None
+    swapped = client.post(f"/api/topics/{b['id']}/focus").json()
+    assert swapped["previous"] == "A"  # only one video in production at a time
+    board = client.get("/api/board").json()
+    assert board["focus"]["id"] == b["id"] and sorted(p["id"] for p in board["pool"]) == sorted([a["id"], c["id"]])
+
+    client.post(f"/api/topics/{c['id']}/snooze", json={"days": 14})
+    board = client.get("/api/board").json()
+    assert [p["id"] for p in board["pool"]] == [a["id"]] and [p["id"] for p in board["snoozed"]] == [c["id"]]
+    client.delete(f"/api/topics/{c['id']}/snooze")
+    assert sorted(p["id"] for p in client.get("/api/board").json()["pool"]) == sorted([a["id"], c["id"]])
+
+    client.put(f"/api/topics/{b['id']}/outline", json={"markdown": "# 提纲\n- a\n- b\n- c\n- d"})
+    assert client.get("/api/board").json()["focus"]["milestone"] == 2
+    client.post(f"/api/topics/{b['id']}/stage", json={"stage": "outline"})
+    focus = client.get("/api/board").json()["focus"]
+    assert focus["milestone"] == 1 and focus["manual_stage"] == "outline"
+    assert client.post(f"/api/topics/{b['id']}/stage", json={"stage": "record"}).status_code == 400
+    client.post(f"/api/topics/{b['id']}/stage", json={"stage": None})
+    assert client.get("/api/board").json()["focus"]["milestone"] == 2
+
+    client.delete(f"/api/topics/{b['id']}/focus")
+    board = client.get("/api/board").json()
+    assert board["focus"] is None and len(board["pool"]) == 3 and board["attention"] == []

@@ -207,7 +207,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT"}}
+        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -513,7 +513,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id", "copy_state", "copy_error"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id", "copy_state", "copy_error", "is_focus", "snoozed_until", "manual_stage"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")
@@ -536,6 +536,16 @@ class StudioStore:
         with self.tx() as conn:
             conn.execute(f"UPDATE topics SET {assignments} WHERE id = ?", (*fields.values(), topic_id))
         return self.topic(topic_id)
+
+    def set_focus(self, topic_id: int | None) -> None:
+        """At most one topic is in focus: the single video Park is writing or recording right now."""
+        with self.tx() as conn:
+            conn.execute("UPDATE topics SET is_focus = 0 WHERE is_focus = 1")
+            if topic_id is not None:
+                conn.execute("UPDATE topics SET is_focus = 1, snoozed_until = NULL, updated_at = ? WHERE id = ?", (now_iso(), topic_id))
+
+    def focus_topic(self) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM topics WHERE is_focus = 1 AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1")
 
     # -- settings ---------------------------------------------------------
 

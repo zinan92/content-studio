@@ -84,7 +84,7 @@ python3 -m content_studio serve
 |---|---|---|
 | 进项 | 今天的 Newsletter + 只读 Obsidian（Clippings / 我收藏的 / 我写的），拿来做 / 拍过了 / 忽略，已做成视频的会标出 | 已完成 |
 | 今天推荐拍 | 日报出来后自动生成 1 首选 + 1 备选，来源必须来自真实材料，避开近 90 天已发视频和已有选题 | 已完成 |
-| 加工看板 | 提纲 → 录制 → 剪辑 → 待发，自动归列，每张卡写明在等什么 | 已完成 |
+| 加工中 | 单焦点 pipeline：任何时候只有一条在做（选题 → 提纲 → 录制 → 剪辑 → 待发 → 已发出，可退回提纲）；其余在选题池，可「暂不拍」两周；推荐可直接「今天做这条」；对标本周爆款直接顶到看板 | 已完成 |
 | 拍摄提纲 | 一句主线 + 4–8 条要点（第一条就讲主线），不写逐字稿，可编辑 | 已完成 |
 | Anna（右栏常驻） | 内容主编。Park 在哪一页她就看着哪一页：进项看今天的 AI 日报和新笔记，加工中看这条视频的素材、提纲、三点评分、剪辑进度和发出后的数据，已发出看近 90 天数据和复盘。角色、原则、知识全是 Obsidian 里的 Markdown（`~/park-hands/001_role/content_editor Anna.md` 及其 knowledge），改文件就改人。她只动嘴：建议变成按钮（存进备注 / 重写提纲 / 按三点评分 / 拿来做），Park 点了才执行。每页一条对话线，可清空 | 已完成 |
 | 三点评分 | 提纲写完自动按 痛点具象度 / 认知反差度 / 交付可行性 打分，每分必须引用提纲或素材原话，素材太薄直接说；今天推荐拍的首选必须总分最高。标准读本机的 `park-content-qa` skill，找不到时用简版 | 已完成 |
@@ -154,6 +154,7 @@ python3 -m content_studio serve
 | `GET` `POST` | `/api/briefing` · `/api/briefing/generate` · `/api/briefing/topic` | 今天推荐拍（每天早上自动生成） |
 | `POST` `GET` `PUT` | `/api/topics/{id}/outline` | 拍摄提纲 |
 | `GET` `POST` | `/api/topics/{id}/qa` | 三点评分（读结果 / 重评） |
+| `POST` `DELETE` | `/api/topics/{id}/focus` · `/api/topics/{id}/snooze` · `POST /api/topics/{id}/stage` | 做这条 / 放回池子 · 暂不拍 / 恢复 · 退回提纲 |
 | `GET` `POST` `DELETE` | `/api/anna?scope=input\|board\|work:{id}\|output` | Anna 对话：读线程 / 发一句 / 清空 |
 | `GET` `PUT` `POST` | `/api/topics/{id}/video-project` · `…/worktable` · `/api/video-projects` | 口播项目进度与 worktable 导入 |
 | `GET` `PUT` | `/api/topics/{id}/publish` | 关联已发视频与数据 |

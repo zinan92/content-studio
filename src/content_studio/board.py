@@ -13,6 +13,11 @@ STAGES = (
     ("edit", "剪辑"),
     ("ready", "待发"),
 )
+# The pipeline Park sees on the focus card: 选题 is "picked, no outline yet"; 已发出 closes it.
+MILESTONES = (("topic", "选题"), ("outline", "提纲"), ("record", "录制"), ("edit", "剪辑"), ("ready", "待发"), ("shipped", "已发出"))
+# Where a person is still needed. 剪辑 is the AI's, 待发 is whoever publishes.
+MINE_STAGES = ("outline", "record")
+SNOOZE_DAYS = 14
 
 
 def is_shipped(topic: dict[str, Any]) -> bool:
@@ -27,8 +32,11 @@ def stage_for(topic: dict[str, Any], project: dict[str, Any] | None) -> str:
         return "edit"
     if project and project.get("layout") == "legacy":
         return "edit"
-    if topic.get("outline_path") or project:
+    if project:
         return "record"
+    if topic.get("outline_path"):
+        # Park stepped back ("录到一半发现不行"): the outline exists but he wants to rework it first.
+        return "outline" if topic.get("manual_stage") == "outline" else "record"
     return "outline"
 
 
@@ -60,9 +68,26 @@ def next_action(topic: dict[str, Any], stage: str, project: dict[str, Any] | Non
     return {"text": "成片好了，去发", "mine": True}
 
 
+def is_snoozed(topic: dict[str, Any], today: str) -> bool:
+    return bool(topic.get("snoozed_until")) and str(topic["snoozed_until"]) > today
+
+
+def milestone_index(topic: dict[str, Any], stage: str) -> int:
+    if is_shipped(topic):
+        return 5
+    if stage == "outline" and not topic.get("outline_path"):
+        return 0
+    return {"outline": 1, "record": 2, "edit": 3, "ready": 4}[stage]
+
+
 def card(topic: dict[str, Any], project: dict[str, Any] | None, opening: dict[str, Any] | None = None, qa: dict[str, Any] | None = None) -> dict[str, Any]:
     stage = stage_for(topic, project)
     return {
+        "focus": bool(topic.get("is_focus")),
+        "snoozed_until": topic.get("snoozed_until"),
+        "manual_stage": topic.get("manual_stage"),
+        "milestone": milestone_index(topic, stage),
+        "mine": stage in MINE_STAGES,
         "id": topic["id"],
         "title": topic["title"],
         "stage": stage,
