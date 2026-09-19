@@ -143,6 +143,13 @@ class SettingsBody(BaseModel):
     obsidian_vault: str | None = None
     yanxishi_admin_url: str | None = None
     video_projects_root: str | None = None
+    platform_accounts: dict[str, dict[str, Any]] | None = None
+
+
+class ReachBody(BaseModel):
+    day: str
+    platform: str
+    views: int | None = None  # None clears the entry
 
 
 class BackgroundOps:
@@ -789,6 +796,48 @@ def create_app(
             store.set_focus(topic["id"])
             topic = store.topic(topic["id"])
         return {"topic": topic}
+
+    # -- 触达：Park's first KPI, every platform in one number -----------------
+
+    @app.get("/api/reach")
+    def get_reach(days: int = 14) -> dict[str, Any]:
+        from . import reach
+
+        days = min(max(days, 7), 90)
+        today = date.today()
+        since = (today - timedelta(days=days - 1)).isoformat()
+        me = store.self_account()
+        auto = reach.daily_views(store.account_snapshots(me["id"], since), days, today) if me else {}
+        totals: dict[str, dict[str, int]] = {(today - timedelta(days=i)).isoformat(): {} for i in range(days)}
+        for day_key, views in auto.items():
+            if views:
+                totals[day_key]["douyin"] = views
+        for row in store.reach_entries(since):
+            if row["day"] in totals:
+                totals[row["day"]][row["platform"]] = int(row["views"])
+        accounts = store.settings()["platform_accounts"] or {}
+        today_key = today.isoformat()
+        return {
+            **reach.summary(totals, today),
+            "platforms": [
+                {"key": key, "label": label, "auto": auto_flag, "on": bool((accounts.get(key) or {}).get("on")) or auto_flag,
+                 "handle": (accounts.get(key) or {}).get("handle") or "", "today": totals[today_key].get(key)}
+                for key, label, auto_flag in reach.PLATFORMS
+            ],
+            "douyin_synced_at": me["last_synced_at"] if me else None,
+        }
+
+    @app.put("/api/reach")
+    def put_reach(body: ReachBody) -> dict[str, Any]:
+        from . import reach
+
+        if body.platform not in reach.PLATFORM_KEYS or body.platform == "douyin":
+            raise ValueError("这个平台不能手填")
+        parse_day(body.day)
+        if body.views is not None and body.views < 0:
+            raise ValueError("触达不能是负数")
+        store.set_reach(body.day, body.platform, body.views)
+        return get_reach()
 
     # -- the one video in production ----------------------------------------
 

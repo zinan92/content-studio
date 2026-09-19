@@ -749,3 +749,22 @@ def test_board_is_a_single_focus_pipeline(client: TestClient) -> None:
     client.delete(f"/api/topics/{b['id']}/focus")
     board = client.get("/api/board").json()
     assert board["focus"] is None and len(board["pool"]) == 3 and board["attention"] == []
+
+
+def test_reach_combines_douyin_snapshots_with_hand_typed_platforms(client: TestClient) -> None:
+    from datetime import date
+
+    today = date.today().isoformat()
+    r = client.get("/api/reach").json()
+    assert [p["key"] for p in r["platforms"]][:2] == ["douyin", "channels"] and len(r["days"]) == 14 and r["today"] == 0
+    assert client.put("/api/reach", json={"day": today, "platform": "douyin", "views": 5}).status_code == 400
+    assert client.put("/api/reach", json={"day": today, "platform": "x", "views": -1}).status_code == 400
+    r = client.put("/api/reach", json={"day": today, "platform": "x", "views": 120}).json()
+    assert r["today"] == 120 and r["days"][-1]["by_platform"] == {"x": 120}
+    client.put("/api/reach", json={"day": today, "platform": "youtube", "views": 30})
+    r = client.put("/api/reach", json={"day": today, "platform": "x", "views": None}).json()
+    assert r["today"] == 30 and [p["today"] for p in r["platforms"] if p["key"] == "youtube"] == [30]
+    client.put("/api/settings", json={"platform_accounts": {"x": {"on": True, "handle": "@park"}}})
+    r = client.get("/api/reach").json()
+    x = [p for p in r["platforms"] if p["key"] == "x"][0]
+    assert x["on"] is True and x["handle"] == "@park"

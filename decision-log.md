@@ -232,3 +232,12 @@
 - **Alternatives rejected:** 用 status 字段表示焦点（status 已被文章线用作 published，语义混）；把暂缓做成删除（Park 说的是 postpone，不是不做）。
 - **Evidence:** 真实数据：8 条在池子里、0 条焦点；点首选「今天做这条」后焦点卡出现，milestone 停在录制，next 显示「素材太薄，先补一处再录」，池子 7 条。
 - **Gotchas:** `/api/board` 仍返回 `cards`/`stages`（旧调用和测试用）；焦点卡只认 mine 阶段（提纲/录制），一旦进剪辑就自动从焦点位让出来。
+
+## 2026-09-19 — 触达是第一 KPI；多平台先手填
+
+- **Context:** Park：「我要看的第一个数字是每天触达了多少人」「马上开始做多平台：抖音、视频号、小红书、公众号、小程序、X、B 站、YouTube、小宇宙」「近 30 天发了 6 条改成近 7 天」。
+- **Decision:** 已发出页顶上放触达 hero：今天各平台播放合计、近 7 天日均、按这个节奏 30 天、近 14 天柱子。抖音从每日 `video_snapshots` 算「当天涨的播放」；老视频的第一次快照只当基线不计入。其余八个平台没有数据连接，先手填今天的播放，存 `reach_entries(day, platform)`，和抖音加在同一个数里；每个平台可标「开了」和账号名。KPI 条第一格改成近 7 天。
+- **Why:** 只有抖音有连接器，但 KPI 不能等八个连接器都做完；手填一格的成本远低于看不到总数。
+- **Alternatives rejected:** 只显示抖音（Park 明确说要多平台合计）；把 30 天投影做成曲线拟合（3 天样本，日均 × 30 更诚实）。
+- **Evidence:** 修基线前 avg7 = 107,008（把历史播放全算成了 09-14 一天）；修后今天 8,289、日均 2,154。
+- **Gotchas:** 每日同步的 launchd plist 之前只写在 `~/.config/content-studio/` 没有装载，所以快照只有手动同步那几天（09-14/15/19）；本次装到 `~/Library/LaunchAgents` 并 bootstrap，每天 9:30 跑一次 `content_studio sync`。没同步的日子触达显示 0，不是没人看。

@@ -26,6 +26,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "obsidian_vault": "~/park-hands",
     "yanxishi_admin_url": "",
     "video_projects_root": "",
+    # {platform: {"on": bool, "handle": str}} — which platforms Park has opened accounts on.
+    "platform_accounts": {},
 }
 
 SCHEMA = """
@@ -136,6 +138,13 @@ CREATE TABLE IF NOT EXISTS reviews (
     error TEXT,
     data TEXT,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reach_entries (
+    day TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    views INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (day, platform)
 );
 CREATE TABLE IF NOT EXISTS anna_chats (
     scope TEXT PRIMARY KEY,
@@ -687,6 +696,27 @@ class StudioStore:
         return self._rows(
             "SELECT * FROM videos WHERE account_id = ? ORDER BY published_at DESC", (account_id,)
         )
+
+    def account_snapshots(self, account_id: int, since_day: str) -> list[dict[str, Any]]:
+        return self._rows(
+            "SELECT s.video_id, s.fetched_at, s.views, v.published_at FROM video_snapshots s JOIN videos v ON v.video_id = s.video_id "
+            "WHERE v.account_id = ? AND v.is_image_post = 0 AND s.fetched_at >= ? ORDER BY s.fetched_at",
+            (account_id, since_day),
+        )
+
+    def reach_entries(self, since_day: str) -> list[dict[str, Any]]:
+        return self._rows("SELECT day, platform, views FROM reach_entries WHERE day >= ? ORDER BY day", (since_day,))
+
+    def set_reach(self, day: str, platform: str, views: int | None) -> None:
+        with self.tx() as conn:
+            if views is None:
+                conn.execute("DELETE FROM reach_entries WHERE day = ? AND platform = ?", (day, platform))
+            else:
+                conn.execute(
+                    "INSERT INTO reach_entries(day, platform, views, updated_at) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(day, platform) DO UPDATE SET views = excluded.views, updated_at = excluded.updated_at",
+                    (day, platform, int(views), now_iso()),
+                )
 
     def snapshots(self, video_id: str) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM video_snapshots WHERE video_id = ? ORDER BY fetched_at", (video_id,))

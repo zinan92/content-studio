@@ -268,6 +268,35 @@ button.chip-state{cursor:pointer}
 .video-tabs{display:flex;gap:2px;flex-wrap:wrap;padding:8px 14px 0;border-bottom:1px solid var(--line-soft);background:var(--sunk)}
 
 /* ---- 03 已发出 ---- */
+/* ---- 触达 hero ---- */
+.reach{display:flex;flex-direction:column;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+.reach-hero{display:grid;grid-template-columns:auto auto 1fr;gap:28px;align-items:end;padding:20px 24px 14px}
+.reach-big{display:flex;flex-direction:column}
+.reach-big span,.reach-side span{font-size:12px;color:var(--ink-3)}
+.reach-big b{font-size:56px;font-weight:700;line-height:1.05;letter-spacing:-.02em;color:var(--out)}
+.reach-big small{font-size:12px;color:var(--ink-2)}
+.reach-side{display:flex;gap:22px}
+.reach-side div{display:flex;flex-direction:column}
+.reach-side b{font-size:24px;font-weight:600;line-height:1.2}
+.reach-chart{min-width:0}
+.reach-svg{width:100%;height:auto;display:block}
+.reach-svg .rb{fill:var(--out-soft)}
+.reach-svg .rb.today{fill:var(--out)}
+.reach-svg .axis{font-family:var(--mono);font-size:9px;fill:var(--ink-3)}
+.reach-platforms{border-top:1px solid var(--line-soft)}
+.reach-platforms summary{cursor:pointer;padding:10px 24px;font-size:13px;display:flex;gap:10px;align-items:baseline}
+.reach-platforms summary small{color:var(--ink-3);font-size:12px}
+.rp-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 24px;padding:4px 24px 14px}
+.rp-row{display:grid;grid-template-columns:96px 1fr 88px;gap:6px 8px;align-items:center;padding:6px 0;border-top:1px solid var(--line-soft);font-size:13px}
+.rp-row.off{opacity:.55}
+.rp-row small{grid-column:3;font-size:10.5px;color:var(--ink-3);text-align:right}
+.rp-on{display:flex;gap:6px;align-items:center;cursor:pointer}
+.rp-on input{accent-color:var(--out)}
+.rp-handle,.rp-views{border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--surface);color:var(--ink);font:inherit;font-size:12.5px;min-width:0}
+.rp-views{text-align:right;font-family:var(--mono)}
+span.rp-views{border-color:transparent;background:var(--sunk)}
+@media (max-width:1180px){.rp-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.reach-hero{grid-template-columns:1fr;gap:12px}.rp-list{grid-template-columns:1fr}}
 .kpi-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
 .kpi-big{padding:16px 20px;display:flex;flex-direction:column;border-left:1px solid var(--line-soft)}
 .kpi-big:first-child{border-left:0}
