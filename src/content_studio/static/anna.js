@@ -71,7 +71,7 @@ function annaMessage(m, scope) {
 async function renderAnna() {
   const box = $('#anna');
   if (!box) return;
-  document.querySelector('.app').classList.toggle('with-anna', AN.open);
+  document.body.classList.toggle('anna-open', AN.open);
   $('#railAnna').classList.toggle('on', AN.open);
   box.hidden = !AN.open;
   if (!AN.open) { clearTimeout(AN.poll); return; }
@@ -89,7 +89,7 @@ async function renderAnna() {
   const wasScrolled = $('#anList') && $('#anList').scrollTop + $('#anList').clientHeight >= $('#anList').scrollHeight - 40;
   const draft = $('#anIn') && AN.scope === scope ? $('#anIn').value : (AN.draft[scope] || '');
   box.innerHTML = `<div class="an-h"><div><b>Anna</b><span class="an-role">内容主编</span></div><small class="an-where">${esc(where)}</small>
-      <div class="an-tools"><button class="linklike" type="button" id="anClear" title="清掉这一页的对话，下次从头聊">清空</button><button class="linklike" type="button" id="anClose" aria-label="收起">×</button></div></div>
+      <div class="an-tools"><button class="linklike" type="button" id="anClear" title="清掉这一页的对话，下次从头聊">清空</button><button class="btn small" type="button" id="anClose" title="收起窗口，需要时再叫她">去忙吧</button></div></div>
     <div class="an-list" id="anList">${list}${d.busy ? '<div class="an-msg from-anna"><div class="an-bubble an-wait"><span class="spin"></span>Anna 在看资料…</div></div>' : ''}${d.error && !d.busy ? `<div class="an-msg from-anna"><div class="an-bubble bad">${esc(d.error)}</div></div>` : ''}</div>
     <form class="an-form" id="anForm"><textarea id="anIn" rows="2" placeholder="问 Anna…（回车发送，Shift+回车换行）">${esc(draft)}</textarea><button class="btn primary" type="submit" ${d.busy ? 'disabled' : ''}>发送</button></form>`;
   const listEl = $('#anList');

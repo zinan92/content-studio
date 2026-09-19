@@ -113,6 +113,7 @@ const S = {
   reportId: null,
   report: null,
   sort: 'multiple',
+  radarDays: 7,
   mineSort: { key: 'published_at', dir: -1 },
   addMode: 'benchmark',
 };
@@ -468,8 +469,11 @@ function renderRadar() {
     try { const r = await api(`/api/accounts/${b.dataset.sync}/sync`, { method: 'POST' }); toast(r.message); await refreshAll(); } catch (err) { toast(err.message); b.disabled = false; }
   }));
 
-  const list = S.outliers.slice().sort((a, b) => (S.sort === 'published_at' ? String(b.published_at).localeCompare(String(a.published_at)) : b[S.sort] - a[S.sort]));
-  $('#hotN').textContent = list.length + ' 条';
+  const cutoff = S.radarDays ? Date.now() - S.radarDays * 86400000 : 0;
+  const list = S.outliers.filter((v) => !cutoff || (v.published_at && new Date(v.published_at).getTime() >= cutoff))
+    .sort((a, b) => (S.sort === 'published_at' ? String(b.published_at).localeCompare(String(a.published_at)) : b[S.sort] - a[S.sort]));
+  const hidden = S.outliers.length - list.length;
+  $('#hotN').textContent = `${list.length} 条${hidden ? ` · 更早的 ${hidden} 条在「全部」里` : ''}`;
   const douyinAccounts = S.accounts.filter((a) => a.platform === '抖音');
   $('#outs').innerHTML = list.length ? list.map((v) => `<div class="out">
       <div class="mult">${v.multiple.toFixed(1)}×<small>中位倍数</small></div>
@@ -478,7 +482,7 @@ function renderRadar() {
       <div class="mixcol">${mixBar(v)}</div>
       <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">${teardownButton(v, { source: `对标爆款 · ${v.account_nickname || ''} · ${v.multiple.toFixed(1)}×` })}</div>
     </div>`).join('')
-    : `<div class="empty"><b>${douyinAccounts.length ? '当前门槛下没有爆款' : '还没有抖音对标账号'}</b><span>${douyinAccounts.length ? '把门槛调低一点，或等账号同步完成。' : '点上面的「加入对标账号」，粘贴对方主页链接。'}</span></div>`;
+    : `<div class="empty"><b>${douyinAccounts.length ? (S.radarDays ? `这 ${S.radarDays} 天没有新爆款` : '当前门槛下没有爆款') : '还没有抖音对标账号'}</b><span>${douyinAccounts.length ? (hidden ? `更早的 ${hidden} 条在「全部」里。` : '把门槛调低一点，或等账号同步完成。') : '点上面的「加入对标账号」，粘贴对方主页链接。'}</span></div>`;
   bindTeardownButtons($('#outs'));
 }
 
@@ -497,9 +501,14 @@ $('#thr').oninput = (e) => {
     } catch (err) { toast(err.message); }
   }, 350);
 };
-$$('.seg-toggle button').forEach((b) => (b.onclick = () => {
+$$('#v-radar [data-days]').forEach((b) => (b.onclick = () => {
+  S.radarDays = Number(b.dataset.days);
+  $$('#v-radar [data-days]').forEach((x) => x.classList.toggle('on', x === b));
+  renderRadar();
+}));
+$$('#v-radar [data-sort]').forEach((b) => (b.onclick = () => {
   S.sort = b.dataset.sort;
-  $$('.seg-toggle button').forEach((x) => x.classList.toggle('on', x === b));
+  $$('#v-radar [data-sort]').forEach((x) => x.classList.toggle('on', x === b));
   renderRadar();
 }));
 
