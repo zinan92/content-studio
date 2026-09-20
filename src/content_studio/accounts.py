@@ -297,6 +297,34 @@ async def _fetch_account(
 AUTO_SOURCE_PREFIX = "对标爆款"
 
 
+def auto_enqueue_new_posts(
+    store: StudioStore,
+    has_report: Callable[[str], bool] = lambda _video_id: False,
+    days: int = 7,
+    limit: int = 20,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Queue every recent post from the accounts Park follows, so its transcript lands in 进项.
+
+    Windowed on published_at and capped per run: adding a new account pulls its whole back
+    catalogue in one sync, and queueing 60 downloads at once is not what "follow them" means.
+    """
+    created: list[dict[str, Any]] = []
+    for video in store.followed_posts(days, now):
+        if len(created) >= limit:
+            break
+        if video["is_image_post"] or has_report(video["video_id"]):
+            continue
+        job, is_new = store.enqueue(
+            url=f"https://www.douyin.com/video/{video['video_id']}",
+            video_id=video["video_id"],
+            source=f"{AUTO_SOURCE_PREFIX} · {video.get('account_nickname') or '对标'}",
+        )
+        if is_new:
+            created.append(job)
+    return created
+
+
 def auto_enqueue_outliers(
     store: StudioStore,
     has_report: Callable[[str], bool] = lambda _video_id: False,

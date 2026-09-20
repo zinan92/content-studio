@@ -359,3 +359,12 @@
 - **Decision / 原因:** (1) PR #90 删每日统筹时，我按「从 `own_recent_videos` 切到 `# -- 触达`」一刀切下去，中间夹着 `_load_report` / `_run_review` / `/api/review` / `/api/review/generate` —— 每周复盘的四段全被一起删了，概览页请求 `/api/review` 拿到 404，整页渲染成「Not Found」。从 5ad32ee 原样恢复。(2) PR #92 把报告选择器换成左侧列表，但旧的 `.rep-picker button{border-radius:999px;padding:3px 11px}` 还在，它的权重（0,1,1）高于我新写的 `.rep-item`（0,1,0），于是每一行被画成药丸、文字溢出。旧规则只服务那排已经不存在的按钮，直接删掉。
 - **Evidence:** `/api/review` 回 200；概览页正常显示触达和 KPI；`.rep-item` 的 border-radius 实测 0px、padding 10px 18px。176 个测试通过。
 - **Gotchas:** 按行号区间整段删代码，必须先把区间里的每个 `def` 和 `@app.` 列出来看一遍——我当时只盯着 briefing 这个词，夹在中间的 review 就跟着没了，而且 175 个测试全绿（复盘的接口没有测试覆盖）。这是本周第四次 CSS 同名/权重覆盖：换掉一个容器的内容时，要连同它旧的后代选择器一起删，不能只加新的。
+
+## 2026-09-20 — 对标账号一发新视频就下载转文字，落进 002_对标内容
+
+- **Context:** Park：「我点击他们的文章，因为我们现在没有保存在本地，所以我在右侧根本就看不到，也无法选中它」「对标账户更新了，我先做的事儿应该是把视频下载下来，转成文字稿，放到 Obsidian 里」「要有 filter……还是通过内容去 filter 吧，不要通过点赞收藏评论」。他选了「全部自动抓，不预筛」+ 文件夹 `002_对标内容`。
+- **Decision:** 拆解管线本来就做下载→转文字→结构拆解，缺的只是最后一步落盘。`TeardownWorker` 加一个 `on_done` 回调，web 层在里面把文字稿写成 `002_对标内容/<日期> <账号> <标题>.md`（frontmatter 带 source/author/published/likes/倍数，正文是主线 + 为什么爆 + 全文）。`vault.INBOX_SOURCES` 新增这个来源，于是进项的「对标」tab 就是普通笔记：右侧能读、能入选题池、能当素材挂到选题上。同步时 `auto_enqueue_new_posts` 把关注账号近 7 天的新作品全部排队（单次上限 20），原来只抓 ≥5× 爆款的 `auto_enqueue_outliers` 保留，负责窗口外的老爆款。
+- **Why:** 素材挂在选题上用的是 vault 路径，所以文字稿必须落进 vault 才能被当成素材——只存在报告 JSON 里做不到这件事。
+- **筛选:** 只在**转完之后**判断，因为那是内容第一次存在的时刻：标题像预告/开播/抽奖，或时长 < 40 秒，或全文 < 300 字，就不写这篇笔记。不看点赞收藏评论。
+- **Evidence:** 回填了 20 篇历史文字稿，进项「对标」tab 21 条，点开右边出全文；`/api/vault/inbox` 里 source=benchmark。178 个测试通过。
+- **Gotchas:** 新加一个对标账号会一次性同步他的全部历史作品，所以排队必须按 `published_at` 开窗 + 限量，否则一次排 63 个下载。`render()` 要认报告里 `thesis` 是 `{text, evidence}`、`why_boom` 是它们的列表，直接 `str()` 会把整个字典写进笔记。这是工作台第二处往 vault 写东西（第一处是今天早些时候改 Anna 的角色文件），vault 不再是纯只读了。

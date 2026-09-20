@@ -9,7 +9,7 @@ const TABS = [
   { key: 'ai_daily', label: 'AI 日报', kind: 'daily' },
   { key: 'finance_daily', label: '财经日报', kind: 'daily' },
   { key: 'kline_daily', label: 'K 线日报', kind: 'daily' },
-  { key: 'followed', label: '对标', kind: 'followed' },
+  { key: 'benchmark', label: '对标', kind: 'note' },
   { key: 'raw', label: '我写的', kind: 'note' },
   { key: 'saved', label: '我收藏的', kind: 'note' },
   { key: 'clipping', label: 'Clippings', kind: 'note' },
@@ -43,20 +43,14 @@ const dailyRow = (d) => ({
   id: 'd:' + d.path, path: d.path, title: d.title, sub: d.label, at: d.day || d.modified_at, summary: '',
   taken: '', topicId: null, shipped: false, external: d.kind === 'html' ? d.path : null,
 });
-const videoRow = (v) => ({
-  id: 'v:' + v.video_id, videoId: v.video_id, title: cleanTitle(v.title), sub: v.account_nickname || '对标',
-  at: v.published_at, summary: `赞 ${fmt(v.likes)} · 收藏 ${fmt(v.collects)} · 评论 ${fmt(v.comments)}`,
-  taken: '', topicId: null, shipped: false, url: `https://www.douyin.com/video/${v.video_id}`,
-});
 
 function rowsFor(tab) {
   const def = tabDef(tab);
   if (def.kind === 'daily') return (C.dailies[tab] || []).map(dailyRow);
-  if (def.kind === 'followed') return (S.followed.posts || []).map(videoRow);
   if (def.kind === 'note') return (C.items || []).filter((i) => i.source === tab).map(noteRow);
-  // 全部：笔记 + 对标新作品，按时间倒序。日报是摘要，装着很多条，放进来会把别的淹掉，所以不进「全部」。
-  return (C.items || []).map(noteRow).concat((S.followed.posts || []).map(videoRow))
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  // 全部：所有 Obsidian 笔记（含对标转录），按时间倒序。
+  // 日报是摘要，装着很多条，放进来会把别的淹掉，所以不进「全部」。
+  return (C.items || []).map(noteRow);
 }
 
 function renderMarkdown(md) {
@@ -84,14 +78,9 @@ async function openNote(path) {
 /** 唯一的动作：把这一条放进选题池。笔记走 triage，对标视频直接建选题。 */
 async function intoPool(row) {
   try {
-    if (row.path) {
-      const res = await api('/api/vault/triage', { method: 'PUT', body: { path: row.path, status: 'topic' } });
-      toast(`已入选题池：${res.topic ? res.topic.title.slice(0, 18) : ''}`);
-      await loadInbox(true);
-    } else {
-      await api('/api/topics', { method: 'POST', body: { title: row.title.slice(0, 40), formats: 'both', memo: `来自对标 ${row.sub}：${row.title}` } });
-      toast('已入选题池');
-    }
+    const res = await api('/api/vault/triage', { method: 'PUT', body: { path: row.path, status: 'topic' } });
+    toast(`已入选题池：${res.topic ? res.topic.title.slice(0, 18) : ''}`);
+    await loadInbox(true);
     if (window.refreshBoard) window.refreshBoard();
     if (window.refreshTopics) await window.refreshTopics();
     renderView();
@@ -144,8 +133,7 @@ window.VIEWS.input = {
 
     const count = (t) => {
       if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && !i.triage && !i.used_by).length;
-      if (t.kind === 'followed') return (S.followed.posts || []).length;
-      if (t.kind === 'all') return (C.items || []).filter((i) => !i.triage && !i.used_by).length + (S.followed.posts || []).length;
+      if (t.kind === 'all') return (C.items || []).filter((i) => !i.triage && !i.used_by).length;
       return 0;
     };
 
@@ -155,7 +143,7 @@ window.VIEWS.input = {
         ${r.summary ? `<p class="clamp">${esc(r.summary)}</p>` : ''}
         <div class="acts">${rowActions(r)}${r.url ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">去抖音 ↗</a>` : ''}</div>
       </div>`).join('')
-      : `<div class="empty"><b>这里暂时没有东西</b><span>${def.kind === 'followed' ? '这 7 天你关注的账号都没发新的。' : def.kind === 'daily' ? '这份日报还没有出过。' : `从 ${hm(C.since)} 起没有新的。换一个时间范围看看。`}</span></div>`;
+      : `<div class="empty"><b>这里暂时没有东西</b><span>${C.tab === 'benchmark' ? '对标账号发了新视频，工作台会自动下载、转文字，转完就出现在这里。预告、开播这类没内容的不会进来。' : def.kind === 'daily' ? '这份日报还没有出过。' : `从 ${hm(C.since)} 起没有新的。换一个时间范围看看。`}</span></div>`;
 
     let reader = `<div class="empty reader-empty"><span>${rows.length ? '点左边任意一条，在这里读原文。' : '这个 tab 暂时没有可读的。'}</span></div>`;
     if (C.open) {

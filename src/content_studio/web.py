@@ -20,6 +20,7 @@ from .accounts import (
     AccountError,
     ContentDownloaderClient,
     add_account,
+    auto_enqueue_new_posts,
     auto_enqueue_outliers,
     sync_account,
 )
@@ -432,7 +433,9 @@ def create_app(
             if creator_sync_fn is not None:
                 result["creator_metrics"] = creator_sync_fn()
         else:
-            auto_enqueue_outliers(store, has_report=lambda vid: report_file(vid) is not None)
+            has_report = lambda vid: report_file(vid) is not None  # noqa: E731
+            auto_enqueue_new_posts(store, has_report=has_report)
+            auto_enqueue_outliers(store, has_report=has_report)
             worker.notify()
         return result
 
@@ -651,6 +654,36 @@ def create_app(
             return [str(item) for item in (json.loads(row["data"]).get("next_week") or [])][:3]
         except (ValueError, AttributeError):
             return []
+
+    def _save_transcript(job: dict[str, Any]) -> None:
+        """A followed account's video, once torn down, becomes a readable note in 进项."""
+        from . import transcripts
+
+        video_id = job.get("video_id")
+        video = store.video(video_id) if video_id else None
+        if video is None:
+            return
+        account = store.account(video["account_id"])
+        if account["is_self"]:
+            return
+        report = _load_report(video_id)
+        if report is None:
+            return
+        text = transcripts.transcript_text(report)
+        skip = transcripts.is_thin(
+            title=video.get("title") or "",
+            text=text,
+            duration_seconds=(report.get("transcript") or {}).get("duration_seconds"),
+        )
+        if skip:
+            logger.info("transcript skipped %s: %s", video_id, skip)
+            return
+        name = transcripts.note_name(published_at=video.get("published_at"), account=account.get("nickname") or "对标", title=video.get("title") or "")
+        markdown = transcripts.render(video=video, account=account.get("nickname") or "对标", report=report, text=text)
+        path = transcripts.write_note(vault.vault_root(vault_path()), name, markdown)
+        logger.info("transcript saved %s", path)
+
+    worker.on_done = _save_transcript
 
     def _load_report(video_id: str) -> dict[str, Any] | None:
         path = report_file(video_id)

@@ -1,0 +1,104 @@
+"""Transcripts of what the accounts Park follows just posted, written into his vault.
+
+When a followed account posts, the workbench tears the video down (download → 转文字 →
+结构拆解) and saves the transcript as a note in `002_对标内容`. From there it behaves like
+any other note in 进项: Park reads it in the right pane, takes it into the 选题池, or
+attaches it to a topic as 素材 — none of which works while the text only lives in a report.
+
+Announcements are dropped rather than saved. Park's rule: filter on the content, not on
+likes. A 「今晚 8 点见」 clip has no content to read, so it never becomes a note — but it is
+only judged after transcription, because that is the first moment the content exists.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+import os
+from pathlib import Path
+import re
+import tempfile
+from typing import Any
+
+FOLDER = "002_对标内容"
+MIN_CHARS = 300
+MIN_SECONDS = 40
+# 预告、开播、上架这类：视频本身就是一句通知，没有可读的内容。
+ANNOUNCEMENT = re.compile(
+    r"(今晚|今天|明天|明晚)?\s*\d{1,2}\s*点\s*(见|开播|直播)|预告|开播|直播间|抽奖|倒计时|上架|"
+    r"新课|报名|领取|置顶|公告|通知一下|凡尔赛一下"
+)
+
+
+def is_thin(*, title: str, text: str, duration_seconds: float | None) -> str | None:
+    """Why this video is not worth saving, or None if it is."""
+    if ANNOUNCEMENT.search(title or ""):
+        return "标题像预告/公告，不是内容"
+    if duration_seconds is not None and duration_seconds < MIN_SECONDS:
+        return f"只有 {round(duration_seconds)} 秒，太短"
+    if len(text.strip()) < MIN_CHARS:
+        return f"转出来只有 {len(text.strip())} 字，没什么可读的"
+    return None
+
+
+def transcript_text(report: dict[str, Any]) -> str:
+    segments = report.get("segments") or []
+    return "\n\n".join(str(s.get("text") or "").strip() for s in segments if s.get("text"))
+
+
+def _plain(value: Any) -> str:
+    """Report fields are {text, evidence} objects; the note only wants the sentence."""
+    if isinstance(value, dict):
+        return str(value.get("text") or "").strip()
+    return str(value or "").strip()
+
+
+def _slug(title: str) -> str:
+    return re.sub(r"[\\/:*?\"<>|#\[\]\s]+", " ", title or "").strip()[:40] or "无标题"
+
+
+def note_name(*, published_at: str | None, account: str, title: str) -> str:
+    day = (published_at or "")[:10] or datetime.now().date().isoformat()
+    return f"{day} {_slug(account)} {_slug(title)}.md".replace("/", "／")
+
+
+def render(*, video: dict[str, Any], account: str, report: dict[str, Any], text: str) -> str:
+    facts = report.get("facts") or {}
+    url = f"https://www.douyin.com/video/{video['video_id']}"
+    head = "\n".join(
+        [
+            "---",
+            f"title: {report.get('title') or video.get('title') or ''}",
+            f"source: {url}",
+            f"author: {account}",
+            f"published: {(video.get('published_at') or '')[:19]}",
+            f"likes: {facts.get('likes')}",
+            f"multiple_of_median: {facts.get('multiple_of_median')}",
+            "by: content-studio",
+            "---",
+            "",
+        ]
+    )
+    body = [f"# {report.get('title') or video.get('title') or ''}", "", f"{account} · [原视频]({url})", ""]
+    thesis = _plain(report.get("thesis"))
+    if thesis:
+        body += ["## 主线", thesis, ""]
+    boom = [_plain(item) for item in (report.get("why_boom") or [])]
+    if any(boom):
+        body += ["## 为什么爆", *[f"- {line}" for line in boom if line], ""]
+    body += ["## 全文", "", text.strip(), ""]
+    return head + "\n".join(body)
+
+
+def write_note(vault_root: Path, name: str, markdown: str) -> str:
+    """Write one transcript into the vault, atomically. Returns the vault-relative path."""
+    folder = vault_root / FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / name
+    fd, tmp = tempfile.mkstemp(dir=str(folder), prefix=".t-", suffix=".md")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(markdown)
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return f"{FOLDER}/{name}"
