@@ -792,6 +792,11 @@ def test_teacher_account_is_followed_but_never_scored_as_a_benchmark(client: Tes
     assert teachers["posts"] == []
     assert [p["video_id"] for p in client.get("/api/teachers?days=3650").json()["posts"]] == ["5", "4", "3", "2", "1"]
 
+    # A teardown of a teacher's video must not be filed as 对标 in the report list.
+    client.post("/api/jobs", json={"video_id": "5", "source": "老师"})
+    client.app.state.worker.drain()
+    assert client.get("/api/reports").json()[0]["kind"] == "teacher"
+
     account_id = teachers["accounts"][0]["id"]
     flipped = client.put(f"/api/accounts/{account_id}/kind", json={"kind": "benchmark"}).json()
     assert flipped["account"]["breakout_count"] == 1

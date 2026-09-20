@@ -550,6 +550,8 @@ def create_app(
     @app.get("/api/reports")
     def reports() -> list[dict[str, Any]]:
         archived = store.archived_reports()
+        # Which library the video came from, so a 老师 teardown is never labelled 对标.
+        kinds = {v["video_id"]: a["kind"] for a in store.accounts() for v in store.videos(a["id"])}
         seen: dict[str, dict[str, Any]] = {}
         for base in report_dirs:
             for path in sorted((base / "reports").glob("*/report.json")):
@@ -569,6 +571,7 @@ def create_app(
                     "generated_at": data.get("generated_at"),
                     "multiple": (data.get("facts") or {}).get("multiple_of_median"),
                     "is_self": bool((data.get("facts") or {}).get("creator_avg_view_second")),
+                    "kind": kinds.get(video_id),
                     "archived_at": archived.get(video_id),
                 }
         # Benchmark reports nobody opened in 7 days are archived when the list is read, so the unread count stays meaningful.

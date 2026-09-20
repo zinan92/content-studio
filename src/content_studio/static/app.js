@@ -711,7 +711,7 @@ function renderReport() {
   const unread = S.reports.filter((r) => !r.archived_at);
   const archivedCount = S.reports.length - unread.length;
   const shown = S.showArchived ? S.reports : unread;
-  pick.innerHTML = shown.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('')
+  pick.innerHTML = shown.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : r.kind === 'teacher' ? '老师 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('')
     + (archivedCount ? `<button type="button" class="toggle-archived" id="toggleArchived">${S.showArchived ? '收起已归档' : `已归档 ${archivedCount}`}</button>` : '');
   $$('[data-rid]', pick).forEach((b) => (b.onclick = () => openReport(b.dataset.rid)));
   if ($('#toggleArchived')) $('#toggleArchived').onclick = () => { S.showArchived = !S.showArchived; renderReport(); };
@@ -749,7 +749,7 @@ function renderReport() {
     <div class="panel">
       <div class="rep-head">
         <div>
-          <div class="eyebrow">${r.facts.creator_avg_view_second ? '我的视频 · 主线诊断' : '对标拆解'} · ${esc(r.author || '')}</div>
+          <div class="eyebrow">${r.facts.creator_avg_view_second ? '我的视频 · 主线诊断' : entry && entry.kind === 'teacher' ? '老师拆解 · 学方法' : '对标拆解'} · ${esc(r.author || '')}</div>
           <h2 title="${esc(r.title)}">${esc(cleanTitle(r.title))}</h2>
           <div class="by">时长 ${mmss(total)} · 生成于 ${day(r.generated_at)}</div>
         </div>
