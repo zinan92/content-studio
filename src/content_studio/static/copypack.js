@@ -30,28 +30,57 @@ function thesisFromOutline(markdown) {
   return m ? m[1].replace(/\s+/g, ' ').trim() : '';
 }
 
+/** 抖音没有自动发布通道（只有视频号 / B 站 / YouTube 有），所以这一页是「在这里写好，
+ *  到抖音粘贴」。样子照着 creator.douyin.com 的发布页做，手感一致；但凡不能真正带过去的
+ *  开关（谁可以看、允许他人保存、定时发布）一律不放假控件，只在确认框里提醒去抖音那边设。 */
+function dyPreview(title, body, tags) {
+  const text = [title, body].filter(Boolean).join('\n');
+  const tagLine = tags.map((t) => `<span class="dy-tag">#${esc(t)}</span>`).join(' ');
+  return `<div class="dy-phone"><div class="dy-screen">
+      <div class="dy-cover">封面</div>
+      <div class="dy-cap">${text ? esc(text).replace(/\n/g, '<br>') : '<span class="dy-ph">作品描述会显示在这里</span>'}${tagLine ? `<div class="dy-tags">${tagLine}</div>` : ''}</div>
+    </div><small>手机上大概长这样</small></div>`;
+}
+
 async function renderCopyBox(topic, el) {
   let d;
   try { d = await loadCopy(topic.id, false); } catch (err) { el.innerHTML = `<div class="bad">${esc(err.message)}</div>`; return; }
   const specs = d.platforms_spec;
   const e = sharedEntry(d.copy);
   const records = d.records || {};
-  el.innerHTML = `<section class="cb">
-    <div class="cb-h"><h3>标题和简介</h3><small>所有平台共用一份，发布时用这里的内容</small><span class="spacer"></span>
+  const tagsOf = (raw) => raw.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
+  el.innerHTML = `<section class="cb dy">
+    <div class="dy-bar"><span class="dy-logo">抖音</span><b>发布视频</b><small>在这里写好，到抖音粘贴</small><span class="spacer"></span>
       ${topic.outline_path ? '<button class="btn small ghost" type="button" id="cbFill">用提纲填</button>' : ''}</div>
-    <label class="cb-field"><span>标题</span><input id="cbTitle" value="${esc(e.title)}" placeholder="${esc(topic.title)}" autocomplete="off"></label>
-    <div class="len-row" id="cbLens">${lengthChips(e.title, specs)}</div>
-    <label class="cb-field"><span>简介</span><textarea id="cbBody" rows="3" placeholder="一两句话说这期讲什么">${esc(e.body)}</textarea></label>
-    <label class="cb-field"><span>话题（逗号分隔，可不填）</span><input id="cbTags" value="${esc((e.tags || []).join('，'))}" autocomplete="off"></label>
-    <div class="cb-foot"><button class="btn small primary" type="button" id="cbSave">保存</button><button class="btn small" type="button" id="cbCopy">复制</button>
-      <span class="spacer"></span>
-      <span class="cb-rec">${[...new Set([...SHARED_KEYS.filter((k) => k !== 'douyin'), ...Object.keys(records)])].filter((k) => specs[k]).map((k) => records[k]
-        ? `<button class="chip-state shipped" type="button" data-cb-unmark="${k}" title="点一下撤销">${esc(specs[k].label)} 已发</button>`
-        : `<button class="chip-state" type="button" data-cb-mark="${k}">${esc(specs[k].label)} 标为已发</button>`).join('')}</span></div>
+    <div class="dy-grid">
+      <div class="dy-form">
+        <label class="dy-field"><span>标题</span><input id="cbTitle" value="${esc(e.title)}" placeholder="${esc(topic.title)}" autocomplete="off" maxlength="60"></label>
+        <div class="len-row" id="cbLens">${lengthChips(e.title, specs)}</div>
+        <label class="dy-field"><span>作品描述<i class="dy-count" id="cbCount">0/1000</i></span><textarea id="cbBody" rows="5" placeholder="好的开头能留住人。把第一句写在这里。">${esc(e.body)}</textarea></label>
+        <label class="dy-field"><span>添加话题<i class="dy-hint">逗号分隔，抖音最多 5 个</i></span><input id="cbTags" value="${esc((e.tags || []).join('，'))}" placeholder="AI，投资，副业" autocomplete="off"></label>
+        <div class="dy-foot">
+          <button class="btn dy-publish" type="button" id="cbPublish">发布</button>
+          <button class="btn" type="button" id="cbSave">存草稿</button>
+          <button class="btn ghost" type="button" id="cbCopy">复制</button>
+        </div>
+        <div class="dy-note">抖音这一步要你自己在抖音里传视频、粘贴描述。「谁可以看」「允许他人保存」「定时发布」也在抖音那边设。<br>视频号 / B 站 / YouTube 可以从下面「一键发布」直接走。</div>
+        <span class="cb-rec">${[...new Set([...SHARED_KEYS.filter((k) => k !== 'douyin'), ...Object.keys(records)])].filter((k) => specs[k]).map((k) => records[k]
+          ? `<button class="chip-state shipped" type="button" data-cb-unmark="${k}" title="点一下撤销">${esc(specs[k].label)} 已发</button>`
+          : `<button class="chip-state" type="button" data-cb-mark="${k}">${esc(specs[k].label)} 标为已发</button>`).join('')}</span>
+      </div>
+      <div class="dy-side" id="cbPreview">${dyPreview(e.title, e.body, e.tags || [])}</div>
+    </div>
   </section>`;
   const title = $('#cbTitle', el);
   const read = () => ({ title: title.value.trim(), body: $('#cbBody', el).value.trim(), tags: $('#cbTags', el).value.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean) });
-  $$('input, textarea', el).forEach((input) => (input.oninput = () => { CP.dirty = true; $('#cbLens', el).innerHTML = lengthChips(title.value.trim(), specs); }));
+  const repaint = () => {
+    const entry = read();
+    $('#cbLens', el).innerHTML = lengthChips(entry.title, specs);
+    $('#cbCount', el).textContent = `${entry.body.length}/1000`;
+    $('#cbPreview', el).innerHTML = dyPreview(entry.title, entry.body, entry.tags);
+  };
+  $$('input, textarea', el).forEach((input) => (input.oninput = () => { CP.dirty = true; repaint(); }));
+  repaint();
   const fill = $('#cbFill', el);
   if (fill) fill.onclick = async () => {
     try {
@@ -61,7 +90,7 @@ async function renderCopyBox(topic, el) {
       const thesis = thesisFromOutline(o.markdown);
       if (thesis) $('#cbBody', el).value = thesis;
       CP.dirty = true;
-      $('#cbLens', el).innerHTML = lengthChips(title.value.trim(), specs);
+      repaint();
     } catch (err) { toast(err.message); }
   };
   const refresh = () => { CP.dirty = false; delete CP.data[topic.id]; const body = $('#videoBody'); if (body) body.dataset.sig = ''; renderView(); };
@@ -71,10 +100,19 @@ async function renderCopyBox(topic, el) {
     const platforms = Object.fromEntries(SHARED_KEYS.map((k) => [k, entry]));
     try { await api(`/api/topics/${topic.id}/copy`, { method: 'PUT', body: { platforms } }); toast('已保存'); refresh(); } catch (err) { toast(err.message); }
   };
-  $('#cbCopy', el).onclick = () => {
+  const copyText = () => {
     const entry = read();
     const text = [entry.title, entry.body, entry.tags.map((t) => '#' + t).join(' ')].filter(Boolean).join('\n\n');
-    navigator.clipboard.writeText(text).then(() => toast('已复制'), () => toast('复制失败'));
+    return navigator.clipboard.writeText(text).then(() => text, () => text);
+  };
+  $('#cbCopy', el).onclick = () => copyText().then(() => toast('已复制'));
+  $('#cbPublish', el).onclick = async () => {
+    if (!read().title) { toast('先写标题'); return; }
+    // 抖音没有自动通道：这个按钮只是把描述复制走、打开抖音的发布页，不会替 Park 发布。
+    if (!confirm('抖音不能自动发。点「确定」会复制描述、打开抖音发布页，你在那边传视频、粘贴描述，并设置「谁可以看」。')) return;
+    await copyText();
+    window.open(specs.douyin.admin, '_blank', 'noopener');
+    toast('描述已复制，抖音发布页已打开');
   };
   const mark = async (platform, published) => {
     let url = null;
