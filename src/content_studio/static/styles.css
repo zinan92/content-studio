@@ -447,12 +447,7 @@ tbody tr:hover{background:var(--sunk)}
 .rep-head{padding:18px 20px;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:start}
 .rep-head h2{font-family:var(--serif);font-weight:900;font-size:22px;margin:4px 0 6px;line-height:1.3;text-wrap:balance}
 .rep-head .by{color:var(--ink-2);font-size:13px}
-.rep-picker{display:flex;gap:6px;flex-wrap:wrap}
-.rep-picker button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 11px;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
-.rep-picker button.archived{opacity:.6;text-decoration:line-through;text-decoration-color:var(--ink-3)}
-.rep-picker button.toggle-archived{border-style:dashed;color:var(--ink-3)}
 .rep-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.rep-picker button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .vs{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line-soft)}
 .vs div{padding:12px 20px;border-left:1px solid var(--line-soft)}
 .vs div:first-child{border-left:0}
