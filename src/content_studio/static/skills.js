@@ -43,13 +43,13 @@ function renderStandard(box) {
 window.renderSkills = {
   async render() {
     const body = $('#skillsBody');
-    await window.reloadStandard();
+    await window.reloadStandard();  // its own panel in 设置, not inside the collapsed Skills block
     if (body.dataset.done) return;
     let data;
     try { data = await loadSkills(); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     body.dataset.done = '1';
     const own = data.skills.filter((s) => s.own).length;
-    body.innerHTML = `<div id="standardBox"></div><p class="sync-note">${data.skills.length} 个 skill · ${own} 个是你自己写的 · ${data.skills.filter((s) => s.installed).length} 个已装在本机。别人写的只列作者和原仓库，代码不复制进你的仓库。</p>
+    body.innerHTML = `<p class="sync-note">${data.skills.length} 个 skill · ${own} 个是你自己写的 · ${data.skills.filter((s) => s.installed).length} 个已装在本机。别人写的只列作者和原仓库，代码不复制进你的仓库。</p>
       ${data.stages.map((stage) => {
         const list = data.skills.filter((s) => s.stage === stage.key);
         if (!list.length) return '';
@@ -63,6 +63,5 @@ window.renderSkills = {
         </article>`).join('')}</div></section>`;
       }).join('')}`;
     $$('[data-copy]', body).forEach((b) => (b.onclick = () => copyText(b.dataset.copy)));
-    renderStandard($('#standardBox'));
   },
 };
