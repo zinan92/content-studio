@@ -398,26 +398,26 @@ def test_outline_generate_edit_and_format_rules(client: TestClient) -> None:
 
 def test_video_project_link_create_inspect_and_files(client: TestClient, tmp_path: Path) -> None:
     root = tmp_path / "videos"
-    (root / "old" / "delivery").mkdir(parents=True)
-    (root / "old" / "delivery" / "final-video.mp4").write_bytes(b"0")
-    (root / "old" / "page.html").write_text("<script>1</script>", encoding="utf-8")
+    (root / "2026-01-01_old" / "delivery").mkdir(parents=True)
+    (root / "2026-01-01_old" / "delivery" / "final-video.mp4").write_bytes(b"0")
+    (root / "2026-01-01_old" / "page.html").write_text("<script>1</script>", encoding="utf-8")
     client.put("/api/settings", json={"video_projects_root": str(tmp_path / "missing")})
     assert "找不到" in client.get("/api/video-projects").json()["error"]
     client.put("/api/settings", json={"video_projects_root": str(root)})
-    assert [p["name"] for p in client.get("/api/video-projects").json()["projects"]] == ["old"]
+    assert [p["name"] for p in client.get("/api/video-projects").json()["projects"]] == ["2026-01-01_old"]
 
     topic = client.post("/api/topics", json={"title": "拍这条", "formats": "video"}).json()
     assert client.get(f"/api/topics/{topic['id']}/video-project").status_code == 404
     assert client.put(f"/api/topics/{topic['id']}/video-project", json={"name": "nope"}).status_code == 404
-    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": "old"})
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": "2026-01-01_old"})
     info = client.get(f"/api/topics/{topic['id']}/video-project").json()
     assert info["delivered"] is True and info["continue_command"].startswith("用 ask-park-video")
     listed = client.get("/api/video-projects").json()["projects"][0]
     assert listed["topic_id"] == topic["id"]
 
-    page = client.get("/api/video-projects/old/file", params={"path": "page.html"})
+    page = client.get("/api/video-projects/2026-01-01_old/file", params={"path": "page.html"})
     assert "allow-scripts" in page.headers["content-security-policy"] and "allow-same-origin" not in page.headers["content-security-policy"]
-    assert client.get("/api/video-projects/old/file", params={"path": "../old/../../x"}).status_code == 404
+    assert client.get("/api/video-projects/2026-01-01_old/file", params={"path": "../2026-01-01_old/../../x"}).status_code == 404
 
     other = client.post("/api/topics", json={"title": "新的一条", "formats": "video"}).json()
     created = client.post(f"/api/topics/{other['id']}/video-project").json()

@@ -237,8 +237,22 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
     }
 
 
+# create_project names every folder 「日期_标题」. The exports drive also holds things other
+# tools dropped there (npm/pip caches, cloned repos), so only that shape counts as a project —
+# otherwise a 1.7 GB node_modules folder shows up in 剪辑进度 as a video waiting to be edited.
+PROJECT_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}_")
+
+
+def is_project_name(name: str) -> bool:
+    return bool(PROJECT_NAME.match(name))
+
+
 def list_projects(root: Path, limit: int = 40) -> list[dict[str, Any]]:
-    dirs = sorted((p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")), key=lambda p: p.stat().st_mtime, reverse=True)
+    dirs = sorted(
+        (p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".") and is_project_name(p.name)),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     results = []
     for path in dirs[:limit]:
         try:
