@@ -35,9 +35,12 @@ def test_extract_outline_checks_structure() -> None:
 def test_prompt_carries_constraints_and_memo(tmp_path: Path) -> None:
     prompt = outline.build_prompt({"title": "t", "memo": "Hook：累的不是活"}, [])
     assert "删掉这一条" in prompt and "Hook：累的不是活" in prompt
-    # The three points each own one段, in Park's fixed order — the opening is the hook, not the pain.
+    # Two parts, not three: the first minute has to be tight, after that Park sets his own pace.
+    # 交付 is explicitly kept out of the first minute.
     assert "前 1 分钟的留存" in prompt and "不是完播率" in prompt
-    assert prompt.index("开头 = 认知反差") < prompt.index("中间 = 痛点具象") < prompt.index("结尾 = 交付可行性")
+    assert "第一分钟要紧凑" in prompt and "交付不要放进第一分钟" in prompt
+    assert prompt.index("第一分钟要紧凑") < prompt.index("按 Park 自己的顺序讲") < prompt.index("交付可行性放在后半段")
+    assert "3 秒" not in prompt and "密度" not in prompt
     assert "大多数人以为" in prompt and "需要补素材" in prompt
     assert "每周复盘" not in prompt
     adjusted = outline.build_prompt({"title": "t"}, [], adjustments=["前 15 秒说结论", "跑题控制在 8% 以下"])
