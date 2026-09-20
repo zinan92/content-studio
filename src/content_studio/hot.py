@@ -26,7 +26,8 @@ def benchmark_breakouts(store: StudioStore, *, threshold: float, hours: int = 48
             recent.append(video)
         elif published >= now - timedelta(days=7):
             week.append(video)
-    synced = [a["last_synced_at"] for a in store.accounts() if not a["is_self"] and a["last_synced_at"]]
+    # Only 对标 accounts: a 老师 account's sync time says nothing about the breakouts below.
+    synced = [a["last_synced_at"] for a in store.benchmark_accounts() if a["last_synced_at"]]
     key = lambda v: -v["multiple"]
     return {
         "items": sorted(recent, key=key),

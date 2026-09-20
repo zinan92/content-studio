@@ -208,3 +208,57 @@ def test_image_posts_are_flagged_and_not_breakouts(store: StudioStore) -> None:
     )
     assert store.video("3")["is_image_post"] == 1
     assert store.outliers(5.0) == []
+
+
+def test_teacher_accounts_are_kept_out_of_breakouts_and_feed_recent_posts(tmp_path: Path) -> None:
+    """老师 accounts change 怎么拍, not 拍什么: synced and listed, but never scored as 对标."""
+    from datetime import datetime, timedelta, timezone
+
+    from content_studio.store import KIND_TEACHER, StudioStore
+
+    store = StudioStore(tmp_path / "teacher.sqlite3")
+    bench = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/b", external_id="b", status="ok")
+    teacher = store.add_account(
+        platform="抖音", profile_url="https://www.douyin.com/user/t", external_id="t", status="ok", kind=KIND_TEACHER
+    )
+    now = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    base = dict(platform="抖音", duration_seconds=60, is_top=0, is_image_post=0, comments=0, shares=0, collects=0, views=None)
+    for account in (bench, teacher):
+        store.upsert_videos(
+            account["id"],
+            [dict(base, video_id=f"{account['id']}-{i}", title=f"v{i}", published_at=(now - timedelta(days=30 + i)).isoformat(), likes=100) for i in range(5)]
+            + [dict(base, video_id=f"{account['id']}-hot", title="hot", published_at=(now - timedelta(days=2)).isoformat(), likes=5000)],
+        )
+    assert [v["video_id"] for v in store.outliers(5.0)] == [f"{bench['id']}-hot"]
+    assert [a["id"] for a in store.benchmark_accounts()] == [bench["id"]]
+
+    # The feed keys on published_at, so a new teacher's back catalogue does not flood 进项.
+    assert [v["video_id"] for v in store.teacher_posts(7, now)] == [f"{teacher['id']}-hot"]
+
+    store.update_account(bench["id"], kind=KIND_TEACHER)
+    assert store.outliers(5.0) == []
+    assert len(store.teacher_posts(7, now)) == 2
+    store.close()
+
+
+def test_kind_migration_backfills_an_account_table_that_predates_kinds(tmp_path: Path) -> None:
+    import sqlite3
+
+    from content_studio.store import StudioStore
+
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        "CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL, profile_url TEXT NOT NULL,"
+        " external_id TEXT, nickname TEXT, follower_count INTEGER, total_favorited INTEGER, signature TEXT,"
+        " is_self INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, last_error TEXT, added_at TEXT NOT NULL,"
+        " last_synced_at TEXT, UNIQUE(platform, external_id));"
+        "INSERT INTO accounts(platform, profile_url, is_self, status, added_at) VALUES('抖音', 'a', 1, 'ok', 'now');"
+        "INSERT INTO accounts(platform, profile_url, is_self, status, added_at) VALUES('抖音', 'b', 0, 'ok', 'now');"
+    )
+    conn.commit()
+    conn.close()
+
+    store = StudioStore(path)
+    assert [a["kind"] for a in store.accounts()] == ["self", "benchmark"]
+    store.close()

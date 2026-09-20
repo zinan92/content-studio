@@ -774,3 +774,27 @@ def test_reach_combines_douyin_snapshots_with_hand_typed_platforms(client: TestC
     r = client.get("/api/reach").json()
     x = [p for p in r["platforms"] if p["key"] == "x"][0]
     assert x["on"] is True and x["handle"] == "@park"
+
+
+def test_teacher_account_is_followed_but_never_scored_as_a_benchmark(client: TestClient) -> None:
+    res = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "kind": "teacher"})
+    assert res.status_code == 200
+    _wait_sync(client)
+
+    # 对标雷达 and every recommendation source stay empty: a 老师 changes 怎么拍, not 拍什么.
+    assert client.get("/api/accounts").json() == []
+    assert client.get("/api/outliers").json() == []
+
+    teachers = client.get("/api/teachers").json()
+    assert [a["nickname"] for a in teachers["accounts"]] == ["对标号"]
+    assert "median_likes" not in teachers["accounts"][0] and teachers["accounts"][0]["video_count"] == 5
+    # The back catalogue was synced but is older than a week, so 进项 stays clean on day one.
+    assert teachers["posts"] == []
+    assert [p["video_id"] for p in client.get("/api/teachers?days=3650").json()["posts"]] == ["5", "4", "3", "2", "1"]
+
+    account_id = teachers["accounts"][0]["id"]
+    flipped = client.put(f"/api/accounts/{account_id}/kind", json={"kind": "benchmark"}).json()
+    assert flipped["account"]["breakout_count"] == 1
+    assert [o["video_id"] for o in client.get("/api/outliers").json()] == ["5"]
+    assert client.get("/api/teachers").json()["accounts"] == []
+    assert client.put(f"/api/accounts/{account_id}/kind", json={"kind": "对标"}).status_code == 400

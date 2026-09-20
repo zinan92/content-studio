@@ -28,7 +28,7 @@ from . import today as today_plan
 from . import vault
 from . import video_project
 from .video_project import VideoProjectError
-from .store import StoreError, StudioStore, now_iso
+from .store import KIND_TEACHER, StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
 
@@ -41,6 +41,11 @@ LEGACY_REPORT_DIRS = (Path("~/.config/content-studio/m1"),)
 class UrlBody(BaseModel):
     url: str
     is_self: bool = False
+    kind: str | None = None
+
+
+class KindBody(BaseModel):
+    kind: str
 
 
 class JobBody(BaseModel):
@@ -436,13 +441,36 @@ def create_app(
 
     @app.get("/api/accounts")
     def accounts() -> list[dict[str, Any]]:
+        """对标 accounts only: 老师 accounts have their own page and never carry 中位/爆款 numbers."""
         threshold = float(store.settings()["threshold"])
-        return [account_view(a, threshold) for a in store.accounts() if not a["is_self"]]
+        return [account_view(a, threshold) for a in store.benchmark_accounts()]
+
+    def teacher_view(account: dict[str, Any]) -> dict[str, Any]:
+        videos = store.videos(account["id"])
+        return {
+            **account,
+            "pending_note": PENDING_NOTES.get(account["platform"]),
+            "syncing": account["id"] in ops.syncing or (ops.full_sync_running and account["platform"] == PLATFORM_DOUYIN),
+            "video_count": len(videos),
+            "latest_published_at": next((v["published_at"] for v in videos if v["published_at"]), None),
+        }
+
+    @app.get("/api/teachers")
+    def teachers(days: int = 7) -> dict[str, Any]:
+        """老师 accounts and what they posted lately — the 进项 feed. No stats: they change 怎么拍, not 拍什么."""
+        posts = [{**v, **teardown_state(v["video_id"])} for v in store.teacher_posts(days)]
+        return {"accounts": [teacher_view(a) for a in store.teacher_accounts()], "posts": posts, "days": days}
+
+    @app.put("/api/accounts/{account_id}/kind")
+    def put_account_kind(account_id: int, body: KindBody) -> dict[str, Any]:
+        account = store.update_account(account_id, kind=body.kind)
+        threshold = float(store.settings()["threshold"])
+        return {"account": teacher_view(account) if account["kind"] == KIND_TEACHER else account_view(account, threshold)}
 
     @app.post("/api/accounts")
     def post_account(body: UrlBody) -> dict[str, Any]:
         needs_client = "douyin.com" in body.url and "/user/" not in body.url
-        account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self)
+        account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self, kind=body.kind)
         syncing = False
         if account["platform"] == PLATFORM_DOUYIN:
             syncing = ops.run(account["id"], lambda: _sync_and_queue(account["id"]))

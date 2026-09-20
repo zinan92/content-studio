@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -30,6 +30,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "platform_accounts": {},
 }
 
+# What an account is for. 对标 (benchmark) accounts answer "拍什么" — their breakouts drive
+# recommendations and auto-teardown. 老师 (teacher) accounts answer "怎么拍": Park follows them for
+# method, so they are synced and shown, but kept out of every statistic and recommendation.
+KIND_SELF = "self"
+KIND_BENCHMARK = "benchmark"
+KIND_TEACHER = "teacher"
+ACCOUNT_KINDS = (KIND_SELF, KIND_BENCHMARK, KIND_TEACHER)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +49,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     total_favorited INTEGER,
     signature TEXT,
     is_self INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'benchmark',
     status TEXT NOT NULL,
     last_error TEXT,
     added_at TEXT NOT NULL,
@@ -216,12 +225,15 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT"}}
+        wanted = {"accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
                 if name not in existing:
                     self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+                    if (table, name) == ("accounts", "kind"):
+                        # Rows written before kinds existed: Park's own account, everything else 对标.
+                        self._conn.execute("UPDATE accounts SET kind = CASE is_self WHEN 1 THEN 'self' ELSE 'benchmark' END")
 
     # -- Anna (resident editor) chats, one thread per page ---------------------
 
@@ -637,6 +649,7 @@ class StudioStore:
         external_id: str | None,
         status: str,
         is_self: bool = False,
+        kind: str | None = None,
     ) -> dict[str, Any]:
         duplicate = self._row("SELECT id FROM accounts WHERE profile_url = ?", (profile_url,))
         if duplicate is None and external_id:
@@ -645,10 +658,13 @@ class StudioStore:
             )
         if duplicate is not None:
             raise StoreError("这个账号已经在库里了")
+        kind = KIND_SELF if is_self else (kind or KIND_BENCHMARK)
+        if kind not in ACCOUNT_KINDS:
+            raise StoreError(f"不认识的账号类型：{kind}")
         with self.tx() as conn:
             cursor = conn.execute(
-                "INSERT INTO accounts(platform, profile_url, external_id, is_self, status, added_at) VALUES(?, ?, ?, ?, ?, ?)",
-                (platform, profile_url, external_id, int(is_self), status, now_iso()),
+                "INSERT INTO accounts(platform, profile_url, external_id, is_self, kind, status, added_at) VALUES(?, ?, ?, ?, ?, ?, ?)",
+                (platform, profile_url, external_id, int(is_self), kind, status, now_iso()),
             )
             account_id = cursor.lastrowid
         return self.account(account_id)
@@ -659,8 +675,15 @@ class StudioStore:
             raise StoreError("账号不存在")
         return row
 
-    def accounts(self) -> list[dict[str, Any]]:
-        return self._rows("SELECT * FROM accounts ORDER BY is_self DESC, id")
+    def accounts(self, kind: str | None = None) -> list[dict[str, Any]]:
+        rows = self._rows("SELECT * FROM accounts ORDER BY is_self DESC, id")
+        return [r for r in rows if r["kind"] == kind] if kind else rows
+
+    def benchmark_accounts(self) -> list[dict[str, Any]]:
+        return self.accounts(KIND_BENCHMARK)
+
+    def teacher_accounts(self) -> list[dict[str, Any]]:
+        return self.accounts(KIND_TEACHER)
 
     def self_account(self, account_id: int | None = None) -> dict[str, Any] | None:
         if account_id is not None:
@@ -671,10 +694,15 @@ class StudioStore:
         return self._rows("SELECT * FROM accounts WHERE is_self = 1 ORDER BY id")
 
     def update_account(self, account_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"nickname", "follower_count", "total_favorited", "signature", "status", "last_error", "last_synced_at", "external_id"}
+        allowed = {"nickname", "follower_count", "total_favorited", "signature", "status", "last_error", "last_synced_at", "external_id", "kind"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的账号字段：{sorted(unknown)}")
+        if "kind" in fields:
+            if fields["kind"] not in (KIND_BENCHMARK, KIND_TEACHER):
+                raise StoreError("账号只能是对标或老师")
+            if self.account(account_id)["is_self"]:
+                raise StoreError("自己的账号不能改类型")
         if fields:
             assignments = ", ".join(f"{key} = ?" for key in fields)
             with self.tx() as conn:
@@ -757,11 +785,24 @@ class StudioStore:
         ]
         return float(statistics.median(likes)) if likes else None
 
+    def teacher_posts(self, days: int = 7, now: datetime | None = None) -> list[dict[str, Any]]:
+        """What the 老师 accounts published recently, newest first.
+
+        Keyed on published_at, never on when the workbench first saw the video: a newly added
+        teacher's first sync pulls their whole back catalogue, and that must not land in 进项.
+        """
+        cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=days)).isoformat()
+        posts = []
+        for account in self.teacher_accounts():
+            for video in self.videos(account["id"]):
+                if (video["published_at"] or "") >= cutoff:
+                    posts.append({**video, "account_nickname": account["nickname"], "account_id": account["id"]})
+        posts.sort(key=lambda v: v["published_at"] or "", reverse=True)
+        return posts
+
     def outliers(self, threshold: float) -> list[dict[str, Any]]:
         results = []
-        for account in self.accounts():
-            if account["is_self"]:
-                continue
+        for account in self.benchmark_accounts():
             median = self.account_median(account["id"])
             if not median:
                 continue
