@@ -66,8 +66,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         brief_fn=_fake_brief,
         opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
         anna_fn=_fake_anna,
-        qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "开头"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
-        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n## 主线\nb\n## 提纲\n- 开头：a\n- x\n- y\n- 结尾：z\n<<<END>>>",
+        qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "第一句"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
+        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n## 主线\nb\n## 前一分钟\n- 第一句：a\n- x\n- y\n## 后面讲什么\n- p\n- q\n- 结尾：z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
     with TestClient(app, headers={"X-Content-Studio": "1"}) as test_client:
@@ -626,7 +626,7 @@ def test_anna_chat_per_scope_with_context_and_actions(client: TestClient) -> Non
 
     assert client.get("/api/anna", params={"scope": "nope"}).status_code == 400
     topic = client.post("/api/topics", json={"title": "问 Anna", "formats": "video"}).json()
-    client.put(f"/api/topics/{topic['id']}/outline", json={"markdown": "# 提纲\n## 主线\nx\n## 提纲\n- 开头：a\n- b\n- c\n- 结尾：d"})
+    client.put(f"/api/topics/{topic['id']}/outline", json={"markdown": "# 提纲\n## 主线\nx\n## 前一分钟\n- 第一句：a\n- b\n- c\n## 后面讲什么\n- d\n- e\n- 结尾：f"})
     scope = f"work:{topic['id']}"
     empty = client.get("/api/anna", params={"scope": scope}).json()
     assert empty["messages"] == [] and empty["title"] == "问 Anna" and empty["label"] == "这条视频"

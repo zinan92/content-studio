@@ -58,13 +58,21 @@ Markdown，严格按下面的结构，放在单独一行的 <<<ARTICLE>>> 和单
 ## 主线
 一句话。
 
-## 提纲
-- 开头：……（第一句是泛话题的认知冲突，不是主线摘要）
+## 前一分钟
+- 第一句：……（泛话题的认知冲突 / 反常识暴论，不是主线摘要，不摆结果）
 - ……
 - ……
-- 结尾：……（收束一句，可带一个评论区问题）
 
-（提纲 4–8 条；中间每条是一个要讲的点，素材里别人的观点注明是谁说的）
+（3–6 条。这是全片最紧的一段，每条对应 5–10 秒，每一条都要是一个论点，不能只是过渡。
+中间要落到痛点具象，写出具体的人、场景和损失，让他觉得「这说的就是我」。这一段不放交付。）
+
+## 后面讲什么
+- ……
+- ……
+- 结尾：……（交付可行性：真实结果或观众能迈出的第一步；素材里没有结果就写「需要补素材：……」）
+
+（3–8 条。这一段是认知和深度，节奏按 Park 自己的来，但大约每条要能抓一下——
+强调一遍主线，或者给一个能被记住的爆点。素材里别人的观点注明是谁说的。）
 
 ## 不要讲过头
 - ……（可选，最多 3 条：素材缺证据、不能说成事实、不能给投资建议的地方；没有就删掉这一节）
@@ -79,13 +87,16 @@ def extract_outline(output: str) -> str:
     text = match.group(1).strip()
     if not text.startswith("#"):
         raise WriterError("提纲缺少标题")
-    for heading in ("## 主线", "## 提纲"):
+    for heading in ("## 主线", "## 前一分钟", "## 后面讲什么"):
         if not re.search(rf"^{heading}\s*$", text, flags=re.MULTILINE):
             raise WriterError(f"提纲缺少「{heading[3:]}」一节")
-    body = re.search(r"^## 提纲\s*\n(.*?)(?=^## |\Z)", text, flags=re.MULTILINE | re.DOTALL).group(1)
-    bullets = re.findall(r"^\s*[-*] +\S", body, flags=re.MULTILINE)
-    if not 4 <= len(bullets) <= 8:
-        raise WriterError(f"提纲需要 4–8 条要点，现在是 {len(bullets)} 条")
+    # The two halves run at different speeds, so they are counted separately: a hook that sprawls
+    # is the exact failure Park named (前 30 秒抓不住), and it hides inside a single total.
+    for heading, low, high in (("前一分钟", 3, 6), ("后面讲什么", 3, 8)):
+        body = re.search(rf"^## {heading}\s*\n(.*?)(?=^## |\Z)", text, flags=re.MULTILINE | re.DOTALL).group(1)
+        n = len(re.findall(r"^\s*[-*] +\S", body, flags=re.MULTILINE))
+        if not low <= n <= high:
+            raise WriterError(f"「{heading}」需要 {low}–{high} 条要点，现在是 {n} 条")
     return text + "\n"
 
 
