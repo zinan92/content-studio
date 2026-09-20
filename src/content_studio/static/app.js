@@ -668,7 +668,13 @@ function renderReport() {
   const unread = S.reports.filter((r) => !r.archived_at);
   const archivedCount = S.reports.length - unread.length;
   const shown = S.showArchived ? S.reports : unread;
-  pick.innerHTML = shown.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('')
+  // 左边一列：谁发的 / 标题 / 什么时候拆的。最新拆的排最上面（后端已按 generated_at 倒序）。
+  pick.innerHTML = `<div class="panel-h"><h2>拆过的 <span class="num">${shown.length}</span></h2><small>最新在上</small></div>`
+    + shown.map((r) => `<button type="button" class="rep-item ${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">
+        <span class="rep-by">${r.is_self ? '我的' : esc(r.author || '对标')}</span>
+        <b class="clamp2">${esc(cleanTitle(r.title))}</b>
+        <small>${r.generated_at ? day(r.generated_at) : ''}${r.multiple ? ` · ${r.multiple}×` : ''}</small>
+      </button>`).join('')
     + (archivedCount ? `<button type="button" class="toggle-archived" id="toggleArchived">${S.showArchived ? '收起已归档' : `已归档 ${archivedCount}`}</button>` : '');
   $$('[data-rid]', pick).forEach((b) => (b.onclick = () => openReport(b.dataset.rid)));
   if ($('#toggleArchived')) $('#toggleArchived').onclick = () => { S.showArchived = !S.showArchived; renderReport(); };
