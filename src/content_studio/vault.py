@@ -208,6 +208,7 @@ def inbox(raw_root: str, *, since: datetime, sources: tuple[str, ...] | None = N
                     "title": _title(path, meta, body),
                     "summary": plain_summary(body),
                     "url": meta.get("source") or meta.get("url") or None,
+                    "author": str(meta.get("author") or "").strip() or None,
                     "created_at": created.isoformat(timespec="minutes"),
                     "modified_at": modified.isoformat(timespec="minutes"),
                     "is_new": created >= since,

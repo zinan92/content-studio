@@ -75,3 +75,17 @@ def test_read_note_and_missing_vault(root: Path) -> None:
 
 def test_window_start_is_midnight() -> None:
     assert vault.window_start(1, datetime(2026, 9, 14, 15)) == datetime(2026, 9, 13)
+
+
+def test_inbox_carries_the_author_so_进项_can_show_the_blogger(tmp_path) -> None:
+    from datetime import datetime, timedelta
+
+    from content_studio import vault
+
+    root = tmp_path / "v"
+    (root / "002_对标内容").mkdir(parents=True)
+    (root / "002_对标内容" / "a.md").write_text(
+        "---\ntitle: 一条内容\nauthor: 柱子哥TzFilm\nsource: https://www.douyin.com/video/1\n---\n\n正文", encoding="utf-8"
+    )
+    items = vault.inbox(str(root), since=datetime.now() - timedelta(days=1))
+    assert [(i["source"], i["author"]) for i in items] == [("benchmark", "柱子哥TzFilm")]

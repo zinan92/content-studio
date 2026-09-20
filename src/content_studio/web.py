@@ -674,6 +674,7 @@ def create_app(
             title=video.get("title") or "",
             text=text,
             duration_seconds=(report.get("transcript") or {}).get("duration_seconds"),
+            published_at=video.get("published_at"),
         )
         if skip:
             logger.info("transcript skipped %s: %s", video_id, skip)
