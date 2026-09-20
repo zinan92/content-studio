@@ -76,17 +76,6 @@ class TopicBody(BaseModel):
     archived: bool | None = None
 
 
-class BriefingBody(BaseModel):
-    day: str | None = None
-
-
-class BriefTopicBody(BaseModel):
-    day: str
-    index: int
-    focus: bool = False   # "今天做这条": becomes the one video in production
-    snooze: bool = False  # "暂不拍": keeps it out of the pool for two weeks
-
-
 class SnoozeBody(BaseModel):
     days: int = 14
 
@@ -247,11 +236,9 @@ def create_app(
 
     store = StudioStore(store_path)
     store.recover_interrupted_writes()
-    store.recover_interrupted_briefings()
     store.recover_interrupted_publishes()
     # 2026-09-16: the vault's Clippings folder was renamed to 002_clippings.
     store.rename_note_prefix("Clippings", "002_clippings")
-    briefing_lock = threading.Lock()
     review_lock = threading.Lock()
     drafts_root = (drafts_dir or writer.DEFAULT_DRAFTS_DIR).expanduser()
     writing: set[int] = set()
@@ -291,41 +278,15 @@ def create_app(
 
     stop_auto = threading.Event()
 
-    def auto_briefing_tick(now_local: datetime | None = None) -> bool:
-        from . import briefing
-
-        now_local = now_local or datetime.now()
-        key = now_local.date().isoformat()
-        try:
-            ready = any(d.get("path") for d in vault.dailies(vault_path(), now_local.date()))
-        except vault.VaultError:
-            return False
-        if not briefing.auto_due(now_local, store.briefing(key), ready):
-            return False
-        if not briefing_lock.acquire(blocking=False):
-            return False
-        store.set_briefing(key, state="running")
-        threading.Thread(target=_run_briefing, args=(now_local.date(),), name="briefing-auto", daemon=True).start()
-        return True
-
-    def auto_briefing_loop() -> None:
-        while not stop_auto.wait(600):
-            try:
-                auto_briefing_tick()
-            except Exception as exc:  # noqa: BLE001 - never kill the loop
-                logger.warning("auto briefing check failed: %s", exc)
-
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if start_worker:
             worker.start()
-            threading.Thread(target=auto_briefing_loop, name="auto-briefing", daemon=True).start()
         yield
         stop_auto.set()
         worker.stop()
 
     app = FastAPI(title="内容工作台", docs_url=None, redoc_url=None, lifespan=lifespan)
-    app.state.auto_briefing_tick = auto_briefing_tick
 
     from .publisher import PublishError
 
@@ -680,7 +641,7 @@ def create_app(
             fields["archived_at"] = now_iso() if body.archived else None
         return store.update_topic(topic_id, **fields)
 
-    # -- daily briefing ----------------------------------------------------
+    # -- 每周复盘定下的调整，写提纲时带上 -------------------------------------
 
     def latest_adjustments() -> list[str]:
         row = store._row("SELECT data FROM reviews WHERE state IN ('done', 'failed') AND data IS NOT NULL ORDER BY week DESC LIMIT 1")
@@ -690,140 +651,6 @@ def create_app(
             return [str(item) for item in (json.loads(row["data"]).get("next_week") or [])][:3]
         except (ValueError, AttributeError):
             return []
-
-    def own_recent_videos() -> list[dict[str, Any]]:
-        me = store.self_account()
-        if me is None:
-            return []
-        median = store.account_median(me["id"])
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
-        rows = [v for v in store.videos(me["id"]) if not v["is_image_post"] and (v["published_at"] or "") >= cutoff[:10]][:60]
-        return [
-            {"title": v["title"] or "", "published_at": v["published_at"] or "", "likes": v["likes"],
-             "multiple": round(v["likes"] / median, 1) if median and v["likes"] is not None else None}
-            for v in rows
-        ]
-
-    def _run_briefing(day_value: date) -> None:
-        from . import briefing
-
-        key = day_value.isoformat()
-        try:
-            from . import hot
-
-            bench = hot.benchmark_breakouts(store, threshold=float(store.settings()["threshold"]))
-            inputs = briefing.gather_inputs(vault_path(), day_value, own_videos=own_recent_videos(), existing_topics=store.topics(include_archived=True), adjustments=latest_adjustments(),
-                                            breakouts=bench["items"] or bench["fallback"],
-                                            exclude_paths={path for path, row in store.triage().items() if row.get("status") in ("shot", "ignored")})
-            data = briefing.generate_briefing(inputs, **({"brief_fn": brief_fn} if brief_fn else {}))
-            store.set_briefing(key, state="done", data=data)
-            # Park: 首选和备选都该回到选题池 — every recommendation becomes a pool topic, the card just highlights them.
-            for video in data.get("videos") or []:
-                try:
-                    _topic_from_recommendation(video)
-                except Exception as exc:  # noqa: BLE001 - a bad title must not fail the briefing
-                    logger.warning("briefing topic %s skipped: %s", video.get("title"), exc)
-        except Exception as exc:  # noqa: BLE001 - shown on the briefing card
-            logger.warning("briefing %s failed: %s", key, exc)
-            store.set_briefing(key, state="failed", error=str(exc)[:300] or type(exc).__name__)
-        finally:
-            briefing_lock.release()
-
-    def _load_report(video_id: str) -> dict[str, Any] | None:
-        path = report_file(video_id)
-        if path is None:
-            return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
-        return data if data.get("schema_version", 1) >= 2 else None
-
-    def _run_review(now_value: datetime) -> None:
-        from . import review
-
-        key = review.week_key(now_value)
-        try:
-            me = store.self_account()
-            if me is None:
-                raise review.ReviewError("还没有连接自己的抖音号")
-            own = store.videos(me["id"])
-            breakouts = store.outliers(float(store.settings()["threshold"]))
-            ids = [v["video_id"] for v in own] + [b["video_id"] for b in breakouts]
-            reports_by_id = {vid: data for vid in ids if (data := _load_report(vid))}
-            inputs = review.gather_inputs(
-                own_videos=own, median_likes=store.account_median(me["id"]), creator=_creator_rows(creator_db),
-                reports=reports_by_id, topics=store.topics(include_archived=True), breakouts=breakouts, now=now_value,
-            )
-            data = review.generate_review(inputs, **({"review_fn": review_fn} if review_fn else {}))
-            store.set_review(key, state="done", data=data)
-        except Exception as exc:  # noqa: BLE001 - shown on the review page
-            logger.warning("review %s failed: %s", key, exc)
-            store.set_review(key, state="failed", error=str(exc)[:300] or type(exc).__name__)
-        finally:
-            review_lock.release()
-
-    @app.get("/api/review")
-    def get_review() -> dict[str, Any]:
-        from . import review
-
-        key = review.week_key(datetime.now(timezone.utc))
-        return store.review(key) or {"week": key, "state": "missing", "error": None, "data": None}
-
-    @app.post("/api/review/generate")
-    def post_review() -> dict[str, Any]:
-        from . import review
-
-        now_value = datetime.now(timezone.utc)
-        if not review_lock.acquire(blocking=False):
-            return {"started": False, "message": "复盘正在生成"}
-        store.set_review(review.week_key(now_value), state="running")
-        threading.Thread(target=_run_review, args=(now_value,), name="review", daemon=True).start()
-        return {"started": True, "message": "开始复盘这一周，一般 1–3 分钟"}
-
-    @app.get("/api/briefing")
-    def get_briefing(day: str | None = None) -> dict[str, Any]:
-        target = parse_day(day)
-        return store.briefing(target.isoformat()) or {"day": target.isoformat(), "state": "missing", "error": None, "data": None}
-
-    @app.post("/api/briefing/generate")
-    def post_briefing(body: BriefingBody) -> dict[str, Any]:
-        target = parse_day(body.day)
-        vault.vault_root(vault_path())
-        if not briefing_lock.acquire(blocking=False):
-            return {"started": False, "message": "统筹正在生成"}
-        store.set_briefing(target.isoformat(), state="running")
-        threading.Thread(target=_run_briefing, args=(target,), name="briefing", daemon=True).start()
-        return {"started": True, "message": "开始统筹，一般 1–3 分钟"}
-
-    def _topic_from_recommendation(video: dict[str, Any]) -> dict[str, Any]:
-        """The pool topic for a recommended video: found by title (archived ones count), else created."""
-        existing = next((t for t in store.topics(include_archived=True) if t["title"] == video["title"]), None)
-        if existing:
-            return existing
-        memo = "\n".join(
-            [f"Hook：{video['hook']}", f"主张：{video['claim']}", "骨架：", *[f"{i + 1}. {line}" for i, line in enumerate(video["outline"])]]
-            + ([f"注意：{video['caution']}"] if video.get("caution") else [])
-        )
-        note_paths = [s["path"] for s in video.get("sources", []) if s.get("path") and not s["path"].startswith(("006_", "007_", "009_"))]
-        me = store.self_account()
-        return store.create_topic(video["title"], note_paths=note_paths, formats="both", memo=memo, account_id=me["id"] if me else None)
-
-    @app.post("/api/briefing/topic")
-    def briefing_topic(body: BriefTopicBody) -> dict[str, Any]:
-        record = store.briefing(parse_day(body.day).isoformat())
-        videos = ((record or {}).get("data") or {}).get("videos") or []
-        if not 0 <= body.index < len(videos):
-            raise ValueError("这条视频建议不存在")
-        topic = _topic_from_recommendation(videos[body.index])
-        if topic.get("archived_at"):
-            topic = store.update_topic(topic["id"], archived_at=None)
-        if body.snooze:
-            topic = store.update_topic(topic["id"], snoozed_until=(date.today() + timedelta(days=board_mod.SNOOZE_DAYS)).isoformat(), is_focus=0)
-        elif body.focus:
-            store.set_focus(topic["id"])
-            topic = store.topic(topic["id"])
-        return {"topic": topic}
 
     # -- 触达：Park's first KPI, every platform in one number -----------------
 
@@ -1118,10 +945,6 @@ def create_app(
                     pass
         elif kind == "board":
             data = get_board(None)
-            rec = data["recommend"]
-            if rec["items"]:
-                lines.append("## 今天推荐拍\n" + "\n".join(
-                    f"- {'首选' if v['primary'] else '备选'}：{v['title']}｜{v['why']}｜钩子：{v['hook']}｜三点：{json.dumps(v.get('qa') or {}, ensure_ascii=False)}" for v in rec["items"]))
             stage_names = dict(board.STAGES)
             lines.append("## 看板\n" + ("\n".join(
                 f"- [{stage_names.get(c['stage'], c['stage'])}] {c['title']}｜在等：{c['next']['text']}" + (f"｜三点 {c['qa']['total']}/15（{c['qa']['verdict']}）" if c.get("qa") else "") for c in data["cards"]) or "看板是空的"))
@@ -1666,26 +1489,6 @@ def create_app(
                 days.update(d for d in (today_plan._day(v["published_at"]) for v in store.videos(account["id"]) if not v["is_image_post"]) if d)
         return days
 
-    def recommendations(day_value: date, topics: list[dict[str, Any]]) -> dict[str, Any]:
-        record = store.briefing(day_value.isoformat()) or {"state": "missing", "error": None, "data": None}
-        taken = {t["title"]: t for t in topics}
-        videos = ((record.get("data") or {}).get("videos") or [])
-        ordered = sorted(range(len(videos)), key=lambda i: not videos[i].get("primary"))
-        return {
-            "day": day_value.isoformat(),
-            "state": record["state"],
-            "error": record.get("error"),
-            "generated_at": (record.get("data") or {}).get("generated_at"),
-            "items": [
-                {"index": i, "title": videos[i]["title"], "why": videos[i].get("why_today") or "", "hook": videos[i].get("hook") or "",
-                 "effort": videos[i].get("effort"), "primary": bool(videos[i].get("primary")), "qa": videos[i].get("qa"),
-                 "topic_id": (taken.get(videos[i]["title"]) or {}).get("id"), "dropped": bool((taken.get(videos[i]["title"]) or {}).get("archived_at")),
-                 "snoozed": board_mod.is_snoozed(taken.get(videos[i]["title"]) or {}, day_value.isoformat()),
-                 "focus": bool((taken.get(videos[i]["title"]) or {}).get("is_focus"))}
-                for i in ordered[:2]
-            ],
-        }
-
     @app.get("/api/board")
     def get_board(day: str | None = None) -> dict[str, Any]:
         from . import board, opening, qa
@@ -1721,7 +1524,6 @@ def create_app(
             "machine": machine,
             "snoozed": snoozed,
             "attention": attention_breakouts(),
-            "recommend": recommendations(target, store.topics(include_archived=True)),
             "streak": today_plan.shooting_streak(target, shot_days()),
             "project_root_ok": root is not None,
         }
