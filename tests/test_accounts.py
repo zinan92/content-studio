@@ -257,3 +257,25 @@ def test_kind_migration_backfills_an_account_table_that_predates_kinds(tmp_path:
     store = StudioStore(path)
     assert [a["kind"] for a in store.accounts()] == ["self", "benchmark"]
     store.close()
+
+
+def test_announcements_are_never_queued_so_they_are_never_downloaded(tmp_path: Path) -> None:
+    """Park: 看一下 title，一看就没什么意义就不要下载了——省一次抓取，也不在库里留一份。"""
+    from datetime import datetime, timedelta, timezone
+
+    from content_studio.accounts import auto_enqueue_new_posts
+    from content_studio.store import StudioStore
+
+    store = StudioStore(tmp_path / "queue.sqlite3")
+    account = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/a", external_id="a", status="ok")
+    now = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    base = dict(platform="抖音", duration_seconds=300, is_top=0, is_image_post=0, comments=0, shares=0, collects=0, views=None, likes=100)
+    store.upsert_videos(account["id"], [
+        dict(base, video_id="good", title="高客单获客，必须做认知型深度内容", published_at=(now - timedelta(days=1)).isoformat()),
+        dict(base, video_id="tease", title="凡尔赛一下，今晚8点见", published_at=(now - timedelta(days=1)).isoformat()),
+        dict(base, video_id="live", title="明天8点直播，别错过", published_at=(now - timedelta(days=2)).isoformat()),
+        dict(base, video_id="old", title="一条正经内容", published_at=(now - timedelta(days=40)).isoformat()),
+    ])
+    queued = auto_enqueue_new_posts(store, now=now)
+    assert [j["video_id"] for j in queued] == ["good"]
+    store.close()

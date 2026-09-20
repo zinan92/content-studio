@@ -309,11 +309,16 @@ def auto_enqueue_new_posts(
     Windowed on published_at and capped per run: adding a new account pulls its whole back
     catalogue in one sync, and queueing 60 downloads at once is not what "follow them" means.
     """
+    from .transcripts import looks_like_announcement
+
     created: list[dict[str, Any]] = []
     for video in store.followed_posts(days, now):
         if len(created) >= limit:
             break
         if video["is_image_post"] or has_report(video["video_id"]):
+            continue
+        # 标题就能看出是预告/开播的，连下都不下：省一次抓取，也不在库里留一份没用的视频。
+        if looks_like_announcement(video.get("title") or ""):
             continue
         job, is_new = store.enqueue(
             url=f"https://www.douyin.com/video/{video['video_id']}",

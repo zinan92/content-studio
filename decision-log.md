@@ -368,3 +368,11 @@
 - **筛选:** 只在**转完之后**判断，因为那是内容第一次存在的时刻：标题像预告/开播/抽奖，或时长 < 40 秒，或全文 < 300 字，就不写这篇笔记。不看点赞收藏评论。
 - **Evidence:** 回填了 20 篇历史文字稿，进项「对标」tab 21 条，点开右边出全文；`/api/vault/inbox` 里 source=benchmark。178 个测试通过。
 - **Gotchas:** 新加一个对标账号会一次性同步他的全部历史作品，所以排队必须按 `published_at` 开窗 + 限量，否则一次排 63 个下载。`render()` 要认报告里 `thesis` 是 `{text, evidence}`、`why_boom` 是它们的列表，直接 `str()` 会把整个字典写进笔记。这是工作台第二处往 vault 写东西（第一处是今天早些时候改 Anna 的角色文件），vault 不再是纯只读了。
+
+## 2026-09-20 — 标题就能判断的不下载；拆完删掉 media/；测试不再能写进真 vault
+
+- **Context:** Park：「每天抓这么多会不会触发 limit？」「就看一下 title，一看就没什么意义就不要下载了……下载了再保存，它也是先保存了嘛，尽量谨慎 about storage」。
+- **实测数据:** 下载缓存 30 条视频 = 1.4G，一条约 47M；其中 `media/` 占 69.5M/70M，`transcript.json` + `metadata.json` + `structured_text.md`（重跑分析需要的全部东西）只有 350K。系统盘只剩 11G 可用。按 3 条/天算，不清理的话两个半月填满。
+- **Decision:** (1) `auto_enqueue_new_posts` 排队前先看标题，像预告/开播/抽奖/倒计时的直接不排——省一次抓取，也不在盘上留一份。转完之后的内容判断保留，当第二道网。(2) 报告写完就 `prune_media(content_dir)` 删掉 `media/`，其余文件保留，重跑分析不用重新下载。(3) 抓取量：原来只抓 ≥5× 爆款、每天最多 2 条，现在约 3 条/天，仍是串行 1.5 秒间隔，遇验证页即停；真正的风险不在条数而在盘。
+- **格式过了一遍:** 删掉这几轮改版遗留的 37 条死 CSS（`.nl-*` newsletter 条、`.tc-*` 老师发的、`.cb-*` 旧文案框、`.qa-fix`、`.src-*`、`.acct.teacher`、`.ms li.auto`、`.legacy-pool-grid`、`.new-card`），共 2.8KB。留着的死规则就是下一个 `.rep-picker button`。
+- **Gotchas（要紧）:** 发现测试会写进 Park 真实的 vault——`obsidian_vault` 设置默认是 `~/park-hands`，测试建的 store 用的就是这个默认值，于是 `_save_transcript` 把假报告写成了 `002_对标内容/2026-05-28 对标号 作品5.md`。已删除该文件，并在 web 测试夹具里把 vault 指到 tmp_path，任何测试都不会再碰到真库。以前没暴露是因为工作台一直只读 vault；今天开了写入口，默认值就成了真实风险。

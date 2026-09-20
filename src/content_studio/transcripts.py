@@ -28,9 +28,18 @@ ANNOUNCEMENT = re.compile(
 )
 
 
+def looks_like_announcement(title: str) -> bool:
+    """Judged from the title alone, before anything is downloaded.
+
+    Park's reason is not only the filter: a downloaded video is stored before it can be
+    judged, so deciding from the title saves both a fetch and the disk it would have taken.
+    """
+    return bool(ANNOUNCEMENT.search(title or ""))
+
+
 def is_thin(*, title: str, text: str, duration_seconds: float | None) -> str | None:
     """Why this video is not worth saving, or None if it is."""
-    if ANNOUNCEMENT.search(title or ""):
+    if looks_like_announcement(title):
         return "标题像预告/公告，不是内容"
     if duration_seconds is not None and duration_seconds < MIN_SECONDS:
         return f"只有 {round(duration_seconds)} 秒，太短"

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import shutil
 import subprocess
 import sys
 from typing import Any, Callable, Sequence
@@ -15,6 +16,22 @@ from .judge import JudgeFn, cli_judge
 from .structure import build_report, load_glossary, render_markdown
 
 DEFAULT_GLOSSARY_PATH = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
+
+
+def prune_media(content_dir: Path) -> int:
+    """Drop the downloaded video/audio once the transcript exists.
+
+    One item is ~70 MB, of which media/ is ~69.5 MB; transcript.json, metadata.json and
+    structured_text.md — everything a re-analysis needs — are the remaining 350 KB. Park's
+    boot disk has single-digit GB free, so keeping the raw video of an already torn-down
+    video costs real space and buys nothing.
+    """
+    media = content_dir / "media"
+    if not media.is_dir():
+        return 0
+    freed = sum(f.stat().st_size for f in media.rglob("*") if f.is_file())
+    shutil.rmtree(media, ignore_errors=True)
+    return freed
 
 
 class PipelineError(RuntimeError):
@@ -214,7 +231,9 @@ def process_url(
         generated_at=generated_at,
     )
     paths = _write_report(report, data_dir)
-    return {"content_id": report["content_id"], **paths}
+    # The transcript is written and the report is on disk; the video itself is dead weight.
+    freed = prune_media(content_dir)
+    return {"content_id": report["content_id"], "freed_bytes": freed, **paths}
 
 
 def run_pipeline(

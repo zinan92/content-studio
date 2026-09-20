@@ -70,6 +70,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n## 主线\nb\n## 前一分钟\n- 第一句：a\n- x\n- y\n## 后面讲什么\n- p\n- q\n- 结尾：z\n<<<END>>>",
     )
     app.state.worker.process_fn = process
+    # Never let a test reach Park's real vault: the setting defaults to ~/park-hands, and the
+    # transcript hook writes there on every successful teardown.
+    app.state.store.update_settings({"obsidian_vault": str(tmp_path / "vault-default")})
+    (tmp_path / "vault-default").mkdir(exist_ok=True)
     with TestClient(app, headers={"X-Content-Studio": "1"}) as test_client:
         test_client.processed = processed
         yield test_client
@@ -258,7 +262,8 @@ def test_multiple_own_accounts_and_vault_setting(client: TestClient, tmp_path: P
     assert client.get("/api/mine?account_id=99999").json()["account"]["id"] == first["account"]["id"]
     assert client.get("/api/accounts").json() == []
 
-    assert state["vault"]["path"] == "~/park-hands"
+    # The fixture points the vault at tmp_path so no test can write into Park's real vault.
+    assert state["vault"]["path"].endswith("vault-default")
     assert client.put("/api/settings", json={"obsidian_vault": "  "}).status_code == 400
     vault = tmp_path / "vault"
     vault.mkdir()

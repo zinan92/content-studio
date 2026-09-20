@@ -141,3 +141,20 @@ def test_pipeline_does_not_reuse_arbitrary_content_for_short_link(tmp_path: Path
 
     assert calls == ["download"]
     assert result["reports"][0]["content_id"] == "v1"
+
+
+def test_prune_media_drops_the_video_and_keeps_everything_a_reanalysis_needs(tmp_path: Path) -> None:
+    """One item is ~70 MB, of which media/ is ~69.5 MB; the rest is what we actually reuse."""
+    from content_studio.pipeline import prune_media
+
+    item = tmp_path / "7683154176955731234"
+    (item / "media").mkdir(parents=True)
+    (item / "media" / "video.mp4").write_bytes(b"0" * 4096)
+    (item / "media" / "audio.m4a").write_bytes(b"0" * 1024)
+    for name in ("transcript.json", "content_item.json", "metadata.json", "structured_text.md"):
+        (item / name).write_text("{}", encoding="utf-8")
+
+    assert prune_media(item) == 5120
+    assert not (item / "media").exists()
+    assert sorted(p.name for p in item.iterdir()) == ["content_item.json", "metadata.json", "structured_text.md", "transcript.json"]
+    assert prune_media(item) == 0  # already pruned, and never an error
