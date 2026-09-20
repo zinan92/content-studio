@@ -117,6 +117,12 @@ button.chip-state{cursor:pointer}
 .tc-row .by{color:var(--ink-3);font-size:12px;margin-top:2px}
 .tc-row .acts{display:flex;gap:6px;align-items:center;flex:0 0 auto}
 .tc-empty{padding:16px 18px;color:var(--ink-3);font-size:13px}
+.std{margin-bottom:18px}
+.std .panel-h small{color:var(--ink-3)}
+.std-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line-soft)}
+.std-row:last-child{border-bottom:0}
+.std-row .by{color:var(--ink-3);font-size:12px;margin-top:2px}
+.std-empty{padding:16px 18px;color:var(--ink-3);font-size:13px}
 .acct.teacher .meta{color:var(--ink-2)}
 .nl-item.read .nl-check span{color:var(--ink-3);text-decoration:line-through;text-decoration-color:var(--line)}
 .nl-check{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;min-width:0}

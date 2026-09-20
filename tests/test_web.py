@@ -803,3 +803,27 @@ def test_teacher_account_is_followed_but_never_scored_as_a_benchmark(client: Tes
     assert [o["video_id"] for o in client.get("/api/outliers").json()] == ["5"]
     assert client.get("/api/teachers").json()["accounts"] == []
     assert client.put(f"/api/accounts/{account_id}/kind", json={"kind": "对标"}).status_code == 400
+
+
+def test_anna_can_propose_a_rule_and_park_writing_it_reaches_the_scorer(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from content_studio import qa, standard
+
+    guide = tmp_path / "SKILL.md"
+    guide.write_text("---\nname: park-content-qa\n---\n\n# 标准\n\n## 参考与致谢\n\n- 甲\n", encoding="utf-8")
+    monkeypatch.setenv(qa.QA_GUIDE_ENV, str(guide))
+
+    assert client.get("/api/standard").json()["rules"] == []
+    posted = client.post("/api/standard", json={"text": "高客单要靠认知型深度内容", "source": "一勾工作号"})
+    assert posted.status_code == 200
+    rule = posted.json()["rule"]
+
+    # The rule must land in what the scorer actually reads, not just in a list.
+    assert "高客单要靠认知型深度内容" in qa.load_guide()
+    assert guide.read_text(encoding="utf-8").rstrip().endswith("- 甲")
+
+    assert client.post("/api/standard", json={"text": "高客单要靠认知型深度内容"}).status_code == 400
+    assert client.delete(f"/api/standard/{rule['id']}").json()["rules"] == []
+    assert client.delete(f"/api/standard/{rule['id']}").status_code == 400
+    assert standard.BLOCK_START not in guide.read_text(encoding="utf-8")

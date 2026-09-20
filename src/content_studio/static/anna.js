@@ -89,7 +89,8 @@ function annaActionButton(a, scope) {
   const kind = annaKind(scope);
   if ((a.kind === 'outline' || a.kind === 'qa' || a.kind === 'memo') && kind !== 'work') return '';
   if (a.kind === 'take' && !['input', 'board'].includes(kind)) return '';
-  const text = a.kind === 'memo' ? `存进备注：${a.arg}` : a.kind === 'take' ? `拿来做：${a.arg}` : a.label;
+  // 记进标准 has no topic and a lesson can come from any page, so it is not gated by scope.
+  const text = a.kind === 'memo' ? `存进备注：${a.arg}` : a.kind === 'take' ? `拿来做：${a.arg}` : a.kind === 'standard' ? `记进标准：${a.arg}` : a.label;
   return `<button class="btn small an-act" type="button" data-an-kind="${a.kind}" data-an-arg="${esc(a.arg || '')}">${esc(text)}</button>`;
 }
 
@@ -108,6 +109,13 @@ async function runAnnaAction(kind, arg, scope) {
     } else if (kind === 'qa' && id) {
       const r = await api(`/api/topics/${id}/qa`, { method: 'POST' });
       toast(r.message);
+    } else if (kind === 'standard') {
+      // The sentence was distilled from someone else's video; Park approves the exact text.
+      const where = (S.standard && S.standard.path) || '~/.claude/skills/park-content-qa/SKILL.md';
+      if (!confirm(`把这一句写进你的三点评分标准？以后每条内容都会按它评分。\n\n${arg}\n\n写进：${where}`)) return;
+      await api('/api/standard', { method: 'POST', body: { text: arg, source: 'Anna · ' + (AN.data ? AN.data.label : '') } });
+      if (window.reloadStandard) await window.reloadStandard();
+      toast('已记进标准');
     } else if (kind === 'take') {
       await api('/api/topics', { method: 'POST', body: { title: arg, formats: 'both', account_id: S.mine && S.mine.account ? S.mine.account.id : null } });
       toast('已放进看板');

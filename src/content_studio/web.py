@@ -48,6 +48,11 @@ class KindBody(BaseModel):
     kind: str
 
 
+class StandardBody(BaseModel):
+    text: str
+    source: str = ""
+
+
 class JobBody(BaseModel):
     url: str | None = None
     video_id: str | None = None
@@ -340,6 +345,9 @@ def create_app(
     async def _vault_missing(_request: Any, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=404, content={"error": str(exc)})
 
+    from .standard import StandardError
+
+    @app.exception_handler(StandardError)
     @app.exception_handler(StoreError)
     @app.exception_handler(AccountError)
     @app.exception_handler(ValueError)
@@ -1716,6 +1724,32 @@ def create_app(
         fresh = [v for v in store.outliers(float(store.settings()["threshold"])) if (v.get("published_at") or "") >= cutoff]
         return [{"video_id": v["video_id"], "title": v["title"], "account": v.get("account_nickname"), "multiple": v["multiple"], "likes": v["likes"],
                  "published_at": v["published_at"], "url": v.get("url"), **teardown_state(v["video_id"])} for v in fresh[:limit]]
+
+    # -- Anna 的标准 ----------------------------------------------------------
+
+    @app.get("/api/standard")
+    def get_standard() -> dict[str, Any]:
+        from . import standard
+
+        path = standard.guide_path()
+        return {"path": str(path), "exists": path.exists(), "rules": standard.rules()}
+
+    @app.post("/api/standard")
+    def post_standard(body: StandardBody) -> dict[str, Any]:
+        """Write one rule into Park's QA standard. The text comes from a teardown of someone
+        else's video, so it is only ever written after Park clicks the button showing it."""
+        from . import standard
+
+        rule = standard.add_rule(body.text, source=body.source)
+        return {"rule": rule, "rules": standard.rules()}
+
+    @app.delete("/api/standard/{rule_id}")
+    def delete_standard(rule_id: str) -> dict[str, Any]:
+        from . import standard
+
+        if not standard.remove_rule(rule_id):
+            raise ValueError("这条标准已经不在了")
+        return {"rules": standard.rules()}
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:

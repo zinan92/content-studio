@@ -108,6 +108,7 @@ const S = {
   mine: null,
   accounts: [],
   teachers: { accounts: [], posts: [] },
+  standard: null,
   outliers: [],
   jobs: [],
   reports: [],
