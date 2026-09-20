@@ -30,9 +30,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "platform_accounts": {},
 }
 
-# What an account is for. 对标 (benchmark) accounts answer "拍什么" — their breakouts drive
-# recommendations and auto-teardown. 老师 (teacher) accounts answer "怎么拍": Park follows them for
-# method, so they are synced and shown, but kept out of every statistic and recommendation.
+# Kept as history only: Park collapsed 对标 and 老师 into one category on 2026-09-20, so nothing
+# branches on this any more. The column stays because dropping it would need a table rebuild.
 KIND_SELF = "self"
 KIND_BENCHMARK = "benchmark"
 KIND_TEACHER = "teacher"
@@ -675,15 +674,14 @@ class StudioStore:
             raise StoreError("账号不存在")
         return row
 
-    def accounts(self, kind: str | None = None) -> list[dict[str, Any]]:
-        rows = self._rows("SELECT * FROM accounts ORDER BY is_self DESC, id")
-        return [r for r in rows if r["kind"] == kind] if kind else rows
+    def accounts(self) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM accounts ORDER BY is_self DESC, id")
 
-    def benchmark_accounts(self) -> list[dict[str, Any]]:
-        return self.accounts(KIND_BENCHMARK)
-
-    def teacher_accounts(self) -> list[dict[str, Any]]:
-        return self.accounts(KIND_TEACHER)
+    def followed_accounts(self) -> list[dict[str, Any]]:
+        """Everyone Park follows. 2026-09-20: 对标 and 老师 collapsed back into one category —
+        he treats them the same, and the reason to split them (keeping 老师 breakouts out of the
+        daily recommendation) went away when the recommendation itself was removed."""
+        return [a for a in self.accounts() if not a["is_self"]]
 
     def self_account(self, account_id: int | None = None) -> dict[str, Any] | None:
         if account_id is not None:
@@ -698,11 +696,6 @@ class StudioStore:
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的账号字段：{sorted(unknown)}")
-        if "kind" in fields:
-            if fields["kind"] not in (KIND_BENCHMARK, KIND_TEACHER):
-                raise StoreError("账号只能是对标或老师")
-            if self.account(account_id)["is_self"]:
-                raise StoreError("自己的账号不能改类型")
         if fields:
             assignments = ", ".join(f"{key} = ?" for key in fields)
             with self.tx() as conn:
@@ -785,15 +778,15 @@ class StudioStore:
         ]
         return float(statistics.median(likes)) if likes else None
 
-    def teacher_posts(self, days: int = 7, now: datetime | None = None) -> list[dict[str, Any]]:
-        """What the 老师 accounts published recently, newest first.
+    def followed_posts(self, days: int = 7, now: datetime | None = None) -> list[dict[str, Any]]:
+        """What the accounts Park follows published recently, newest first.
 
         Keyed on published_at, never on when the workbench first saw the video: a newly added
         teacher's first sync pulls their whole back catalogue, and that must not land in 进项.
         """
         cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=days)).isoformat()
         posts = []
-        for account in self.teacher_accounts():
+        for account in self.followed_accounts():
             for video in self.videos(account["id"]):
                 if (video["published_at"] or "") >= cutoff:
                     posts.append({**video, "account_nickname": account["nickname"], "account_id": account["id"]})
@@ -802,7 +795,7 @@ class StudioStore:
 
     def outliers(self, threshold: float) -> list[dict[str, Any]]:
         results = []
-        for account in self.benchmark_accounts():
+        for account in self.followed_accounts():
             median = self.account_median(account["id"])
             if not median:
                 continue

@@ -144,6 +144,37 @@ def dailies(raw_root: str, day: date) -> list[dict[str, Any]]:
     return results
 
 
+def daily_history(raw_root: str, key: str, limit: int = 30) -> list[dict[str, Any]]:
+    """Recent issues of one newsletter, newest first — one tab per daily in 进项."""
+    source = next((s for s in DAILY_SOURCES if s.key == key), None)
+    if source is None:
+        raise VaultError(f"没有这份日报：{key}")
+    root = vault_root(raw_root)
+    folder = root / source.folder
+    if not folder.is_dir():
+        return []
+    files = [p for p in folder.iterdir() if p.suffix.lower() in source.suffixes and not p.name.startswith(".")]
+    files.sort(key=lambda p: p.name, reverse=True)
+    return [
+        {"key": source.key, "label": source.label, "path": str(p.relative_to(root)),
+         "kind": p.suffix.lstrip("."), "title": f"{source.label} · {_daily_day(p.name) or p.stem}",
+         "day": _daily_day(p.name), "modified_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="minutes")}
+        for p in files[:limit]
+    ]
+
+
+_DAILY_DAY = re.compile(r"(20\d{2})-(\d{2})-(\d{2})|(\d{2})-(\d{2})-(\d{2})")
+
+
+def _daily_day(name: str) -> str | None:
+    """The issue date from the file name — both 2026-09-20-… and 26-09-20… are in use."""
+    m = _DAILY_DAY.search(name)
+    if not m:
+        return None
+    y, mo, d = (m.group(1), m.group(2), m.group(3)) if m.group(1) else ("20" + m.group(4), m.group(5), m.group(6))
+    return f"{y}-{mo}-{d}"
+
+
 def inbox(raw_root: str, *, since: datetime, sources: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
     """Notes created or modified since `since`, newest first."""
     root = vault_root(raw_root)

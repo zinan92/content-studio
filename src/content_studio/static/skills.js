@@ -31,7 +31,7 @@ function renderStandard(box) {
   box.innerHTML = `<section class="panel std">
     <div class="panel-h"><h2>从拆解里学来的 <span class="num">${d.rules.length || ''}</span></h2><small>写进三点评分标准，Anna 每轮都读它 · ${esc(d.path)}</small></div>
     ${d.rules.length ? d.rules.map(standardRow).join('')
-      : '<div class="std-empty">还没有。拆一条老师的视频，问 Anna 学到什么，她会给一个「记进标准」的按钮。</div>'}
+      : '<div class="std-empty">还没有。拆一条对标的视频，问 Anna 学到什么，她会给一个「记进标准」的按钮。</div>'}
   </section>`;
   $$('[data-std-rm]', box).forEach((b) => (b.onclick = async () => {
     const r = d.rules.find((x) => x.id === b.dataset.stdRm);

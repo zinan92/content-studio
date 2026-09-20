@@ -776,33 +776,20 @@ def test_reach_combines_douyin_snapshots_with_hand_typed_platforms(client: TestC
     assert x["on"] is True and x["handle"] == "@park"
 
 
-def test_teacher_account_is_followed_but_never_scored_as_a_benchmark(client: TestClient) -> None:
-    res = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "kind": "teacher"})
+def test_a_followed_accounts_new_posts_reach_the_input_page(client: TestClient) -> None:
+    res = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}"})
     assert res.status_code == 200
     _wait_sync(client)
 
-    # 对标雷达 and every recommendation source stay empty: a 老师 changes 怎么拍, not 拍什么.
-    assert client.get("/api/accounts").json() == []
-    assert client.get("/api/outliers").json() == []
-
-    teachers = client.get("/api/teachers").json()
-    assert [a["nickname"] for a in teachers["accounts"]] == ["对标号"]
-    assert "median_likes" not in teachers["accounts"][0] and teachers["accounts"][0]["video_count"] == 5
+    assert [a["nickname"] for a in client.get("/api/accounts").json()] == ["对标号"]
     # The back catalogue was synced but is older than a week, so 进项 stays clean on day one.
-    assert teachers["posts"] == []
-    assert [p["video_id"] for p in client.get("/api/teachers?days=3650").json()["posts"]] == ["5", "4", "3", "2", "1"]
+    assert client.get("/api/followed/posts").json() == {"posts": [], "days": 7, "account_count": 1}
+    feed = client.get("/api/followed/posts?days=3650").json()
+    assert [p["video_id"] for p in feed["posts"]] == ["5", "4", "3", "2", "1"]
 
-    # A teardown of a teacher's video must not be filed as 对标 in the report list.
-    client.post("/api/jobs", json={"video_id": "5", "source": "老师"})
+    client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
     client.app.state.worker.drain()
-    assert client.get("/api/reports").json()[0]["kind"] == "teacher"
-
-    account_id = teachers["accounts"][0]["id"]
-    flipped = client.put(f"/api/accounts/{account_id}/kind", json={"kind": "benchmark"}).json()
-    assert flipped["account"]["breakout_count"] == 1
-    assert [o["video_id"] for o in client.get("/api/outliers").json()] == ["5"]
-    assert client.get("/api/teachers").json()["accounts"] == []
-    assert client.put(f"/api/accounts/{account_id}/kind", json={"kind": "对标"}).status_code == 400
+    assert client.get("/api/reports").json()[0]["video_id"] == "5"
 
 
 def test_anna_can_propose_a_rule_and_park_writing_it_reaches_the_scorer(

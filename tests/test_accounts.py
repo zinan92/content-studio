@@ -210,34 +210,29 @@ def test_image_posts_are_flagged_and_not_breakouts(store: StudioStore) -> None:
     assert store.outliers(5.0) == []
 
 
-def test_teacher_accounts_are_kept_out_of_breakouts_and_feed_recent_posts(tmp_path: Path) -> None:
-    """老师 accounts change 怎么拍, not 拍什么: synced and listed, but never scored as 对标."""
+def test_followed_posts_window_on_publish_date_not_on_when_they_were_first_seen(tmp_path: Path) -> None:
+    """A newly added account's first sync pulls its whole back catalogue; only what it actually
+    published this week belongs in 进项."""
     from datetime import datetime, timedelta, timezone
 
-    from content_studio.store import KIND_TEACHER, StudioStore
+    from content_studio.store import StudioStore
 
-    store = StudioStore(tmp_path / "teacher.sqlite3")
-    bench = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/b", external_id="b", status="ok")
-    teacher = store.add_account(
-        platform="抖音", profile_url="https://www.douyin.com/user/t", external_id="t", status="ok", kind=KIND_TEACHER
-    )
+    store = StudioStore(tmp_path / "followed.sqlite3")
+    a = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/a", external_id="a", status="ok")
+    b = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/b", external_id="b", status="ok")
+    me = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/me", external_id="me", status="ok", is_self=True)
     now = datetime(2026, 9, 20, tzinfo=timezone.utc)
     base = dict(platform="抖音", duration_seconds=60, is_top=0, is_image_post=0, comments=0, shares=0, collects=0, views=None)
-    for account in (bench, teacher):
+    for account in (a, b, me):
         store.upsert_videos(
             account["id"],
             [dict(base, video_id=f"{account['id']}-{i}", title=f"v{i}", published_at=(now - timedelta(days=30 + i)).isoformat(), likes=100) for i in range(5)]
             + [dict(base, video_id=f"{account['id']}-hot", title="hot", published_at=(now - timedelta(days=2)).isoformat(), likes=5000)],
         )
-    assert [v["video_id"] for v in store.outliers(5.0)] == [f"{bench['id']}-hot"]
-    assert [a["id"] for a in store.benchmark_accounts()] == [bench["id"]]
-
-    # The feed keys on published_at, so a new teacher's back catalogue does not flood 进项.
-    assert [v["video_id"] for v in store.teacher_posts(7, now)] == [f"{teacher['id']}-hot"]
-
-    store.update_account(bench["id"], kind=KIND_TEACHER)
-    assert store.outliers(5.0) == []
-    assert len(store.teacher_posts(7, now)) == 2
+    # Everyone Park follows counts the same way; his own account never does.
+    assert {v["video_id"] for v in store.followed_posts(7, now)} == {f"{a['id']}-hot", f"{b['id']}-hot"}
+    assert {v["video_id"] for v in store.outliers(5.0)} == {f"{a['id']}-hot", f"{b['id']}-hot"}
+    assert [x["id"] for x in store.followed_accounts()] == [a["id"], b["id"]]
     store.close()
 
 
