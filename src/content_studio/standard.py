@@ -107,14 +107,15 @@ def _write(path: Path, body: str) -> None:
 def _apply(path: Path, items: list[dict[str, Any]]) -> None:
     body = _read(path)
     before, _, after = _split(body)
-    if after or BLOCK_START in body:
-        rebuilt = before + (_render(items) if items else "") + after
+    if BLOCK_START in body:
+        # Removing the last rule takes the block's blank lines with it, so the file comes
+        # back byte-for-byte to what it was before the first rule was ever added.
+        rebuilt = before + _render(items) + after if items else before.rstrip("\n") + "\n\n" + after.lstrip("\n")
     else:
         # First rule: splice in above the credits, or append if Park removed that section.
         block = _render(items)
         cut = body.find(ANCHOR)
         rebuilt = (body[:cut] + block + "\n\n" + body[cut:]) if cut != -1 else body.rstrip() + "\n\n" + block + "\n"
-    rebuilt = re.sub(r"\n{4,}", "\n\n\n", rebuilt)
     size = len(rebuilt) - _frontmatter_len(rebuilt)
     if size > MAX_GUIDE_CHARS:
         raise StandardError(f"标准太长了（{size} 字，评分只读前 {MAX_GUIDE_CHARS} 字），先删掉几条再加")

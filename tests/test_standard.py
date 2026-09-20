@@ -62,7 +62,8 @@ def test_rules_go_above_the_credits_and_leave_the_rest_of_the_file_alone(guide: 
 
     standard.remove_rule(saved[1]["id"], guide)
     assert standard.rules(guide) == []
-    assert standard.BLOCK_START not in guide.read_text(encoding="utf-8")
+    # Removing the last rule leaves the file exactly as it was before the first one.
+    assert guide.read_text(encoding="utf-8") == before
 
 
 def test_duplicate_blank_and_oversized_rules_are_refused(guide: Path) -> None:
