@@ -28,7 +28,7 @@ from . import today as today_plan
 from . import vault
 from . import video_project
 from .video_project import VideoProjectError
-from .store import KIND_TEACHER, StoreError, StudioStore, now_iso
+from .store import StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
 
@@ -41,11 +41,6 @@ LEGACY_REPORT_DIRS = (Path("~/.config/content-studio/m1"),)
 class UrlBody(BaseModel):
     url: str
     is_self: bool = False
-    kind: str | None = None
-
-
-class KindBody(BaseModel):
-    kind: str
 
 
 class StandardBody(BaseModel):
@@ -451,36 +446,19 @@ def create_app(
 
     @app.get("/api/accounts")
     def accounts() -> list[dict[str, Any]]:
-        """对标 accounts only: 老师 accounts have their own page and never carry 中位/爆款 numbers."""
         threshold = float(store.settings()["threshold"])
-        return [account_view(a, threshold) for a in store.benchmark_accounts()]
+        return [account_view(a, threshold) for a in store.followed_accounts()]
 
-    def teacher_view(account: dict[str, Any]) -> dict[str, Any]:
-        videos = store.videos(account["id"])
-        return {
-            **account,
-            "pending_note": PENDING_NOTES.get(account["platform"]),
-            "syncing": account["id"] in ops.syncing or (ops.full_sync_running and account["platform"] == PLATFORM_DOUYIN),
-            "video_count": len(videos),
-            "latest_published_at": next((v["published_at"] for v in videos if v["published_at"]), None),
-        }
-
-    @app.get("/api/teachers")
-    def teachers(days: int = 7) -> dict[str, Any]:
-        """老师 accounts and what they posted lately — the 进项 feed. No stats: they change 怎么拍, not 拍什么."""
-        posts = [{**v, **teardown_state(v["video_id"])} for v in store.teacher_posts(days)]
-        return {"accounts": [teacher_view(a) for a in store.teacher_accounts()], "posts": posts, "days": days}
-
-    @app.put("/api/accounts/{account_id}/kind")
-    def put_account_kind(account_id: int, body: KindBody) -> dict[str, Any]:
-        account = store.update_account(account_id, kind=body.kind)
-        threshold = float(store.settings()["threshold"])
-        return {"account": teacher_view(account) if account["kind"] == KIND_TEACHER else account_view(account, threshold)}
+    @app.get("/api/followed/posts")
+    def followed_posts(days: int = 7) -> dict[str, Any]:
+        """What the accounts Park follows posted lately — the 对标 tab in 进项."""
+        posts = [{**v, **teardown_state(v["video_id"])} for v in store.followed_posts(days)]
+        return {"posts": posts, "days": days, "account_count": len(store.followed_accounts())}
 
     @app.post("/api/accounts")
     def post_account(body: UrlBody) -> dict[str, Any]:
         needs_client = "douyin.com" in body.url and "/user/" not in body.url
-        account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self, kind=body.kind)
+        account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self)
         syncing = False
         if account["platform"] == PLATFORM_DOUYIN:
             syncing = ops.run(account["id"], lambda: _sync_and_queue(account["id"]))
@@ -560,8 +538,6 @@ def create_app(
     @app.get("/api/reports")
     def reports() -> list[dict[str, Any]]:
         archived = store.archived_reports()
-        # Which library the video came from, so a 老师 teardown is never labelled 对标.
-        kinds = {v["video_id"]: a["kind"] for a in store.accounts() for v in store.videos(a["id"])}
         seen: dict[str, dict[str, Any]] = {}
         for base in report_dirs:
             for path in sorted((base / "reports").glob("*/report.json")):
@@ -581,7 +557,6 @@ def create_app(
                     "generated_at": data.get("generated_at"),
                     "multiple": (data.get("facts") or {}).get("multiple_of_median"),
                     "is_self": bool((data.get("facts") or {}).get("creator_avg_view_second")),
-                    "kind": kinds.get(video_id),
                     "archived_at": archived.get(video_id),
                 }
         # Benchmark reports nobody opened in 7 days are archived when the list is read, so the unread count stays meaningful.
@@ -1096,7 +1071,7 @@ def create_app(
         except (OSError, json.JSONDecodeError):
             return "## Park 正在看的拆解报告\n读不到这份报告"
         account = store.account(store.video(video_id)["account_id"]) if store.video(video_id) else None
-        whose = {"teacher": "老师", "self": "自己的视频"}.get(account["kind"], "对标") if account else "拆解"
+        whose = "自己的视频" if account and account["is_self"] else "对标"
         facts = data.get("facts") or {}
         head = (f"## Park 正在看的拆解报告（{whose}）\n标题：{data.get('title')}\n作者：{data.get('author')}\n"
                 f"点赞 {facts.get('likes')}（是他自己中位数的 {facts.get('multiple_of_median')} 倍）；播放 {facts.get('views')}；"
@@ -1783,6 +1758,12 @@ def create_app(
         if not standard.remove_rule(rule_id):
             raise ValueError("这条标准已经不在了")
         return {"rules": standard.rules()}
+
+    @app.get("/api/vault/dailies")
+    def vault_daily_history(key: str, limit: int = 30) -> dict[str, Any]:
+        items = vault.daily_history(vault_path(), key, limit)
+        checked = {d: True for d in store.checked_days(key)}
+        return {"key": key, "items": [{**i, "checked": bool(checked.get(i["day"]))} for i in items]}
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:

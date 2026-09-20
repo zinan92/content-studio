@@ -107,7 +107,7 @@ const S = {
   state: null,
   mine: null,
   accounts: [],
-  teachers: { accounts: [], posts: [] },
+  followed: { posts: [] },
   standard: null,
   outliers: [],
   jobs: [],
@@ -177,18 +177,18 @@ try { const t = localStorage.getItem('cs-theme'); if (t) document.documentElemen
 /* ================= data loading ================= */
 async function refreshAll() {
   const threshold = S.state ? S.state.settings.threshold : undefined;
-  const [state, mine, accounts, teachers, jobs, reports] = await Promise.all([
+  const [state, mine, accounts, followed, jobs, reports] = await Promise.all([
     api('/api/state'),
     api('/api/mine' + (S.accountId ? `?account_id=${S.accountId}` : '')),
     api('/api/accounts'),
-    api('/api/teachers'),
+    api('/api/followed/posts'),
     api('/api/jobs'),
     api('/api/reports'),
   ]);
   S.state = state;
   S.mine = mine;
   S.accounts = accounts;
-  S.teachers = teachers;
+  S.followed = followed;
   S.jobs = jobs;
   S.reports = reports;
   S.outliers = await api('/api/outliers' + (threshold ? `?threshold=${state.settings.threshold}` : ''));
@@ -461,12 +461,11 @@ function renderRadar() {
       ${a.platform === '抖音' ? spark(a.spark, a.median_likes, threshold) : `<div class="url">${esc(a.profile_url)}</div>`}
       ${a.platform === '抖音' ? `<div class="meta"><span>中位 <b>${fmt(a.median_likes)}</b></span><span>作品 <b>${a.video_count}</b></span><span style="color:var(--hot)">爆款 <b style="color:var(--hot)">${a.breakout_count}</b></span></div>` : ''}
       ${status}
-      ${a.platform === '抖音' ? `<div class="row-actions"><button class="btn small ghost" type="button" data-sync="${a.id}" ${a.syncing ? 'disabled' : ''}>同步</button><a class="btn small ghost" href="${esc(a.profile_url)}" target="_blank" rel="noopener">主页 ↗</a><button class="btn small ghost" type="button" data-kind="${a.id}" data-to="teacher" title="他教的是方法，不是我的赛道">改成老师</button></div>` : ''}
+      ${a.platform === '抖音' ? `<div class="row-actions"><button class="btn small ghost" type="button" data-sync="${a.id}" ${a.syncing ? 'disabled' : ''}>同步</button><a class="btn small ghost" href="${esc(a.profile_url)}" target="_blank" rel="noopener">主页 ↗</a></div>` : ''}
     </div>`;
   }).join('');
   $('#accts').innerHTML = cards + `<button class="panel acct add" id="addBtn" type="button"><span class="plus">+</span>加入对标账号<span>抖音 · 小红书 · X · 视频号</span></button>`;
   $('#addBtn').onclick = () => openAdd('benchmark');
-  renderTeachers();
   bindAccountActions($('#accts'), '对标库');
 
   const cutoff = S.radarDays ? Date.now() - S.radarDays * 86400000 : 0;
@@ -486,75 +485,14 @@ function renderRadar() {
   bindTeardownButtons($('#outs'));
 }
 
-function renderTeachers() {
-  const list = S.teachers.accounts;
-  $('#teachN').textContent = list.length ? `${list.length} 个` : '';
-  const cards = list.map((a) => {
-    const title = a.nickname || (a.platform === '抖音' ? '新账号（同步后显示昵称）' : '新账号');
-    const status = a.platform !== '抖音' ? `<div class="wait">${esc(a.pending_note)}</div>`
-      : a.syncing ? '<div class="status"><span class="spin"></span>正在同步近期作品…</div>'
-        : a.status === 'error' ? `<div class="status"><span class="err">同步失败：${esc(a.last_error)}</span></div>`
-          : `<div class="status">${esc(ago(a.last_synced_at))}</div>`;
-    return `<div class="panel acct teacher">
-      <div class="acct-top"><h3 title="${esc(title)}"><span class="pb">${esc(a.platform)}</span>${esc(title)}</h3><span class="fans">${a.follower_count !== null ? fmt(a.follower_count) + ' 粉' : ''} <button class="acct-x" data-rm="${a.id}" title="移出老师" aria-label="移出老师">×</button></span></div>
-      <div class="meta"><span>作品 <b>${a.video_count}</b></span><span>最近发布 <b>${a.latest_published_at ? day(a.latest_published_at) : '—'}</b></span></div>
-      ${status}
-      <div class="row-actions"><button class="btn small ghost" type="button" data-sync="${a.id}" ${a.syncing ? 'disabled' : ''}>同步</button><a class="btn small ghost" href="${esc(a.profile_url)}" target="_blank" rel="noopener">主页 ↗</a><button class="btn small ghost" type="button" data-kind="${a.id}" data-to="benchmark" title="他的爆款会开始喂今天推荐拍">改成对标</button></div>
-    </div>`;
-  }).join('');
-  $('#teachers').innerHTML = cards + `<button class="panel acct add" id="addTeachBtn" type="button"><span class="plus">+</span>加一个老师<span>教怎么做号的博主</span></button>`;
-  $('#addTeachBtn').onclick = () => openAdd('teacher');
-  bindAccountActions($('#teachers'), '老师');
-}
-
-const anyAccount = (id) => S.accounts.concat(S.teachers.accounts).find((a) => a.id === id);
-
-/** Sync one account and say what came back — otherwise a click that fetched nothing new
- *  looks identical to a click that did nothing at all. */
-async function syncOneAccount(id, btn) {
-  const before = anyAccount(id) || {};
-  const was = before.video_count || 0;
-  btn.disabled = true;
-  try {
-    const started = await api(`/api/accounts/${id}/sync`, { method: 'POST' });
-    if (!started.started) { toast(started.message); btn.disabled = false; return; }
-    toast('正在同步…');
-    for (let i = 0; i < 90; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      await refreshAll();
-      const now = anyAccount(id);
-      if (!now) return;
-      if (now.syncing) continue;
-      if (now.status === 'error') { toast(`同步失败：${now.last_error || '未知原因'}`); return; }
-      const added = (now.video_count || 0) - was;
-      const latest = now.latest_published_at ? day(now.latest_published_at) : '—';
-      const where = now.kind === 'teacher' ? '「进项 · 老师发的」' : '爆款样本';
-      toast(added > 0
-        ? `${now.nickname || '账号'}：新增 ${added} 条，最近一条 ${latest}，在${where}里`
-        : `${now.nickname || '账号'}：他没发新的（共 ${now.video_count} 条，最近一条 ${latest}），数据已刷新`);
-      return;
-    }
-    toast('同步还没结束，稍后看这张卡片上的时间');
-  } catch (err) { toast(err.message); btn.disabled = false; }
-}
-
-/** Remove / sync / change kind — shared by the 对标 and 老师 card grids. */
+/** Remove / sync — the 对标 card grid. */
 function bindAccountActions(root, what) {
   $$('[data-rm]', root).forEach((b) => (b.onclick = async () => {
-    const all = S.accounts.concat(S.teachers.accounts);
-    const acct = all.find((a) => String(a.id) === b.dataset.rm);
+    const acct = S.accounts.find((a) => String(a.id) === b.dataset.rm);
     if (!confirm(`把「${acct.nickname || acct.profile_url}」移出${what}？它的作品数据会一起删除，已生成的拆解报告保留。`)) return;
     try { await api(`/api/accounts/${b.dataset.rm}`, { method: 'DELETE' }); toast(`已移出${what}`); await refreshAll(); } catch (err) { toast(err.message); }
   }));
   $$('[data-sync]', root).forEach((b) => (b.onclick = () => syncOneAccount(Number(b.dataset.sync), b)));
-  $$('[data-kind]', root).forEach((b) => (b.onclick = async () => {
-    const to = b.dataset.to;
-    if (!confirm(to === 'teacher'
-      ? '改成老师？他就不再算爆款、不再喂「今天推荐拍」，新视频会出现在「进项」。'
-      : '改成对标？他的爆款会重新进爆款样本，也会喂「今天推荐拍」。')) return;
-    b.disabled = true;
-    try { await api(`/api/accounts/${b.dataset.kind}/kind`, { method: 'PUT', body: { kind: to } }); toast(to === 'teacher' ? '已改成老师' : '已改成对标'); await refreshAll(); } catch (err) { toast(err.message); b.disabled = false; }
-  }));
 }
 
 let thrTimer;
@@ -597,16 +535,8 @@ function showDetect() {
   d.classList.remove('err');
   d.textContent = !u ? '支持以上四个平台的主页链接' : pl ? (pl === '抖音' ? '识别为抖音主页，加入后立即同步' : `识别为${pl}主页，先入库，抓取待接入`) : '还没认出平台，请粘贴完整的主页链接';
 }
-const ADD_COPY = {
-  benchmark: ['加入对标账号', '粘贴对方的主页链接。抖音账号加入后会立即同步近期作品、算出他自己的爆款基准。'],
-  teacher: ['加一个老师', '粘贴对方的主页链接。老师只同步、不算爆款：他发的新视频会出现在「进项」，等你决定是拿来做还是拆解学方法。'],
-};
-
 function openAdd(mode) {
   S.addMode = mode;
-  const copy = ADD_COPY[mode] || ADD_COPY.benchmark;
-  $('#addTitle').textContent = copy[0];
-  $('#addDesc').textContent = copy[1];
   $('#addIn').value = '';
   showDetect();
   $('#addDlg').showModal();
@@ -619,11 +549,9 @@ $('#addForm').onsubmit = async (e) => {
   const btn = $('#addSubmit');
   btn.disabled = true;
   try {
-    const kind = S.addMode === 'teacher' ? 'teacher' : 'benchmark';
-    const where = kind === 'teacher' ? '老师' : '对标库';
-    const res = await api('/api/accounts', { method: 'POST', body: { url: $('#addIn').value, kind } });
+    const res = await api('/api/accounts', { method: 'POST', body: { url: $('#addIn').value } });
     $('#addDlg').close();
-    toast(res.account.platform === '抖音' ? `已加入${where}，正在同步近期作品` : `已加入${where}（${res.account.platform}，抓取待接入）`);
+    toast(res.account.platform === '抖音' ? '已加入对标库，正在同步近期作品' : `已加入对标库（${res.account.platform}，抓取待接入）`);
     await refreshAll();
   } catch (err) {
     const d = $('#addDetect');
@@ -740,7 +668,7 @@ function renderReport() {
   const unread = S.reports.filter((r) => !r.archived_at);
   const archivedCount = S.reports.length - unread.length;
   const shown = S.showArchived ? S.reports : unread;
-  pick.innerHTML = shown.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : r.kind === 'teacher' ? '老师 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('')
+  pick.innerHTML = shown.map((r) => `<button type="button" class="${r.video_id === S.reportId ? 'on' : ''} ${r.archived_at ? 'archived' : ''}" data-rid="${esc(r.video_id)}">${r.is_self ? '我的 · ' : '对标 · '}${esc(cleanTitle(r.title).slice(0, 16))}</button>`).join('')
     + (archivedCount ? `<button type="button" class="toggle-archived" id="toggleArchived">${S.showArchived ? '收起已归档' : `已归档 ${archivedCount}`}</button>` : '');
   $$('[data-rid]', pick).forEach((b) => (b.onclick = () => openReport(b.dataset.rid)));
   if ($('#toggleArchived')) $('#toggleArchived').onclick = () => { S.showArchived = !S.showArchived; renderReport(); };
@@ -778,7 +706,7 @@ function renderReport() {
     <div class="panel">
       <div class="rep-head">
         <div>
-          <div class="eyebrow">${r.facts.creator_avg_view_second ? '我的视频 · 主线诊断' : entry && entry.kind === 'teacher' ? '老师拆解 · 学方法' : '对标拆解'} · ${esc(r.author || '')}</div>
+          <div class="eyebrow">${r.facts.creator_avg_view_second ? '我的视频 · 主线诊断' : '对标拆解'} · ${esc(r.author || '')}</div>
           <h2 title="${esc(r.title)}">${esc(cleanTitle(r.title))}</h2>
           <div class="by">时长 ${mmss(total)} · 生成于 ${day(r.generated_at)}</div>
         </div>
@@ -869,7 +797,7 @@ setInterval(async () => {
   if (!S.state || document.hidden) return;
   const syncing = (a) => a.syncing;
   const busy = S.state.full_sync_running || S.state.active_jobs > 0 || S.accounts.some(syncing)
-    || S.teachers.accounts.some(syncing) || (S.mine.account && S.mine.account.syncing);
+    || (S.mine.account && S.mine.account.syncing);
   if (!busy) return;
   const focus = document.activeElement;
   if (focus && (focus.tagName === 'INPUT' || $('#addDlg').open)) return;
