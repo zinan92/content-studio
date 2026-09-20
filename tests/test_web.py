@@ -90,7 +90,7 @@ def _fake_anna(system: str, user: str, session_id: str | None) -> dict:
     assert "让对的人看得更久" in system or "Anna" in system
     if "炸掉" in user:
         raise RuntimeError("boom")
-    seen = "看到提纲" if "## 拍摄提纲" in user else "没有提纲"
+    seen = "看到报告" if "Park 正在看的拆解报告" in user else "看到提纲" if "## 拍摄提纲" in user else "没有提纲"
     return {"text": f"{seen}｜上一轮 {session_id}\n[动作] 按三点评分", "session_id": "sess-1"}
 
 
@@ -827,3 +827,21 @@ def test_anna_can_propose_a_rule_and_park_writing_it_reaches_the_scorer(
     assert client.delete(f"/api/standard/{rule['id']}").json()["rules"] == []
     assert client.delete(f"/api/standard/{rule['id']}").status_code == 400
     assert standard.BLOCK_START not in guide.read_text(encoding="utf-8")
+
+
+def test_anna_on_the_report_page_is_given_the_open_teardown(client: TestClient) -> None:
+    """Without the report in her context she would invent the lesson Park then writes into his standard."""
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "kind": "teacher"})
+    _wait_sync(client)
+    client.post("/api/jobs", json={"video_id": "5", "source": "老师"})
+    client.app.state.worker.drain()
+
+    import time
+
+    assert client.post("/api/anna", json={"scope": "output", "message": "这条教了什么方法", "report_id": "5"}).json()["started"] is True
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": "output"}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    assert "看到报告" in chat["messages"][-1]["text"]

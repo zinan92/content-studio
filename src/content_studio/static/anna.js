@@ -178,6 +178,7 @@ async function renderAnna() {
     if (!message || d.busy) return;
     const body = { scope, message };
     if (kind === 'input' && typeof C !== 'undefined' && C.open) body.note_path = C.open;
+    if (S.view === 'report' && S.reportId) body.report_id = String(S.reportId);  // 拆解报告页：让她看到这份报告本身
     try {
       const r = await api('/api/anna', { method: 'POST', body });
       if (!r.started) { toast(r.message); return; }

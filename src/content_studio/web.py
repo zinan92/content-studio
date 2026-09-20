@@ -104,6 +104,7 @@ class AnnaBody(BaseModel):
     scope: str
     message: str
     note_path: str | None = None
+    report_id: str | None = None
 
 
 class VideoLinkBody(BaseModel):
@@ -1083,7 +1084,36 @@ def create_app(
             raise ValueError("未知页面")
         return kind, anna_mod.SCOPE_LABELS[kind], None
 
-    def _anna_context(kind: str, topic_id: int | None, note_path: str | None) -> str:
+    def _report_context(video_id: str) -> str:
+        """The teardown Park has open. Without it Anna answers 「这条教了什么方法」 from nothing —
+        and the rule she then proposes for 记进标准 would be invented."""
+        path = report_file(video_id)
+        if path is None:
+            return "## Park 正在看的拆解报告\n读不到这份报告"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return "## Park 正在看的拆解报告\n读不到这份报告"
+        account = store.account(store.video(video_id)["account_id"]) if store.video(video_id) else None
+        whose = {"teacher": "老师", "self": "自己的视频"}.get(account["kind"], "对标") if account else "拆解"
+        facts = data.get("facts") or {}
+        head = (f"## Park 正在看的拆解报告（{whose}）\n标题：{data.get('title')}\n作者：{data.get('author')}\n"
+                f"点赞 {facts.get('likes')}（是他自己中位数的 {facts.get('multiple_of_median')} 倍）；播放 {facts.get('views')}；"
+                f"收藏 {facts.get('collects')}；评论 {facts.get('comments')}；分享 {facts.get('shares')}\n"
+                f"主线：{data.get('thesis')}\n开头：{json.dumps(data.get('opening'), ensure_ascii=False)[:600]}\n"
+                f"为什么爆：{data.get('why_boom')}\n哪里散了：{data.get('why_scatter')}")
+        budget = 7000
+        parts = []
+        for seg in data.get("segments") or []:
+            block = (f"### {seg.get('index')} {seg.get('label')}（{seg.get('start')}–{seg.get('end')} 秒）"
+                     f"{'｜跑题' if seg.get('drift') else ''}\n{seg.get('summary')}｜{seg.get('reason')}\n原话：{(seg.get('text') or '')[:400]}")
+            if len(block) > budget:
+                break
+            budget -= len(block)
+            parts.append(block)
+        return head + "\n\n## 分段\n" + "\n\n".join(parts)
+
+    def _anna_context(kind: str, topic_id: int | None, note_path: str | None, report_id: str | None = None) -> str:
         """What Park is looking at right now, as plain text for one turn."""
         from . import board, opening, outline, qa, writer
 
@@ -1177,6 +1207,8 @@ def create_app(
                     lines.append("## 最近一次每周复盘\n" + json.dumps(rv["data"], ensure_ascii=False)[:3000])
                 k = today_plan.shooting_streak(date.today(), shot_days())
                 lines.append(f"## 拍摄\n连续拍摄 {k.get('days')} 天；距上次拍 {k.get('days_since_last')} 天")
+            if report_id:
+                lines.append(_report_context(report_id))
         else:
             lines.append("Park 在设置页。")
         return "\n\n".join(lines)
@@ -1191,9 +1223,9 @@ def create_app(
         except (ValueError, StoreError):
             return ""
 
-    def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None) -> None:
+    def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None, report_id: str | None = None) -> None:
         try:
-            context = _anna_context(kind, topic_id, note_path)
+            context = _anna_context(kind, topic_id, note_path, report_id)
             chat = store.anna_chat(ANNA_THREAD)
             if topic_id is not None:
                 label = f"{label}《{store.topic(topic_id)['title']}》"
@@ -1240,7 +1272,7 @@ def create_app(
             anna_busy.add(ANNA_THREAD)
             anna_errors.pop(ANNA_THREAD, None)
         store.append_anna(ANNA_THREAD, {"role": "park", "text": message, "at": now_iso(), "scope": body.scope})
-        threading.Thread(target=_anna_turn, args=(body.scope, kind, label, topic_id, message, body.note_path), name=f"anna-{body.scope}", daemon=True).start()
+        threading.Thread(target=_anna_turn, args=(body.scope, kind, label, topic_id, message, body.note_path, body.report_id), name=f"anna-{body.scope}", daemon=True).start()
         return {"started": True}
 
     @app.delete("/api/anna")
