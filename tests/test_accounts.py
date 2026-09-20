@@ -278,4 +278,11 @@ def test_announcements_are_never_queued_so_they_are_never_downloaded(tmp_path: P
     ])
     queued = auto_enqueue_new_posts(store, now=now)
     assert [j["video_id"] for j in queued] == ["good"]
+
+    # The queue window must match the window notes are accepted in, or videos fresh enough to
+    # read never get fetched. "old" is 40 days back: outside both.
+    from content_studio import transcripts
+
+    assert auto_enqueue_new_posts.__defaults__[1] is None  # days resolves to transcripts.FRESH_DAYS
+    assert transcripts.FRESH_DAYS == 30
     store.close()

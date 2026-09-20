@@ -814,12 +814,14 @@ def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(
     client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
     client.app.state.worker.drain()
 
-    notes = list((root / "002_对标内容").glob("*.md"))
-    assert len(notes) == 1
-    body = notes[0].read_text(encoding="utf-8")
-    assert "source: https://www.douyin.com/video/5" in body and "## 全文" in body
+    # With the window opened up the sync queues the whole catalogue, so every post lands.
+    notes = {p.name: p.read_text(encoding="utf-8") for p in (root / "002_对标内容").glob("*.md")}
+    assert len(notes) == 5
+    body = next(b for b in notes.values() if "video/5" in b)
+    assert "source: https://www.douyin.com/video/5" in body and "## 全文" in body and "author: 对标号" in body
 
     item = next(i for i in client.get("/api/vault/inbox?days=1").json()["items"] if i["source"] == "benchmark")
+    assert item["author"] == "对标号"  # 进项 shows the blogger, not the folder
     assert client.get("/api/vault/note", params={"path": item["path"]}).json()["body"]
     topic = client.put("/api/vault/triage", json={"path": item["path"], "status": "topic"}).json()["topic"]
     assert topic["note_paths"] == [item["path"]]

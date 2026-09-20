@@ -300,17 +300,21 @@ AUTO_SOURCE_PREFIX = "对标爆款"
 def auto_enqueue_new_posts(
     store: StudioStore,
     has_report: Callable[[str], bool] = lambda _video_id: False,
-    days: int = 7,
-    limit: int = 20,
+    days: int | None = None,
+    limit: int = 40,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Queue every recent post from the accounts Park follows, so its transcript lands in 进项.
 
-    Windowed on published_at and capped per run: adding a new account pulls its whole back
-    catalogue in one sync, and queueing 60 downloads at once is not what "follow them" means.
+    Windowed on published_at (the same window notes are accepted in) and capped per run:
+    adding a new account pulls its whole back catalogue in one sync, and queueing hundreds of
+    downloads at once is not what "follow them" means.
     """
-    from .transcripts import looks_like_announcement
+    from .transcripts import FRESH_DAYS, looks_like_announcement
 
+    # Same window as the note gate: queueing 7 days while notes accept 30 leaves three weeks
+    # of videos that are fresh enough to read but were never fetched.
+    days = FRESH_DAYS if days is None else days
     created: list[dict[str, Any]] = []
     for video in store.followed_posts(days, now):
         if len(created) >= limit:
