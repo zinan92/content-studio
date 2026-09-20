@@ -35,7 +35,8 @@ async function loadDaily(key, force) {
 
 /* ---- 把三种来源归一成同一种行 ---- */
 const noteRow = (i) => ({
-  id: 'n:' + i.path, path: i.path, title: i.title, sub: i.source_label,
+  // 对标转录显示博主的名字；其余笔记显示它来自哪个文件夹。
+  id: 'n:' + i.path, path: i.path, title: i.title, sub: i.author || i.source_label,
   at: i.is_new ? i.created_at : i.modified_at, summary: i.summary, taken: i.triage || (i.used_by ? 'topic' : ''),
   topicId: i.used_by ? i.used_by.topic_id : null, shipped: i.used_by ? i.used_by.shipped : false,
 });

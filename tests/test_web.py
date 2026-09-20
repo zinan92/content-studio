@@ -798,10 +798,13 @@ def test_anna_on_the_report_page_is_given_the_open_teardown(client: TestClient) 
     assert "看到报告" in chat["messages"][-1]["text"]
 
 
-def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(client: TestClient, tmp_path: Path) -> None:
+def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The whole point: the text has to land in the vault, or 进项 can only show a title."""
     from content_studio import transcripts
 
+    monkeypatch.setattr(transcripts, "FRESH_DAYS", 3650)  # the fixture's posts are from May
     root = tmp_path / "vault-bench"
     (root / "002_对标内容").mkdir(parents=True)
     client.put("/api/settings", json={"obsidian_vault": str(root)})
@@ -822,12 +825,32 @@ def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(clien
     assert topic["note_paths"] == [item["path"]]
 
 
+def test_a_video_older_than_the_fresh_window_never_becomes_a_note(client: TestClient, tmp_path: Path) -> None:
+    """Park: 半年前的内容跟我现在的选题已经没有关系了。A first sync pulls the whole back
+    catalogue, so an old video arriving today would sit in 进项 looking as new as today's."""
+    root = tmp_path / "vault-stale"
+    (root / "002_对标内容").mkdir(parents=True)
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}"})
+    _wait_sync(client)
+
+    client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
+    client.app.state.worker.drain()
+    # The report is still there to read in 拆解报告; it just does not clutter 进项.
+    assert client.get("/api/reports").json()[0]["video_id"] == "5"
+    assert list((root / "002_对标内容").glob("*.md")) == []
+
+
 def test_announcements_are_dropped_after_transcription_not_before(tmp_path: Path) -> None:
     """Park's rule: filter on the content, not on likes — and the content only exists once
     the video has been transcribed."""
+    from datetime import datetime, timezone
+
     from content_studio import transcripts
 
     assert transcripts.is_thin(title="凡尔赛一下，今晚8点见", text="正文" * 400, duration_seconds=300)
     assert transcripts.is_thin(title="正常选题", text="太短", duration_seconds=300)
     assert transcripts.is_thin(title="正常选题", text="正文" * 400, duration_seconds=12)
     assert transcripts.is_thin(title="高客单获客，必须做认知型深度内容", text="正文" * 400, duration_seconds=300) is None
+    assert transcripts.is_stale("2026-06-27T10:00:00", now=datetime(2026, 9, 20, tzinfo=timezone.utc)) is True
+    assert transcripts.is_stale("2026-09-18T10:00:00", now=datetime(2026, 9, 20, tzinfo=timezone.utc)) is False

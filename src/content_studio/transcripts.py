@@ -11,7 +11,7 @@ only judged after transcription, because that is the first moment the content ex
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import re
@@ -21,6 +21,9 @@ from typing import Any
 FOLDER = "002_对标内容"
 MIN_CHARS = 300
 MIN_SECONDS = 40
+# 进项是为了「今天拍什么」服务的。第一次加一个对标账号会同步他的全部历史作品，
+# 半年前的视频今天才进来，在列表里长得和今天发的一样新，但对今天的选题毫无用处。
+FRESH_DAYS = 30
 # 预告、开播、上架这类：视频本身就是一句通知，没有可读的内容。
 ANNOUNCEMENT = re.compile(
     r"(今晚|今天|明天|明晚)?\s*\d{1,2}\s*点\s*(见|开播|直播)|预告|开播|直播间|抽奖|倒计时|上架|"
@@ -37,10 +40,25 @@ def looks_like_announcement(title: str) -> bool:
     return bool(ANNOUNCEMENT.search(title or ""))
 
 
-def is_thin(*, title: str, text: str, duration_seconds: float | None) -> str | None:
+def is_stale(published_at: str | None, *, days: int = FRESH_DAYS, now: datetime | None = None) -> bool:
+    """Published too long ago to be worth putting in 进项 today."""
+    if not published_at:
+        return False
+    try:
+        when = datetime.fromisoformat(str(published_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return (now or datetime.now(timezone.utc)) - when > timedelta(days=days)
+
+
+def is_thin(*, title: str, text: str, duration_seconds: float | None, published_at: str | None = None) -> str | None:
     """Why this video is not worth saving, or None if it is."""
     if looks_like_announcement(title):
         return "标题像预告/公告，不是内容"
+    if is_stale(published_at, days=FRESH_DAYS):
+        return f"{(published_at or '')[:10]} 发的，超过 {FRESH_DAYS} 天，对今天的选题没用了"
     if duration_seconds is not None and duration_seconds < MIN_SECONDS:
         return f"只有 {round(duration_seconds)} 秒，太短"
     if len(text.strip()) < MIN_CHARS:
