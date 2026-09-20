@@ -3,7 +3,7 @@
 window.VIEWS = window.VIEWS || {};
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
-const VD = { topicId: null, tab: 'outline', outline: null, dirty: false, mode: 'preview' };
+const VD = { topicId: null, tab: 'outline', outline: null, dirty: false, mode: 'preview', qaOpen: false };
 
 async function startOutline(topicId) {
   try {
@@ -36,22 +36,25 @@ async function renderQA(topic, box) {
     return;
   }
   if (!r) {
-    box.innerHTML = `<section class="qa qa-wait">${d.state === 'failed' ? `<span class="bad">${esc(d.error || '评分失败')}</span>` : '<span>还没按三点评过：痛点具象度、认知反差度、交付可行性。</span>'}${again}</section>`;
+    box.innerHTML = `<section class="qa qa-wait">${d.state === 'failed' ? `<span class="bad">${esc(d.error || '评分失败')}</span>` : '<span>还没评过。</span>'}${again}</section>`;
   } else {
+    // Park: 写提纲的时候不要把评分摊在眼前（Don't mess up with my mind）。
+    // 默认只留一行结论，点「评估」才展开三点；「最该改」和「不要讲过头」不在这里露面——
+    // 它们是给 Anna 看的，她会在对话里说。
     const [label, tone] = QA_VERDICT[r.verdict] || ['', ''];
     box.innerHTML = `<section class="qa">
-      <div class="qa-h"><b class="qa-verdict ${tone}">${label}</b><span class="num">${r.total}/15</span><small>评于 ${day(r.generated_at)}${r.guide === 'rubric' ? ' · 没找到你的 skill 文件，用的是简版标准' : ''}</small><span class="spacer"></span>${again}</div>
-      <div class="qa-grid">${QA_POINTS.map(([k, name]) => {
+      <div class="qa-h"><b class="qa-verdict ${tone}">${label}</b><span class="num">${r.total}/15</span><small>评于 ${day(r.generated_at)}${r.guide === 'rubric' ? ' · 没找到你的 skill 文件，用的是简版标准' : ''}</small><span class="spacer"></span><button class="linklike" type="button" id="qaFold">${VD.qaOpen ? '收起' : '评估'}</button>${again}</div>
+      ${VD.qaOpen ? `<div class="qa-grid">${QA_POINTS.map(([k, name]) => {
         const p = r[k];
         return `<div class="qa-pt ${p.score <= 2 ? 'low' : ''}">
           <div class="qa-top"><span>${name}</span><b class="num">${p.score}</b></div>
           <div class="qa-bar" aria-hidden="true">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= p.score ? 'on' : ''}"></i>`).join('')}</div>
           <p>${esc(p.reason)}</p>${p.evidence ? `<blockquote>${esc(p.evidence)}</blockquote>` : ''}
         </div>`;
-      }).join('')}</div>
-      <p class="qa-fix"><b>最该改的一处</b>${esc(r.fix)}</p>
-      ${r.caution ? `<p class="qa-fix"><b>不要讲过头</b>${esc(r.caution)}</p>` : ''}
+      }).join('')}</div>` : ''}
     </section>`;
+    const fold = $('#qaFold', box);
+    if (fold) fold.onclick = () => { VD.qaOpen = !VD.qaOpen; renderQA(topic, box); };
   }
   $$('[data-qa-run]', box).forEach((b) => (b.onclick = async () => {
     b.disabled = true;
