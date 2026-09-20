@@ -388,6 +388,7 @@ def create_app(
             "pending_note": PENDING_NOTES.get(account["platform"]),
             "syncing": account["id"] in ops.syncing or (ops.full_sync_running and account["platform"] == PLATFORM_DOUYIN),
             "video_count": len(videos),
+            "latest_published_at": next((v["published_at"] for v in videos if v["published_at"]), None),
             "median_likes": median,
             "breakout_count": sum(1 for v in chronological if median and v["likes"] / median >= threshold),
             "spark": [v["likes"] for v in chronological][-60:],
