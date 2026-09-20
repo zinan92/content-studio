@@ -89,3 +89,20 @@ def test_inbox_carries_the_author_so_进项_can_show_the_blogger(tmp_path) -> No
     )
     items = vault.inbox(str(root), since=datetime.now() - timedelta(days=1))
     assert [(i["source"], i["author"]) for i in items] == [("benchmark", "柱子哥TzFilm")]
+
+
+def test_daily_history_lists_only_dated_issues_and_labels_a_second_one(tmp_path) -> None:
+    """Park: 这个 README 不用放在这啊。The folder also holds tooling scratch dirs."""
+    from content_studio import vault
+
+    root = tmp_path / "v"
+    folder = root / "006_ai daily newsletter"
+    folder.mkdir(parents=True)
+    for name in ("26-09-20.md", "26-09-19.md", "26-09-19-晚.md", "README.md", "notes.md"):
+        (folder / name).write_text("x", encoding="utf-8")
+    (folder / "tmp-scratch").mkdir()
+
+    items = vault.daily_history(str(root), "ai_daily")
+    assert [i["title"] for i in items] == [
+        "AI 日报 · 2026-09-20", "AI 日报 · 2026-09-19 晚", "AI 日报 · 2026-09-19",
+    ]

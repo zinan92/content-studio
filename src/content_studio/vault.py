@@ -156,17 +156,30 @@ def daily_history(raw_root: str, key: str, limit: int = 30) -> list[dict[str, An
     folder = root / source.folder
     if not folder.is_dir():
         return []
-    files = [p for p in folder.iterdir() if p.suffix.lower() in source.suffixes and not p.name.startswith(".")]
-    files.sort(key=lambda p: p.name, reverse=True)
+    # Only dated issues: the folder also holds a README and the tooling's scratch files, and a
+    # README listed as if it were an issue is noise in a list Park reads every morning.
+    files = [
+        p for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in source.suffixes and not p.name.startswith(".") and _daily_day(p.name)
+    ]
+    # Newest first, and a day's second issue (…-晚) above that day's first one — sorting on the
+    # raw file name puts them the other way round, because '.' sorts after '-'.
+    files.sort(key=lambda p: (_daily_day(p.name) or "", _edition(p.name)), reverse=True)
     return [
         {"key": source.key, "label": source.label, "path": str(p.relative_to(root)),
-         "kind": p.suffix.lstrip("."), "title": f"{source.label} · {_daily_day(p.name) or p.stem}",
+         "kind": p.suffix.lstrip("."), "title": f"{source.label} · {_daily_day(p.name)}{_edition(p.name)}",
          "day": _daily_day(p.name), "modified_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="minutes")}
         for p in files[:limit]
     ]
 
 
 _DAILY_DAY = re.compile(r"(20\d{2})-(\d{2})-(\d{2})|(\d{2})-(\d{2})-(\d{2})")
+
+
+def _edition(name: str) -> str:
+    """Some days have a second issue (26-09-16-晚.md); without this both rows read the same."""
+    tail = _DAILY_DAY.sub("", Path(name).stem, count=1).strip("-_ ")
+    return f" {tail}" if tail else ""
 
 
 def _daily_day(name: str) -> str | None:
