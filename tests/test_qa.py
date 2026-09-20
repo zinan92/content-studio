@@ -73,3 +73,27 @@ def test_errors_and_guide_loading(tmp_path: Path) -> None:
     assert qa.load_guide(tmp_path / "missing.md") == qa.RUBRIC
     qa.save(tmp_path, 3, {"total": 9})
     assert qa.load(tmp_path, 3) == {"total": 9} and qa.load(tmp_path, 4) is None
+
+
+def test_principles_ride_ahead_of_the_rubric_and_a_missing_file_is_not_a_failure(tmp_path, monkeypatch) -> None:
+    """Park's first principles say why the rubric scores the way it does, so they win where the
+    two disagree — and precedence has to be visible in the prompt's structure, not just asserted."""
+    guide = tmp_path / "SKILL.md"
+    guide.write_text("# 我的标准\n三点评分。", encoding="utf-8")
+    monkeypatch.setenv(qa.QA_GUIDE_ENV, str(guide))
+
+    assert qa.load_principles() == ""
+    plain = qa.build_prompt("t", "提纲", "素材", qa.load_guide())
+    assert "<原则" not in plain and "三点评分" in plain
+
+    (tmp_path / "principles.md").write_text("---\na: b\n---\n\n# 原则\n前 1 分钟定生死。", encoding="utf-8")
+    assert qa.load_principles() == "# 原则\n前 1 分钟定生死。"
+    prompt = qa.build_prompt("t", "提纲", "素材", qa.load_guide())
+    assert prompt.index("前 1 分钟定生死") < prompt.index("三点评分")
+    assert "以这里为准" in prompt
+
+
+def test_a_missing_guide_next_to_a_real_principles_file_still_falls_back_to_the_rubric(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv(qa.QA_GUIDE_ENV, str(tmp_path / "gone.md"))
+    (tmp_path / "principles.md").write_text("# 原则", encoding="utf-8")
+    assert qa.load_guide() == qa.RUBRIC and qa.load_principles() == "# 原则"
