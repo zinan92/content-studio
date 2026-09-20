@@ -129,3 +129,17 @@ def test_import_requires_worktable_page(tmp_path: Path) -> None:
     _project(tmp_path, "p")
     with pytest.raises(vp.VideoProjectError, match="还没有 worktable"):
         vp.import_worktable(tmp_path.resolve(), "p", text="{}")
+
+
+def test_only_date_named_folders_count_as_projects(tmp_path: Path) -> None:
+    """The exports drive also holds npm/pip caches and cloned repos other tools dropped there;
+    a 1.7 GB node_modules folder must not show up in 剪辑进度 as a video waiting to be edited."""
+    root = tmp_path / "exports"
+    root.mkdir()
+    for name in ("2026-09-20_一条视频", "aimoney-stage", "remotion-tmp", ".DS_Store_dir", "shotcraft-probe"):
+        (root / name).mkdir()
+    (root / "2026-09-20_一条视频" / "README.md").write_text("x", encoding="utf-8")
+
+    assert [p["name"] for p in vp.list_projects(root)] == ["2026-09-20_一条视频"]
+    assert vp.is_project_name("2026-09-05_赚不到钱_final") is True
+    assert vp.is_project_name("rtmp") is False
