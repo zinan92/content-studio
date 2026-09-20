@@ -40,7 +40,8 @@ TURN_TIMEOUT_SECONDS = 180
 
 SCOPE_LABELS = {"input": "进项", "board": "加工中", "work": "这条视频", "output": "已发出", "settings": "设置"}
 # What each [动作] line may ask for; anything else is shown as text.
-ACTION_KINDS = {"存进备注": "memo", "重写提纲": "outline", "拿来做": "take", "按三点评分": "qa"}
+ACTION_KINDS = {"存进备注": "memo", "重写提纲": "outline", "拿来做": "take", "按三点评分": "qa", "记进标准": "standard"}
+ACTION_RE = re.compile(r"^\s*\[动作\]\s*(" + "|".join(ACTION_KINDS) + r")\s*[:：]?\s*(.*)$")
 
 TurnFn = Callable[[str, str, str | None], dict]
 
@@ -104,7 +105,9 @@ WORKBENCH_RULES = """## 你在内容工作台里
   [动作] 重写提纲
   [动作] 按三点评分
   [动作] 拿来做：<新选题的标题>
-  「重写提纲」「按三点评分」只在看着某一条视频时用；「拿来做」只在进项或加工中用。没有动作就不写。
+  [动作] 记进标准：<一句话的判断标准>
+  「重写提纲」「按三点评分」只在看着某一条视频时用；「拿来做」只在进项或加工中用；「记进标准」哪一页都能用。没有动作就不写。
+- 「记进标准」是把一条方法写进 Park 的三点评分标准，以后每一条内容都按它评分。只有从拆解报告或老师的内容里真的学到、以后每次都适用的判断，才值得记；一次性的点子用「存进备注」。写成一句可执行的判断（「什么情况下该怎么做」），不写成感想。这句话会原样写进文件，Park 点了才生效。
 - 不给投资建议，不承诺收益，不编 Park 的经历和数据。"""
 
 
@@ -126,12 +129,12 @@ def parse_reply(text: str) -> dict[str, Any]:
     actions: list[dict[str, str]] = []
     kept: list[str] = []
     for line in text.strip().splitlines():
-        m = re.match(r"^\s*\[动作\]\s*(存进备注|重写提纲|按三点评分|拿来做)\s*[:：]?\s*(.*)$", line)
+        m = ACTION_RE.match(line)
         if not m:
             kept.append(line)
             continue
         kind, arg = ACTION_KINDS[m.group(1)], m.group(2).strip()
-        if kind in ("memo", "take") and not arg:
+        if kind in ("memo", "take", "standard") and not arg:
             continue
         if not any(a["kind"] == kind and a.get("arg") == arg for a in actions):
             actions.append({"kind": kind, "label": m.group(1), "arg": arg})

@@ -72,6 +72,23 @@ function rowActions(i) {
     <button class="btn small ghost" type="button" data-ignore="${esc(i.path)}">忽略</button>`;
 }
 
+/* 老师发的新视频：老师改的是「怎么拍」，所以他们不进对标雷达，新作品从这里进来。 */
+function teacherStrip() {
+  const t = S.teachers || { accounts: [], posts: [] };
+  if (!t.accounts.length) return '';
+  const posts = t.posts.slice(0, 6);
+  const body = posts.length
+    ? posts.map((v) => `<div class="tc-row">
+        <div><b class="clamp">${esc(cleanTitle(v.title))}</b><div class="by">${esc(v.account_nickname || '')} · ${day(v.published_at)} · 赞 ${fmt(v.likes)}</div></div>
+        <div class="acts">${teardownButton(v, { source: `老师 · ${v.account_nickname || ''}` })}<button class="btn small ghost" type="button" data-tk="${esc(v.video_id)}">拿来做</button></div>
+      </div>`).join('')
+    : `<div class="tc-empty">这 ${t.days || 7} 天，${t.accounts.length} 个老师都没发新的。</div>`;
+  return `<section class="panel tc" aria-label="老师发的">
+    <div class="panel-h"><h2>老师发的 <span class="num">${posts.length || ''}</span></h2><small>「拆解」学方法，「拿来做」当选题 · 不进爆款样本，也不喂今天推荐拍</small></div>
+    ${body}
+  </section>`;
+}
+
 function newsletterStrip() {
   const d = C.dailies;
   if (!d) return '';
@@ -107,7 +124,7 @@ window.VIEWS.input = {
       openNote(first.path);
       return;
     }
-    const sig = JSON.stringify([C.source, C.days, C.open, Boolean(C.note), C.loadedAt, C.items.map((i) => [i.triage, Boolean(i.used_by)]), C.dailies && C.dailies.items.map((i) => i.checked_at)]);
+    const sig = JSON.stringify([C.source, C.days, C.open, Boolean(C.note), C.loadedAt, C.items.map((i) => [i.triage, Boolean(i.used_by)]), C.dailies && C.dailies.items.map((i) => i.checked_at), (S.teachers.posts || []).map((v) => [v.video_id, v.has_report, v.job && v.job.stage])]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
 
@@ -130,7 +147,7 @@ window.VIEWS.input = {
       else reader = `<div class="reader-h"><h2>${esc(n.title)}</h2><div class="acts">${n.meta && (n.meta.source || n.meta.url) ? `<a class="btn small" href="${esc(n.meta.source || n.meta.url)}" target="_blank" rel="noopener">原文 ↗</a>` : ''}</div><small>${esc(n.path)}</small></div><article class="md">${renderMarkdown(n.body || '')}</article>`;
     }
 
-    body.innerHTML = `${newsletterStrip()}
+    body.innerHTML = `${newsletterStrip()}${teacherStrip()}
       <div class="in-bar">
         <div class="in-tabs" role="tablist" aria-label="来源">${SOURCE_TABS.map(([k, l]) => { const n = waiting(k); return `<button type="button" role="tab" class="${C.source === k ? 'on' : ''}" data-src="${k}">${l}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div>
         <div class="seg-toggle" role="group" aria-label="时间">${DAY_TABS.map(([d, l]) => `<button type="button" class="${C.days === d ? 'on' : ''}" data-days="${d}">${l}</button>`).join('')}</div>
@@ -151,6 +168,16 @@ window.VIEWS.input = {
     $$('[data-untriage]', body).forEach((b) => (b.onclick = stop((el) => setTriage(el.dataset.untriage, null))));
     $$('[data-work]', body).forEach((b) => (b.onclick = stop((el) => openWork(Number(el.dataset.work)))));
     $$('[data-read]', body).forEach((b) => (b.onclick = () => openNote(b.dataset.read)));
+    bindTeardownButtons(body);
+    $$('[data-tk]', body).forEach((b) => (b.onclick = async () => {
+      const v = S.teachers.posts.find((x) => x.video_id === b.dataset.tk);
+      b.disabled = true;
+      try {
+        await api('/api/topics', { method: 'POST', body: { title: cleanTitle(v.title).slice(0, 40), formats: 'both', memo: `来自老师 ${v.account_nickname || ''}：${v.title}` } });
+        toast('已放进选题池');
+        if (window.refreshTopics) await window.refreshTopics();
+      } catch (err) { toast(err.message); b.disabled = false; }
+    }));
     $$('[data-check]', body).forEach((box) => (box.onchange = async () => {
       try {
         await api('/api/today/checks', { method: 'PUT', body: { day: C.dailies.day, key: box.dataset.check, checked: box.checked } });

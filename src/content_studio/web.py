@@ -28,7 +28,7 @@ from . import today as today_plan
 from . import vault
 from . import video_project
 from .video_project import VideoProjectError
-from .store import StoreError, StudioStore, now_iso
+from .store import KIND_TEACHER, StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
 
@@ -41,6 +41,16 @@ LEGACY_REPORT_DIRS = (Path("~/.config/content-studio/m1"),)
 class UrlBody(BaseModel):
     url: str
     is_self: bool = False
+    kind: str | None = None
+
+
+class KindBody(BaseModel):
+    kind: str
+
+
+class StandardBody(BaseModel):
+    text: str
+    source: str = ""
 
 
 class JobBody(BaseModel):
@@ -94,6 +104,7 @@ class AnnaBody(BaseModel):
     scope: str
     message: str
     note_path: str | None = None
+    report_id: str | None = None
 
 
 class VideoLinkBody(BaseModel):
@@ -335,6 +346,9 @@ def create_app(
     async def _vault_missing(_request: Any, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=404, content={"error": str(exc)})
 
+    from .standard import StandardError
+
+    @app.exception_handler(StandardError)
     @app.exception_handler(StoreError)
     @app.exception_handler(AccountError)
     @app.exception_handler(ValueError)
@@ -436,13 +450,36 @@ def create_app(
 
     @app.get("/api/accounts")
     def accounts() -> list[dict[str, Any]]:
+        """对标 accounts only: 老师 accounts have their own page and never carry 中位/爆款 numbers."""
         threshold = float(store.settings()["threshold"])
-        return [account_view(a, threshold) for a in store.accounts() if not a["is_self"]]
+        return [account_view(a, threshold) for a in store.benchmark_accounts()]
+
+    def teacher_view(account: dict[str, Any]) -> dict[str, Any]:
+        videos = store.videos(account["id"])
+        return {
+            **account,
+            "pending_note": PENDING_NOTES.get(account["platform"]),
+            "syncing": account["id"] in ops.syncing or (ops.full_sync_running and account["platform"] == PLATFORM_DOUYIN),
+            "video_count": len(videos),
+            "latest_published_at": next((v["published_at"] for v in videos if v["published_at"]), None),
+        }
+
+    @app.get("/api/teachers")
+    def teachers(days: int = 7) -> dict[str, Any]:
+        """老师 accounts and what they posted lately — the 进项 feed. No stats: they change 怎么拍, not 拍什么."""
+        posts = [{**v, **teardown_state(v["video_id"])} for v in store.teacher_posts(days)]
+        return {"accounts": [teacher_view(a) for a in store.teacher_accounts()], "posts": posts, "days": days}
+
+    @app.put("/api/accounts/{account_id}/kind")
+    def put_account_kind(account_id: int, body: KindBody) -> dict[str, Any]:
+        account = store.update_account(account_id, kind=body.kind)
+        threshold = float(store.settings()["threshold"])
+        return {"account": teacher_view(account) if account["kind"] == KIND_TEACHER else account_view(account, threshold)}
 
     @app.post("/api/accounts")
     def post_account(body: UrlBody) -> dict[str, Any]:
         needs_client = "douyin.com" in body.url and "/user/" not in body.url
-        account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self)
+        account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self, kind=body.kind)
         syncing = False
         if account["platform"] == PLATFORM_DOUYIN:
             syncing = ops.run(account["id"], lambda: _sync_and_queue(account["id"]))
@@ -522,6 +559,8 @@ def create_app(
     @app.get("/api/reports")
     def reports() -> list[dict[str, Any]]:
         archived = store.archived_reports()
+        # Which library the video came from, so a 老师 teardown is never labelled 对标.
+        kinds = {v["video_id"]: a["kind"] for a in store.accounts() for v in store.videos(a["id"])}
         seen: dict[str, dict[str, Any]] = {}
         for base in report_dirs:
             for path in sorted((base / "reports").glob("*/report.json")):
@@ -541,6 +580,7 @@ def create_app(
                     "generated_at": data.get("generated_at"),
                     "multiple": (data.get("facts") or {}).get("multiple_of_median"),
                     "is_self": bool((data.get("facts") or {}).get("creator_avg_view_second")),
+                    "kind": kinds.get(video_id),
                     "archived_at": archived.get(video_id),
                 }
         # Benchmark reports nobody opened in 7 days are archived when the list is read, so the unread count stays meaningful.
@@ -1044,7 +1084,36 @@ def create_app(
             raise ValueError("未知页面")
         return kind, anna_mod.SCOPE_LABELS[kind], None
 
-    def _anna_context(kind: str, topic_id: int | None, note_path: str | None) -> str:
+    def _report_context(video_id: str) -> str:
+        """The teardown Park has open. Without it Anna answers 「这条教了什么方法」 from nothing —
+        and the rule she then proposes for 记进标准 would be invented."""
+        path = report_file(video_id)
+        if path is None:
+            return "## Park 正在看的拆解报告\n读不到这份报告"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return "## Park 正在看的拆解报告\n读不到这份报告"
+        account = store.account(store.video(video_id)["account_id"]) if store.video(video_id) else None
+        whose = {"teacher": "老师", "self": "自己的视频"}.get(account["kind"], "对标") if account else "拆解"
+        facts = data.get("facts") or {}
+        head = (f"## Park 正在看的拆解报告（{whose}）\n标题：{data.get('title')}\n作者：{data.get('author')}\n"
+                f"点赞 {facts.get('likes')}（是他自己中位数的 {facts.get('multiple_of_median')} 倍）；播放 {facts.get('views')}；"
+                f"收藏 {facts.get('collects')}；评论 {facts.get('comments')}；分享 {facts.get('shares')}\n"
+                f"主线：{data.get('thesis')}\n开头：{json.dumps(data.get('opening'), ensure_ascii=False)[:600]}\n"
+                f"为什么爆：{data.get('why_boom')}\n哪里散了：{data.get('why_scatter')}")
+        budget = 7000
+        parts = []
+        for seg in data.get("segments") or []:
+            block = (f"### {seg.get('index')} {seg.get('label')}（{seg.get('start')}–{seg.get('end')} 秒）"
+                     f"{'｜跑题' if seg.get('drift') else ''}\n{seg.get('summary')}｜{seg.get('reason')}\n原话：{(seg.get('text') or '')[:400]}")
+            if len(block) > budget:
+                break
+            budget -= len(block)
+            parts.append(block)
+        return head + "\n\n## 分段\n" + "\n\n".join(parts)
+
+    def _anna_context(kind: str, topic_id: int | None, note_path: str | None, report_id: str | None = None) -> str:
         """What Park is looking at right now, as plain text for one turn."""
         from . import board, opening, outline, qa, writer
 
@@ -1138,6 +1207,8 @@ def create_app(
                     lines.append("## 最近一次每周复盘\n" + json.dumps(rv["data"], ensure_ascii=False)[:3000])
                 k = today_plan.shooting_streak(date.today(), shot_days())
                 lines.append(f"## 拍摄\n连续拍摄 {k.get('days')} 天；距上次拍 {k.get('days_since_last')} 天")
+            if report_id:
+                lines.append(_report_context(report_id))
         else:
             lines.append("Park 在设置页。")
         return "\n\n".join(lines)
@@ -1152,9 +1223,9 @@ def create_app(
         except (ValueError, StoreError):
             return ""
 
-    def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None) -> None:
+    def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None, report_id: str | None = None) -> None:
         try:
-            context = _anna_context(kind, topic_id, note_path)
+            context = _anna_context(kind, topic_id, note_path, report_id)
             chat = store.anna_chat(ANNA_THREAD)
             if topic_id is not None:
                 label = f"{label}《{store.topic(topic_id)['title']}》"
@@ -1201,7 +1272,7 @@ def create_app(
             anna_busy.add(ANNA_THREAD)
             anna_errors.pop(ANNA_THREAD, None)
         store.append_anna(ANNA_THREAD, {"role": "park", "text": message, "at": now_iso(), "scope": body.scope})
-        threading.Thread(target=_anna_turn, args=(body.scope, kind, label, topic_id, message, body.note_path), name=f"anna-{body.scope}", daemon=True).start()
+        threading.Thread(target=_anna_turn, args=(body.scope, kind, label, topic_id, message, body.note_path, body.report_id), name=f"anna-{body.scope}", daemon=True).start()
         return {"started": True}
 
     @app.delete("/api/anna")
@@ -1685,6 +1756,32 @@ def create_app(
         fresh = [v for v in store.outliers(float(store.settings()["threshold"])) if (v.get("published_at") or "") >= cutoff]
         return [{"video_id": v["video_id"], "title": v["title"], "account": v.get("account_nickname"), "multiple": v["multiple"], "likes": v["likes"],
                  "published_at": v["published_at"], "url": v.get("url"), **teardown_state(v["video_id"])} for v in fresh[:limit]]
+
+    # -- Anna 的标准 ----------------------------------------------------------
+
+    @app.get("/api/standard")
+    def get_standard() -> dict[str, Any]:
+        from . import standard
+
+        path = standard.guide_path()
+        return {"path": str(path), "exists": path.exists(), "rules": standard.rules()}
+
+    @app.post("/api/standard")
+    def post_standard(body: StandardBody) -> dict[str, Any]:
+        """Write one rule into Park's QA standard. The text comes from a teardown of someone
+        else's video, so it is only ever written after Park clicks the button showing it."""
+        from . import standard
+
+        rule = standard.add_rule(body.text, source=body.source)
+        return {"rule": rule, "rules": standard.rules()}
+
+    @app.delete("/api/standard/{rule_id}")
+    def delete_standard(rule_id: str) -> dict[str, Any]:
+        from . import standard
+
+        if not standard.remove_rule(rule_id):
+            raise ValueError("这条标准已经不在了")
+        return {"rules": standard.rules()}
 
     @app.get("/api/vault/note")
     def vault_note(path: str) -> dict[str, Any]:

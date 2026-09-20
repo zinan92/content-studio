@@ -90,7 +90,7 @@ def _fake_anna(system: str, user: str, session_id: str | None) -> dict:
     assert "让对的人看得更久" in system or "Anna" in system
     if "炸掉" in user:
         raise RuntimeError("boom")
-    seen = "看到提纲" if "## 拍摄提纲" in user else "没有提纲"
+    seen = "看到报告" if "Park 正在看的拆解报告" in user else "看到提纲" if "## 拍摄提纲" in user else "没有提纲"
     return {"text": f"{seen}｜上一轮 {session_id}\n[动作] 按三点评分", "session_id": "sess-1"}
 
 
@@ -774,3 +774,74 @@ def test_reach_combines_douyin_snapshots_with_hand_typed_platforms(client: TestC
     r = client.get("/api/reach").json()
     x = [p for p in r["platforms"] if p["key"] == "x"][0]
     assert x["on"] is True and x["handle"] == "@park"
+
+
+def test_teacher_account_is_followed_but_never_scored_as_a_benchmark(client: TestClient) -> None:
+    res = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "kind": "teacher"})
+    assert res.status_code == 200
+    _wait_sync(client)
+
+    # 对标雷达 and every recommendation source stay empty: a 老师 changes 怎么拍, not 拍什么.
+    assert client.get("/api/accounts").json() == []
+    assert client.get("/api/outliers").json() == []
+
+    teachers = client.get("/api/teachers").json()
+    assert [a["nickname"] for a in teachers["accounts"]] == ["对标号"]
+    assert "median_likes" not in teachers["accounts"][0] and teachers["accounts"][0]["video_count"] == 5
+    # The back catalogue was synced but is older than a week, so 进项 stays clean on day one.
+    assert teachers["posts"] == []
+    assert [p["video_id"] for p in client.get("/api/teachers?days=3650").json()["posts"]] == ["5", "4", "3", "2", "1"]
+
+    # A teardown of a teacher's video must not be filed as 对标 in the report list.
+    client.post("/api/jobs", json={"video_id": "5", "source": "老师"})
+    client.app.state.worker.drain()
+    assert client.get("/api/reports").json()[0]["kind"] == "teacher"
+
+    account_id = teachers["accounts"][0]["id"]
+    flipped = client.put(f"/api/accounts/{account_id}/kind", json={"kind": "benchmark"}).json()
+    assert flipped["account"]["breakout_count"] == 1
+    assert [o["video_id"] for o in client.get("/api/outliers").json()] == ["5"]
+    assert client.get("/api/teachers").json()["accounts"] == []
+    assert client.put(f"/api/accounts/{account_id}/kind", json={"kind": "对标"}).status_code == 400
+
+
+def test_anna_can_propose_a_rule_and_park_writing_it_reaches_the_scorer(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from content_studio import qa, standard
+
+    guide = tmp_path / "SKILL.md"
+    guide.write_text("---\nname: park-content-qa\n---\n\n# 标准\n\n## 参考与致谢\n\n- 甲\n", encoding="utf-8")
+    monkeypatch.setenv(qa.QA_GUIDE_ENV, str(guide))
+
+    assert client.get("/api/standard").json()["rules"] == []
+    posted = client.post("/api/standard", json={"text": "高客单要靠认知型深度内容", "source": "一勾工作号"})
+    assert posted.status_code == 200
+    rule = posted.json()["rule"]
+
+    # The rule must land in what the scorer actually reads, not just in a list.
+    assert "高客单要靠认知型深度内容" in qa.load_guide()
+    assert guide.read_text(encoding="utf-8").rstrip().endswith("- 甲")
+
+    assert client.post("/api/standard", json={"text": "高客单要靠认知型深度内容"}).status_code == 400
+    assert client.delete(f"/api/standard/{rule['id']}").json()["rules"] == []
+    assert client.delete(f"/api/standard/{rule['id']}").status_code == 400
+    assert standard.BLOCK_START not in guide.read_text(encoding="utf-8")
+
+
+def test_anna_on_the_report_page_is_given_the_open_teardown(client: TestClient) -> None:
+    """Without the report in her context she would invent the lesson Park then writes into his standard."""
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "kind": "teacher"})
+    _wait_sync(client)
+    client.post("/api/jobs", json={"video_id": "5", "source": "老师"})
+    client.app.state.worker.drain()
+
+    import time
+
+    assert client.post("/api/anna", json={"scope": "output", "message": "这条教了什么方法", "report_id": "5"}).json()["started"] is True
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": "output"}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    assert "看到报告" in chat["messages"][-1]["text"]

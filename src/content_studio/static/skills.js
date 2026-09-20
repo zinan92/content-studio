@@ -13,9 +13,37 @@ function copyText(text) {
   else toast(text);
 }
 
+/* Anna 的标准：拆解里学到的方法写进 park-content-qa，以后每条内容都按它评分。 */
+window.reloadStandard = async function reloadStandard() {
+  try { S.standard = await api('/api/standard'); } catch (_) { S.standard = null; }
+  const box = $('#standardBox');
+  if (box) renderStandard(box);
+};
+
+function standardRow(r) {
+  return `<div class="std-row"><div><b>${esc(r.text)}</b><div class="by">${esc(r.at)}${r.source ? ' · ' + esc(r.source) : ''}</div></div>
+    <button class="btn small ghost" type="button" data-std-rm="${esc(r.id)}">删掉</button></div>`;
+}
+
+function renderStandard(box) {
+  const d = S.standard;
+  if (!d) { box.innerHTML = ''; return; }
+  box.innerHTML = `<section class="panel std">
+    <div class="panel-h"><h2>从拆解里学来的 <span class="num">${d.rules.length || ''}</span></h2><small>写进三点评分标准，Anna 每轮都读它 · ${esc(d.path)}</small></div>
+    ${d.rules.length ? d.rules.map(standardRow).join('')
+      : '<div class="std-empty">还没有。拆一条老师的视频，问 Anna 学到什么，她会给一个「记进标准」的按钮。</div>'}
+  </section>`;
+  $$('[data-std-rm]', box).forEach((b) => (b.onclick = async () => {
+    const r = d.rules.find((x) => x.id === b.dataset.stdRm);
+    if (!confirm(`把这条从标准里删掉？\n\n${r.text}`)) return;
+    try { await api(`/api/standard/${encodeURIComponent(b.dataset.stdRm)}`, { method: 'DELETE' }); toast('已删掉'); await window.reloadStandard(); } catch (err) { toast(err.message); }
+  }));
+}
+
 window.renderSkills = {
   async render() {
     const body = $('#skillsBody');
+    await window.reloadStandard();  // its own panel in 设置, not inside the collapsed Skills block
     if (body.dataset.done) return;
     let data;
     try { data = await loadSkills(); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }

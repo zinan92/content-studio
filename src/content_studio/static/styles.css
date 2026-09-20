@@ -110,6 +110,20 @@ button.chip-state{cursor:pointer}
 .nl-label .num{color:var(--ink-3);font-size:12px}
 .nl-item{flex:1 1 180px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;border-left:1px solid var(--line-soft);min-width:0}
 .nl-item.missing{color:var(--ink-3)}
+.tc .panel-h small{color:var(--ink-3)}
+.tc-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line-soft);min-width:0}
+.tc-row:last-child{border-bottom:0}
+.tc-row b{display:block;font-weight:600}
+.tc-row .by{color:var(--ink-3);font-size:12px;margin-top:2px}
+.tc-row .acts{display:flex;gap:6px;align-items:center;flex:0 0 auto}
+.tc-empty{padding:16px 18px;color:var(--ink-3);font-size:13px}
+.std{margin-bottom:18px}
+.std .panel-h small{color:var(--ink-3)}
+.std-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 18px;border-bottom:1px solid var(--line-soft)}
+.std-row:last-child{border-bottom:0}
+.std-row .by{color:var(--ink-3);font-size:12px;margin-top:2px}
+.std-empty{padding:16px 18px;color:var(--ink-3);font-size:13px}
+.acct.teacher .meta{color:var(--ink-2)}
 .nl-item.read .nl-check span{color:var(--ink-3);text-decoration:line-through;text-decoration-color:var(--line)}
 .nl-check{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;min-width:0}
 .nl-check input{accent-color:var(--accent);width:16px;height:16px;margin:0}

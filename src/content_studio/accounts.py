@@ -186,6 +186,7 @@ def add_account(
     *,
     client_factory: ClientFactory | None = None,
     is_self: bool = False,
+    kind: str | None = None,
 ) -> dict[str, Any]:
     """Recognise the link and put the account in the library (does not sync)."""
     parsed = parse_profile_url(raw_url)
@@ -207,6 +208,7 @@ def add_account(
             external_id=external_id,
             status=status,
             is_self=is_self,
+            kind=kind,
         )
     except StoreError as exc:
         raise AccountError(str(exc)) from exc
