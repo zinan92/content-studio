@@ -507,6 +507,37 @@ function renderTeachers() {
   bindAccountActions($('#teachers'), '老师');
 }
 
+const anyAccount = (id) => S.accounts.concat(S.teachers.accounts).find((a) => a.id === id);
+
+/** Sync one account and say what came back — otherwise a click that fetched nothing new
+ *  looks identical to a click that did nothing at all. */
+async function syncOneAccount(id, btn) {
+  const before = anyAccount(id) || {};
+  const was = before.video_count || 0;
+  btn.disabled = true;
+  try {
+    const started = await api(`/api/accounts/${id}/sync`, { method: 'POST' });
+    if (!started.started) { toast(started.message); btn.disabled = false; return; }
+    toast('正在同步…');
+    for (let i = 0; i < 90; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      await refreshAll();
+      const now = anyAccount(id);
+      if (!now) return;
+      if (now.syncing) continue;
+      if (now.status === 'error') { toast(`同步失败：${now.last_error || '未知原因'}`); return; }
+      const added = (now.video_count || 0) - was;
+      const latest = now.latest_published_at ? day(now.latest_published_at) : '—';
+      const where = now.kind === 'teacher' ? '「进项 · 老师发的」' : '爆款样本';
+      toast(added > 0
+        ? `${now.nickname || '账号'}：新增 ${added} 条，最近一条 ${latest}，在${where}里`
+        : `${now.nickname || '账号'}：他没发新的（共 ${now.video_count} 条，最近一条 ${latest}），数据已刷新`);
+      return;
+    }
+    toast('同步还没结束，稍后看这张卡片上的时间');
+  } catch (err) { toast(err.message); btn.disabled = false; }
+}
+
 /** Remove / sync / change kind — shared by the 对标 and 老师 card grids. */
 function bindAccountActions(root, what) {
   $$('[data-rm]', root).forEach((b) => (b.onclick = async () => {
@@ -515,10 +546,7 @@ function bindAccountActions(root, what) {
     if (!confirm(`把「${acct.nickname || acct.profile_url}」移出${what}？它的作品数据会一起删除，已生成的拆解报告保留。`)) return;
     try { await api(`/api/accounts/${b.dataset.rm}`, { method: 'DELETE' }); toast(`已移出${what}`); await refreshAll(); } catch (err) { toast(err.message); }
   }));
-  $$('[data-sync]', root).forEach((b) => (b.onclick = async () => {
-    b.disabled = true;
-    try { const r = await api(`/api/accounts/${b.dataset.sync}/sync`, { method: 'POST' }); toast(r.message); await refreshAll(); } catch (err) { toast(err.message); b.disabled = false; }
-  }));
+  $$('[data-sync]', root).forEach((b) => (b.onclick = () => syncOneAccount(Number(b.dataset.sync), b)));
   $$('[data-kind]', root).forEach((b) => (b.onclick = async () => {
     const to = b.dataset.to;
     if (!confirm(to === 'teacher'
@@ -839,7 +867,9 @@ async function boot() {
 
 setInterval(async () => {
   if (!S.state || document.hidden) return;
-  const busy = S.state.full_sync_running || S.state.active_jobs > 0 || S.accounts.some((a) => a.syncing) || (S.mine.account && S.mine.account.syncing);
+  const syncing = (a) => a.syncing;
+  const busy = S.state.full_sync_running || S.state.active_jobs > 0 || S.accounts.some(syncing)
+    || S.teachers.accounts.some(syncing) || (S.mine.account && S.mine.account.syncing);
   if (!busy) return;
   const focus = document.activeElement;
   if (focus && (focus.tagName === 'INPUT' || $('#addDlg').open)) return;
