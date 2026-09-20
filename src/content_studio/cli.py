@@ -20,6 +20,7 @@ from .accounts import (
     ContentDownloaderClient,
     PLATFORM_DOUYIN,
     add_account,
+    auto_enqueue_new_posts,
     auto_enqueue_outliers,
     sync_account,
 )
@@ -142,7 +143,10 @@ def sync_everything(
     if store.self_account() is not None:
         summary["creator_metrics"] = sync_creator_metrics(cookie_path=cookie_path, creator_db=creator_db)
     if enqueue:
-        summary["enqueued"] = len(auto_enqueue_outliers(store, has_report=has_report))
+        # Every recent post from a followed account, so its transcript lands in 进项; the
+        # outlier pass on top of it still catches older breakouts outside that window.
+        queued = auto_enqueue_new_posts(store, has_report=has_report) + auto_enqueue_outliers(store, has_report=has_report)
+        summary["enqueued"] = len(queued)
     return summary
 
 

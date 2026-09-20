@@ -133,7 +133,7 @@ def _report(video_id: str) -> dict:
         "transcript": {"duration_seconds": 60, "line_count": 2, "language": "zh"},
         "thesis": {"text": "主线", "evidence": []},
         "opening": None,
-        "segments": [{"index": 0, "label": "钩子", "drift": False, "start": 0, "end": 60, "summary": "s", "reason": "r", "text": "t", "evidence": []}],
+        "segments": [{"index": 0, "label": "钩子", "drift": False, "start": 0, "end": 60, "summary": "s", "reason": "r", "text": "正文" * 200, "evidence": []}],
         "drift": {"seconds": 0, "share": 0},
         "why_boom": [{"text": "收藏/赞 1%", "evidence": []}],
         "why_scatter": [{"text": "评论/赞 1%", "evidence": []}],
@@ -791,3 +791,38 @@ def test_anna_on_the_report_page_is_given_the_open_teardown(client: TestClient) 
             break
         time.sleep(0.02)
     assert "看到报告" in chat["messages"][-1]["text"]
+
+
+def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(client: TestClient, tmp_path: Path) -> None:
+    """The whole point: the text has to land in the vault, or 进项 can only show a title."""
+    from content_studio import transcripts
+
+    root = tmp_path / "vault-bench"
+    (root / "002_对标内容").mkdir(parents=True)
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}"})
+    _wait_sync(client)
+
+    client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
+    client.app.state.worker.drain()
+
+    notes = list((root / "002_对标内容").glob("*.md"))
+    assert len(notes) == 1
+    body = notes[0].read_text(encoding="utf-8")
+    assert "source: https://www.douyin.com/video/5" in body and "## 全文" in body
+
+    item = next(i for i in client.get("/api/vault/inbox?days=1").json()["items"] if i["source"] == "benchmark")
+    assert client.get("/api/vault/note", params={"path": item["path"]}).json()["body"]
+    topic = client.put("/api/vault/triage", json={"path": item["path"], "status": "topic"}).json()["topic"]
+    assert topic["note_paths"] == [item["path"]]
+
+
+def test_announcements_are_dropped_after_transcription_not_before(tmp_path: Path) -> None:
+    """Park's rule: filter on the content, not on likes — and the content only exists once
+    the video has been transcribed."""
+    from content_studio import transcripts
+
+    assert transcripts.is_thin(title="凡尔赛一下，今晚8点见", text="正文" * 400, duration_seconds=300)
+    assert transcripts.is_thin(title="正常选题", text="太短", duration_seconds=300)
+    assert transcripts.is_thin(title="正常选题", text="正文" * 400, duration_seconds=12)
+    assert transcripts.is_thin(title="高客单获客，必须做认知型深度内容", text="正文" * 400, duration_seconds=300) is None

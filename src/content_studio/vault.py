@@ -36,6 +36,9 @@ DAILY_SOURCES = (
 )
 
 INBOX_SOURCES = (
+    # 对标内容 is the one folder the workbench writes to: transcripts of what the accounts Park
+    # follows just posted, so he can read them in 进项 and attach them to a topic as 素材.
+    InboxSource("benchmark", "对标内容", "002_对标内容"),
     InboxSource("clipping", "Clippings", "002_clippings"),
     InboxSource("saved", "我收藏的", "002_个人收藏"),
     InboxSource("raw", "我写的", "003_park原始输出"),

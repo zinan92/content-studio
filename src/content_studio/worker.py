@@ -67,6 +67,9 @@ class TeardownWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.current_job_id: int | None = None
+        # Called with the finished job once a teardown succeeds; the web layer uses it to write
+        # the transcript into Park's vault. A failure here must never fail the job.
+        self.on_done: Callable[[dict[str, Any]], None] | None = None
 
     def _baseline_for(self, video_id: str | None) -> Callable[[Path, Path, Path], dict[str, Any] | None]:
         video = self.store.video(video_id) if video_id else None
@@ -100,13 +103,19 @@ class TeardownWorker:
             return self.store.update_job(job_id, stage="failed", error=str(exc)[:500] or type(exc).__name__)
         finally:
             self.current_job_id = None
-        return self.store.update_job(
+        done = self.store.update_job(
             job_id,
             stage="done",
             error=None,
             video_id=result.get("content_id") or job.get("video_id"),
             report_path=result.get("report_json"),
         )
+        if self.on_done is not None:
+            try:
+                self.on_done(done)
+            except Exception as exc:  # noqa: BLE001 - the teardown itself succeeded
+                logger.warning("teardown job %s: after-done hook failed: %s", job_id, exc)
+        return done
 
     def drain(self, max_jobs: int | None = None) -> int:
         """Process queued jobs synchronously (used by the CLI and tests)."""
