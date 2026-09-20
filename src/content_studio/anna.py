@@ -83,6 +83,13 @@ def load_soul(role_path: Path | None = None, skill_path: Path | None = None) -> 
             if body:
                 parts.append(f"## 知识：{path.stem}\n\n{body[:MAX_KNOWLEDGE_FILE_CHARS]}")
                 sources.append(str(path))
+    principles = skill.parent / "principles.md"
+    try:
+        # Park's own first principles come before the rubric: they say why it scores that way.
+        parts.append("## Park 的内容原则（和下面的评分标准冲突时，以这里为准）\n\n" + _strip_frontmatter(principles.read_text(encoding="utf-8")))
+        sources.append(str(principles))
+    except OSError:
+        pass
     try:
         parts.append("## 三点评分标准\n\n" + _strip_frontmatter(skill.read_text(encoding="utf-8")))
         sources.append(str(skill))

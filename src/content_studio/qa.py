@@ -23,12 +23,16 @@ from .judge import JudgeError, JudgeLoginError, cli_judge
 QA_COMMAND_ENV = "CONTENT_STUDIO_QA_CMD"
 QA_GUIDE_ENV = "CONTENT_STUDIO_QA_GUIDE"
 DEFAULT_GUIDE = Path("~/.claude/skills/park-content-qa/SKILL.md")
+# Park's own first principles, next to the rubric: why the three points are scored the way they
+# are. Read-only — he hand-edits it and nothing in the workbench writes to it.
+PRINCIPLES_FILE = "principles.md"
 DEFAULT_QA_COMMAND = (
     "claude -p --model sonnet --output-format text "
     "--disallowedTools Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Skill"
 )
 POINTS = (("pain", "痛点具象度"), ("contrast", "认知反差度"), ("delivery", "交付可行性"))
 MAX_GUIDE_CHARS = 9000
+MAX_PRINCIPLES_CHARS = 4000
 MAX_MATERIAL_CHARS = 16000
 
 RUBRIC = """三点，每点 1–5 分：
@@ -44,25 +48,45 @@ class QAError(RuntimeError):
     """The QA pass could not produce a valid verdict; the message is shown to Park."""
 
 
-def load_guide(path: Path | None = None) -> str:
-    target = path or Path(os.environ.get(QA_GUIDE_ENV) or DEFAULT_GUIDE)
+def _strip_frontmatter(text: str) -> str:
+    return re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S).strip()
+
+
+def guide_target(path: Path | None = None) -> Path:
+    return (path or Path(os.environ.get(QA_GUIDE_ENV) or DEFAULT_GUIDE)).expanduser()
+
+
+def load_principles(path: Path | None = None) -> str:
+    """Park's first principles, if he has written any. Missing is normal, not a failure —
+    it must never fall back to RUBRIC the way a missing guide does."""
     try:
-        text = target.expanduser().read_text(encoding="utf-8")
+        text = (guide_target(path).parent / PRINCIPLES_FILE).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return _strip_frontmatter(text)[:MAX_PRINCIPLES_CHARS]
+
+
+def load_guide(path: Path | None = None) -> str:
+    try:
+        text = guide_target(path).read_text(encoding="utf-8")
     except OSError:
         return RUBRIC
-    text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S).strip()
-    return text[:MAX_GUIDE_CHARS] or RUBRIC
+    return _strip_frontmatter(text)[:MAX_GUIDE_CHARS] or RUBRIC
 
 
 def _norm(text: str) -> str:
     return re.sub(r"[\s\W_]+", "", text).lower()
 
 
-def build_prompt(title: str, outline_md: str, material: str, guide: str, error: str | None = None) -> str:
+def build_prompt(title: str, outline_md: str, material: str, guide: str, error: str | None = None, principles: str | None = None) -> str:
     retry = f"\n\n上一次输出没有通过校验：{error}\n请修正后重新输出完整 JSON。" if error else ""
+    principles = (load_principles() if principles is None else principles).strip()
+    # Principles first and in their own block: they say why the rubric scores the way it does,
+    # and they win where the two disagree. Precedence has to be visible in the structure.
+    head = f"<原则｜Park 自己定的，和下面的标准冲突时以这里为准>\n{principles}\n</原则>\n\n" if principles else ""
     return f"""下面是 Park 的内容 QA 标准。请严格按这份标准，给一条口播视频的选题和提纲打分。
 
-<标准>
+{head}<标准>
 {guide}
 </标准>
 
@@ -135,11 +159,12 @@ def score_topic(
         raise QAError("没有提纲也没有素材，没法评")
     fn = qa_fn or (lambda prompt: cli_judge(prompt, command=os.environ.get(QA_COMMAND_ENV) or DEFAULT_QA_COMMAND, timeout=300))
     text = guide if guide is not None else load_guide()
+    rules = load_principles()
     sources_text = f"{title}\n{outline_md}\n{material}"
     error: str | None = None
     for _ in range(attempts):
         try:
-            raw = fn(build_prompt(title, outline_md, material, text, error))
+            raw = fn(build_prompt(title, outline_md, material, text, error, rules))
         except JudgeLoginError:
             raise
         except JudgeError as exc:

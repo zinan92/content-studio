@@ -69,3 +69,19 @@ def test_context_is_truncated_and_cli_errors_are_explained(tmp_path: Path) -> No
     login.chmod(0o755)
     with pytest.raises(anna.AnnaLoginError):
         anna.cli_turn("s", "u", None, command=str(login))
+
+
+def test_soul_puts_parks_principles_before_the_rubric(tmp_path) -> None:
+    from content_studio import anna
+
+    role = tmp_path / "Anna.md"
+    role.write_text("# Anna\n让对的人看得更久。", encoding="utf-8")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    (skills / "SKILL.md").write_text("# 三点评分\n痛点具象度。", encoding="utf-8")
+    (skills / "principles.md").write_text("# 原则\n抖音是情绪菜市场。", encoding="utf-8")
+
+    soul = anna.load_soul(role, skills / "SKILL.md")
+    assert soul["text"].index("抖音是情绪菜市场") < soul["text"].index("痛点具象度")
+    assert "以这里为准" in soul["text"]
+    assert [p.split("/")[-1] for p in soul["sources"]] == ["Anna.md", "principles.md", "SKILL.md"]
