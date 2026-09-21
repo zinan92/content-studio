@@ -51,7 +51,8 @@ async function renderCopyBox(topic, el) {
   const tagsOf = (raw) => raw.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
   el.innerHTML = `<section class="cb dy">
     <div class="dy-bar"><span class="dy-logo">抖音</span><b>发布视频</b><small>在这里写好，到抖音粘贴</small><span class="spacer"></span>
-      ${topic.outline_path ? '<button class="btn small ghost" type="button" id="cbFill">用提纲填</button>' : ''}</div>
+      ${topic.outline_path ? '<button class="btn small ghost" type="button" id="cbFill">用提纲填</button>' : ''}
+      <a class="btn small ghost" href="#publish/${topic.id}">去发布台 →</a></div>
     <div class="dy-grid">
       <div class="dy-form">
         <label class="dy-field"><span>标题</span><input id="cbTitle" value="${esc(e.title)}" placeholder="${esc(topic.title)}" autocomplete="off" maxlength="60"></label>

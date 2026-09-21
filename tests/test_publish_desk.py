@@ -1,0 +1,96 @@
+"""发布台：treatment 推导、行状态、候选排序，以及接口整体形状。"""
+from __future__ import annotations
+
+from content_studio import copypack, publish_desk
+from test_web import client  # noqa: F401 - fixture
+
+
+SPECS = {
+    "x": {"needs_keys": ("x", ("api_key",))},
+    "bilibili": {"credential": "/tmp/x", "probe": ["true"]},
+    "channels": {"credential": "/tmp/y", "blocked": "限制了"},
+}
+
+
+def test_treatment_by_channel_kind():
+    assert publish_desk.treatment("douyin", None) == "manual"
+    assert publish_desk.treatment("x", SPECS["x"]) == "auto"
+    assert publish_desk.treatment("bilibili", SPECS["bilibili"]) == "scan"
+    assert publish_desk.treatment("channels", SPECS["channels"]) == "scan"
+    assert publish_desk.treatment("wechat_mp", None) == "handoff"
+
+
+def test_shared_entry_prefers_first_written_platform():
+    assert publish_desk.shared_entry(None) == {"title": "", "body": "", "tags": []}
+    copy = {"platforms": {"douyin": {"title": "", "body": ""}, "youtube": {"title": "T", "body": "B", "tags": ["a"]}}}
+    assert publish_desk.shared_entry(copy) == {"title": "T", "body": "B", "tags": ["a"]}
+
+
+def test_fill_trims_to_platform_caps():
+    entry = {"title": "一二三四五六七八九十一二三四五六七八九十多出来", "body": "x" * 5, "tags": ["a", "b", "c", "d", "e", "f"]}
+    fill = publish_desk.fill_for(copypack.PLATFORMS["xiaohongshu"], entry)
+    assert len(fill["title"]) == 20 and fill["title_over"] is True
+    assert fill["tags"] == ["a", "b", "c", "d", "e", "f"]
+    x = publish_desk.fill_for(copypack.PLATFORMS["x"], entry)
+    assert x["title"] == "" and x["tags"] == ["a", "b", "c"] and x["title_over"] is False
+
+
+def _platform(key, state="manual", **extra):
+    return {"key": key, "label": key, "mark": key[0], "hue": "#000", "handle": "", "on": True, "state": state, "note": "", "admin": None, "login_hint": "", **extra}
+
+
+def test_rows_state_shipped_and_can_auto():
+    platform_rows = [_platform("douyin"), _platform("x", "linked"), _platform("bilibili", "stale"), _platform("wechat_mp", "ready")]
+    readiness = {"x": {"modes": {"post": "发"}, "no_video": True}, "bilibili": {"modes": {"upload": "投"}}}
+    jobs = [
+        {"id": 3, "platform": "x", "state": "cancelled", "payload": {"mode_label": "发"}},
+        {"id": 2, "platform": "x", "state": "done", "payload": {"mode_label": "发"}, "message": None, "created_at": "t"},
+    ]
+    entry = {"title": "标题", "body": "正文", "tags": ["t"]}
+    rows = {r["key"]: r for r in publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers={"x": SPECS["x"], "bilibili": SPECS["bilibili"]},
+                                                      readiness=readiness, records={"x": {"url": "https://x.com/1", "published_at": "2026-09-21"}}, jobs=jobs,
+                                                      entry=entry, douyin_linked=True, handoff_done=True)}
+    assert rows["douyin"]["shipped"] is True and rows["douyin"]["record"] is None and rows["douyin"]["treatment"] == "manual"
+    assert rows["x"]["shipped"] is True and rows["x"]["record"]["url"] == "https://x.com/1"
+    assert rows["x"]["job"]["id"] == 2  # cancelled one skipped
+    assert rows["x"]["can_auto"] is True and rows["x"]["no_video"] is True and rows["x"]["modes"] == {"post": "发"}
+    assert rows["bilibili"]["can_auto"] is False and rows["bilibili"]["treatment"] == "scan"
+    assert rows["wechat_mp"]["treatment"] == "handoff" and rows["wechat_mp"]["handoff_done"] is True
+    assert rows["douyin"]["handoff_done"] is None
+    assert rows["douyin"]["fill"]["title"] == "标题"
+
+
+def test_order_candidates_ready_first_then_shipped():
+    cards = [
+        {"id": 1, "stage": "outline", "focus": True},
+        {"id": 2, "stage": "ready", "focus": False},
+        {"id": 3, "stage": "edit", "focus": False},
+        {"id": 4, "stage": "outline", "focus": False},
+    ]
+    shipped = [{"id": 5, "updated_at": "2026-09-01"}, {"id": 6, "updated_at": "2026-09-20"}]
+    assert [c["id"] for c in publish_desk.order_candidates(cards, shipped)] == [2, 3, 1, 4, 6, 5]
+
+
+def test_desk_endpoint_shape(client):
+    topic = client.post("/api/topics", json={"title": "发布台测试"}).json()
+    client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"douyin": {"title": "标题", "body": "简介", "tags": ["AI"]}}})
+    client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "bilibili", "published": True, "url": "https://b23.tv/1"})
+    d = client.get("/api/publish/desk").json()
+    assert d["topic"]["id"] == topic["id"]
+    assert d["has_copy"] is True and d["entry"]["title"] == "标题"
+    assert [c["id"] for c in d["candidates"]] == [topic["id"]]
+    assert d["candidates"][0]["shipped_count"] == 1
+    rows = {r["key"]: r for r in d["platforms"]}
+    assert set(rows) == {"douyin", "channels", "xiaohongshu", "wechat_mp", "miniprogram", "x", "bilibili", "youtube", "xiaoyuzhou"}
+    assert rows["bilibili"]["shipped"] is True and rows["bilibili"]["record"]["url"] == "https://b23.tv/1"
+    assert rows["douyin"]["shipped"] is False and rows["douyin"]["fill"]["title"] == "标题"
+    assert rows["wechat_mp"]["treatment"] == "handoff" and rows["wechat_mp"]["handoff_done"] is False
+    # 指定不在候选里的 id 也能打开
+    other = client.post("/api/topics", json={"title": "第二条"}).json()
+    client.patch(f"/api/topics/{other['id']}", json={"archived": True})
+    assert client.get(f"/api/publish/desk?topic_id={other['id']}").json()["topic"]["id"] == other["id"]
+
+
+def test_desk_endpoint_empty(client):
+    d = client.get("/api/publish/desk").json()
+    assert d["topic"] is None and d["candidates"] == [] and len(d["platforms"]) == 9
