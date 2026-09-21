@@ -132,3 +132,29 @@ def test_passive_sources_are_windowed_on_publish_date_and_active_ones_on_when_pa
     # 3-day window: the 2-day-old benchmark post still shows; a 1-day window drops it
     assert {i["title"] for i in vault.inbox(str(root), since=datetime.now() - timedelta(days=3))} == {"新", "剪藏"}
     assert {i["title"] for i in vault.inbox(str(root), since=datetime.now() - timedelta(days=1))} == {"剪藏"}
+
+
+def test_parks_own_writing_ignores_the_time_window(tmp_path) -> None:
+    """Park: 我写的东西没有时效性，一个月前写的、只要还没拍，今天照样能拍。
+    时间窗会把它挡在外面，而它本来就该一直等在那儿。"""
+    from datetime import datetime, timedelta
+
+    from content_studio import vault
+
+    root = tmp_path / "v"
+    (root / "003_park原始输出" / "商业模式").mkdir(parents=True)
+    (root / "002_clippings").mkdir()
+
+    old = root / "003_park原始输出" / "商业模式" / "新平台.md"
+    old.write_text("# 新平台\n两个月前写的想法", encoding="utf-8")
+    long_ago = (datetime.now() - timedelta(days=64)).timestamp()
+    os.utime(old, (long_ago, long_ago))
+
+    stale_clip = root / "002_clippings" / "旧剪藏.md"
+    stale_clip.write_text("# 旧剪藏\n正文", encoding="utf-8")
+    os.utime(stale_clip, (long_ago, long_ago))
+
+    got = vault.inbox(str(root), since=datetime.now() - timedelta(days=7))
+    by_source = {i["source"]: i["title"] for i in got}
+    assert by_source.get("raw") == "新平台"      # 64 天前写的，照样在
+    assert "clipping" not in by_source            # 剪藏按加入时间，确实过期了

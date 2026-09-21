@@ -25,10 +25,14 @@ class InboxSource:
     key: str
     label: str
     folder: str
-    # 主动 vs 被动。Clippings / 我收藏的 / 我写的 是 Park 自己放进去的，「新」看他什么时候放。
+    # 主动 vs 被动。Clippings / 我收藏的 是 Park 自己放进去的，「新」看他什么时候放。
     # 对标内容是工作台替他收的：一个新账号第一次同步会一次性写进几十篇，按写入时间算它们
     # 全是「今天的」。所以被动来源的时间以作者的发布时间为准。
     passive: bool = False
+    # 无时效：Park 自己写的东西是素材库，不是新闻流。两个月前写的一段想法，只要还没拍，
+    # 今天照样可以拍——时间窗会把它挡在外面，而它本来就该一直等在那儿。
+    # 「还没处理过」由 triage / used_by 负责过滤，不靠时间。
+    timeless: bool = False
 
 
 # Park reads all three dailies in the morning (2026-09-19: he asked for 财经 and K 线 back).
@@ -45,7 +49,7 @@ INBOX_SOURCES = (
     InboxSource("benchmark", "对标内容", "002_对标内容", passive=True),
     InboxSource("clipping", "Clippings", "002_clippings"),
     InboxSource("saved", "我收藏的", "002_个人收藏"),
-    InboxSource("raw", "我写的", "003_park原始输出"),
+    InboxSource("raw", "Park 原始输出", "003_park原始输出", timeless=True),
 )
 
 READABLE_SUFFIXES = (".md", ".html")
@@ -203,6 +207,23 @@ def _daily_day(name: str) -> str | None:
     return f"{y}-{mo}-{d}"
 
 
+def _item(path: Path, root: Path, source: InboxSource, meta: dict[str, str], body: str,
+          created: datetime, modified: datetime, since: datetime) -> dict[str, Any]:
+    return {
+        "path": str(path.relative_to(root)),
+        "source": source.key,
+        "source_label": source.label,
+        "title": _title(path, meta, body),
+        "summary": plain_summary(body),
+        "url": meta.get("source") or meta.get("url") or None,
+        "author": str(meta.get("author") or "").strip() or None,
+        "created_at": created.isoformat(timespec="minutes"),
+        "modified_at": modified.isoformat(timespec="minutes"),
+        "is_new": created >= since,
+        "chars": len(body),
+    }
+
+
 def inbox(raw_root: str, *, since: datetime, sources: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
     """Notes created or modified since `since`, newest first."""
     root = vault_root(raw_root)
@@ -223,6 +244,9 @@ def inbox(raw_root: str, *, since: datetime, sources: tuple[str, ...] | None = N
                 continue
             meta, body = parse_frontmatter(text)
             created = _created(path, meta)
+            if source.timeless:
+                items.append(_item(path, root, source, meta, body, created, modified, since))
+                continue
             if source.passive:
                 # The author's publish time is the event; when the file landed is irrelevant.
                 published = _published(meta)
@@ -231,21 +255,7 @@ def inbox(raw_root: str, *, since: datetime, sources: tuple[str, ...] | None = N
                 created = modified = published
             if max(created, modified) < since:
                 continue
-            items.append(
-                {
-                    "path": str(path.relative_to(root)),
-                    "source": source.key,
-                    "source_label": source.label,
-                    "title": _title(path, meta, body),
-                    "summary": plain_summary(body),
-                    "url": meta.get("source") or meta.get("url") or None,
-                    "author": str(meta.get("author") or "").strip() or None,
-                    "created_at": created.isoformat(timespec="minutes"),
-                    "modified_at": modified.isoformat(timespec="minutes"),
-                    "is_new": created >= since,
-                    "chars": len(body),
-                }
-            )
+            items.append(_item(path, root, source, meta, body, created, modified, since))
     return sorted(items, key=lambda item: max(item["created_at"], item["modified_at"]), reverse=True)
 
 

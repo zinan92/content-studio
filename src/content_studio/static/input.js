@@ -10,7 +10,7 @@ const TABS = [
   { key: 'finance_daily', label: '财经日报', kind: 'daily' },
   { key: 'kline_daily', label: 'K 线日报', kind: 'daily' },
   { key: 'benchmark', label: '对标', kind: 'note' },
-  { key: 'raw', label: '我写的', kind: 'note' },
+  { key: 'raw', label: 'Park 原始输出', kind: 'note' },
   { key: 'saved', label: '我收藏的', kind: 'note' },
   { key: 'clipping', label: 'Clippings', kind: 'note' },
 ];
@@ -49,9 +49,10 @@ function rowsFor(tab) {
   const def = tabDef(tab);
   if (def.kind === 'daily') return (C.dailies[tab] || []).map(dailyRow);
   if (def.kind === 'note') return (C.items || []).filter((i) => i.source === tab).map(noteRow);
-  // 全部：所有 Obsidian 笔记（含对标转录），按时间倒序。
-  // 日报是摘要，装着很多条，放进来会把别的淹掉，所以不进「全部」。
-  return (C.items || []).map(noteRow);
+  // 全部 = 这段时间「新进来的」。Park 原始输出不受时间窗限制（素材库，不是新闻流），
+  // 67 条全塞进来会把当天真正新的东西压到看不见，所以它只在自己那一页整片出现。
+  // 日报同理：一份摘要装着很多条，放进来也会淹掉别的。
+  return (C.items || []).filter((i) => i.source !== 'raw').map(noteRow);
 }
 
 function renderMarkdown(md) {
@@ -134,7 +135,7 @@ window.VIEWS.input = {
 
     const count = (t) => {
       if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && !i.triage && !i.used_by).length;
-      if (t.kind === 'all') return (C.items || []).filter((i) => !i.triage && !i.used_by).length;
+      if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && !i.triage && !i.used_by).length;
       return 0;
     };
 
@@ -144,7 +145,7 @@ window.VIEWS.input = {
         ${r.summary ? `<p class="clamp">${esc(r.summary)}</p>` : ''}
         <div class="acts">${rowActions(r)}${r.url ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">去抖音 ↗</a>` : ''}</div>
       </div>`).join('')
-      : `<div class="empty"><b>这里暂时没有东西</b><span>${C.tab === 'benchmark' ? '对标账号发了新视频，工作台会自动下载、转文字，转完就出现在这里。预告、开播这类没内容的不会进来。' : def.kind === 'daily' ? '这份日报还没有出过。' : `从 ${hm(C.since)} 起没有新的。换一个时间范围看看。`}</span></div>`;
+      : `<div class="empty"><b>这里暂时没有东西</b><span>${C.tab === 'benchmark' ? '对标账号发了新视频，工作台会自动下载、转文字，转完就出现在这里。预告、开播这类没内容的不会进来。' : C.tab === 'raw' ? '你写的东西都会出现在这里，不看时间——写过、还没拍的都在。' : def.kind === 'daily' ? '这份日报还没有出过。' : `从 ${hm(C.since)} 起没有新的。换一个时间范围看看。`}</span></div>`;
 
     let reader = `<div class="empty reader-empty"><span>${rows.length ? '点左边任意一条，在这里读原文。' : '这个 tab 暂时没有可读的。'}</span></div>`;
     if (C.open) {
@@ -158,7 +159,7 @@ window.VIEWS.input = {
         <div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div>
         ${def.kind === 'daily' ? '' : `<div class="seg-toggle" role="group" aria-label="时间">${DAY_TABS.map(([d, l]) => `<button type="button" class="${C.days === d ? 'on' : ''}" data-days="${d}">${l}</button>`).join('')}</div>`}
       </div>
-      <p class="in-note">数字是还没入选题池的条数 · 我写的 / 收藏的 / Clippings 按你加进去的时间算，对标按作者发布时间算 · 只读 Obsidian</p>
+      <p class="in-note">${C.tab === 'raw' ? '你写的东西不看时间：写过、还没拍的都在这儿等着 · 只读 Obsidian' : '数字是还没入选题池的条数 · 收藏的 / Clippings 按你加进去的时间算，对标按作者发布时间算 · 只读 Obsidian'}</p>
       <div class="in-grid"><div class="panel in-list">${list}</div><div class="panel reader">${reader}</div></div>`;
 
     $$('[data-tab]', body).forEach((b) => (b.onclick = () => { C.tab = b.dataset.tab; C.open = null; C.note = null; renderView(); }));
