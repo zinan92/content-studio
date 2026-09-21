@@ -745,6 +745,25 @@ def create_app(
         threading.Thread(target=_run_review, args=(now_value,), name="review", daemon=True).start()
         return {"started": True, "message": "开始复盘这一周，一般 1–3 分钟"}
 
+    @app.post("/api/topics/{topic_id}/wechat-handoff")
+    def handoff_to_wechat_pipeline(topic_id: int) -> dict[str, Any]:
+        """把写好的文章送进 004_内容加工中，交给 Park 现成的公众号流程。
+
+        路径不叫 /handoff：那个已经是研习室那条线的，同名会把它整个盖掉。
+        """
+        from . import handoff as handoff_mod, writer
+
+        topic = store.topic(topic_id)
+        draft = writer.read_draft(topic)
+        if not draft:
+            raise ValueError("这个选题还没有文章")
+        try:
+            result = handoff_mod.handoff(vault.vault_root(vault_path()), topic=topic, markdown=draft["markdown"])
+        except handoff_mod.HandoffError as exc:
+            raise ValueError(str(exc)) from exc
+        store.log_event("handoff", f"《{result['title'][:28]}》已交接到 004_内容加工中，等配图排版", topic_id)
+        return result
+
     # -- 触达：Park's first KPI, every platform in one number -----------------
 
     @app.get("/api/platforms")

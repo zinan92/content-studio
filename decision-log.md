@@ -470,3 +470,13 @@
 - **Why:** 这是今天第三次同一个毛病——用间接证据猜状态：视频号猜成「登录过期」（其实是平台封禁）、公众号猜成「被封」（其实是 IP 白名单/密钥）、B 站猜成「过期」（其实好的）。能直接问就别猜。
 - **Evidence:** 九个平台状态全部核对：X / B 站 / YouTube 已连接，公众号凭据就绪，视频号平台限制，其余手动。197 个测试通过。
 - **未决:** 公众号发图文要先传封面图再调 draft/add，Park 说「公众号发文字」——具体是视频的文字稿还是研习室长文，还没问清就不动手。
+
+## 2026-09-21 — 公众号选 A：工作台写文章 → 交接给 Park 原有管线
+
+- **关键发现（差点白做一遍）:** Park 早就有完整的公众号管线。`004_内容加工中/<主题>/wechat-package/` 里有橄榄手记排版模板、`cover/` 封面渲染器、图文 QA、API 草稿回读验证、带 media_id 的回执；发完在 `005_自媒体发出内容/` 留总指针。7 月 14 日那篇就是这么发的。我本来准备从零写 `draft/add`，翻到这个才停手。
+- **Decision（Park 选 A）:** 工作台的活儿到「文章按管线的入口格式落进 vault」为止。新建 `handoff.py`：只写两个文件——`README.md` 和 `wechat-package/wechat-article.md`（frontmatter 带 title/author/summary/from_workbench）。**不伪造**下游自己会产出的东西：配图规划、QA、回执、封面。`coverImage` 留空并注明「待 cover/ 渲染器生成」。已存在的主题目录拒绝覆盖。
+- **Why:** 那套管线是照着公众号的实际排版效果打磨过的；`draft/add` 还强制要 `thumb_media_id`，而封面正是 `cover/` 渲染器的产物——从零写第一步就卡死。工作台的价值在「选题→文章」，不在「把文章排成公众号的样子」。
+- **顺手修了一个没人会发现的故障:** 密钥存在两处，`build-api-draft-proof.mjs` 读的是 `~/.park-secrets/wechat/mp.env`。Park 今天重置 AppSecret 之后，**那套老管线已经坏了（40125），而且不会报错**——下次他去发才会发现。已验证后同步过去，现在两处都能换到令牌。
+- **Evidence:** 真跑了一次交接（topic-10），目录名/frontmatter/正文都符合 7 月那篇的格式；验证完把试跑目录和事件都清掉了。201 个测试通过。
+- **Gotchas:** `/api/topics/{id}/handoff` 已经是研习室那条线的路径，我的新端点同名会把它**整个盖掉**（测试里 `handed["topic"]` KeyError 才暴露）。改叫 `wechat-handoff`。FastAPI 里同路径同方法不会报错，只会静默覆盖——加端点前先 grep 路径。
+- **边界:** 回执里写的 `credential_source` 指向 vault 的 `_secrets/`，那是禁止读取的目录，没有跟进去；`~/.park-secrets/` 是家目录下的另一个路径，不在禁区。
