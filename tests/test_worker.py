@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from pathlib import Path
 
 import pytest
@@ -97,7 +99,7 @@ def test_worker_uses_library_median_as_baseline(store: StudioStore, tmp_path: Pa
 
     account = add_account(store, "https://www.douyin.com/user/MS4wLjABAAAAx")
     posts = [
-        {"aweme_id": str(i), "desc": "t", "create_time": 1780000000, "duration": 60000, "statistics": {"digg_count": likes}}
+        {"aweme_id": str(i), "desc": "t", "create_time": int(datetime.now(timezone.utc).timestamp()) - 86400, "duration": 60000, "statistics": {"digg_count": likes}}
         for i, likes in enumerate([100, 300, 5000], start=1)
     ]
     store.upsert_videos(account["id"], [normalize_post(post) for post in posts])
