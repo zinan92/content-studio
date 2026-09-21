@@ -44,11 +44,11 @@ class FakeClient:
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(web, "LEGACY_REPORT_DIRS", ())
-    # 双轨框架是 Obsidian 里的文件，Park 随时会改。测试用自己的副本，不读他的。
+    # 框架是 Obsidian 里的文件，Park 随时会改。测试用自己的副本，不读他的。
     workflows = tmp_path / "workflows"
     workflows.mkdir()
-    for spec in outline.MODES.values():
-        (workflows / spec["file"]).write_text(f"# {spec['label']}\n\n{spec['hint']}。\n", encoding="utf-8")
+    (workflows / outline.FRAMEWORK_FILE).write_text(
+        f"# {outline.LABEL}\n\n前三句里必须有一个真实数字。结尾禁止稀缺性和催单。\n", encoding="utf-8")
     monkeypatch.setenv(outline.WORKFLOWS_ENV, str(workflows))
     cookie = tmp_path / "cookies.json"
     cookie.write_text(json.dumps({"sessionid": "x"}))
@@ -78,9 +78,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
         anna_fn=_fake_anna,
         qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "大多数人以为是能力问题"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
-        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n\n## 主线\n大多数人以为是能力问题，其实是位置问题。\n\n"
+        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n\n## 主线\n大多数人以为是能力问题，其实是位置问题。\n\n## 开头\n"
         + ("他上周还在用它改错别字，别人已经用它改了收入结构。" * 8)
-        + "\n<<<END>>>",
+        + "\n\n## 结尾\n我自己做了一个工作台，天天在用。你手里有人，来找我聊聊。\n<<<END>>>",
     )
     app.state.worker.process_fn = process
     # Never let a test reach Park's real vault: the setting defaults to ~/park-hands, and the

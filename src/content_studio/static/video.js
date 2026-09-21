@@ -3,23 +3,14 @@
 window.VIEWS = window.VIEWS || {};
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
-const VD = { topicId: null, tab: 'outline', outline: null, dirty: false, mode: 'preview', qaOpen: false, track: null };
+const VD = { topicId: null, tab: 'outline', outline: null, dirty: false, mode: 'preview', qaOpen: false };
 
-/* 双轨编辑框架：两份 Anna 的工作流文件，Obsidian 里能改。重构版在前，它是默认。 */
-const TRACKS = [
-  { mode: 'restructured', label: "don't be silent + ego 重构版", hint: '重排、删减、合并，只留一条主线' },
-  { mode: 'faithful', label: "don't be silent + ego 保真版", hint: '不搬家，只在前后新增开场和结尾' },
-];
-const TRACK_SHORT = { restructured: '重构版', faithful: '保真版' };
+/* 只写开头和结尾，中间是 Park 自己的。规则在 Anna 的工作流文件里，他随时能改。 */
+const BOOKEND_LABEL = '一勾式开头和结尾';
 
-function trackButtons(topicId, { rewrite = false } = {}) {
-  return TRACKS.map((t, i) => `<button class="btn ${rewrite ? 'small ' : ''}${i === 0 && !rewrite ? 'primary' : 'ghost'}" type="button"
-    data-outline="${topicId}" data-track="${t.mode}" title="${esc(t.hint)}">${rewrite ? `重写${TRACK_SHORT[t.mode]}` : esc(t.label)}</button>`).join('');
-}
-
-async function startOutline(topicId, mode) {
+async function startOutline(topicId) {
   try {
-    const res = await api(`/api/topics/${topicId}/outline?mode=${mode}`, { method: 'POST' });
+    const res = await api(`/api/topics/${topicId}/outline`, { method: 'POST' });
     toast(res.message);
     if (window.refreshTopics) await window.refreshTopics();
   } catch (err) { toast(err.message); }
@@ -27,11 +18,9 @@ async function startOutline(topicId, mode) {
 
 function bindOutlineButtons(root) {
   $$('[data-outline]', root).forEach((b) => (b.onclick = async () => {
-    const mode = b.dataset.track;
-    if (b.textContent.startsWith('重写') && !confirm(`重写会覆盖现在的${TRACK_SHORT[mode]}，继续吗？`)) return;
+    if (b.textContent.startsWith('重写') && !confirm('重写会覆盖现在的开头和结尾，继续吗？')) return;
     b.disabled = true;
-    VD.track = mode;
-    await startOutline(Number(b.dataset.outline), mode);
+    await startOutline(Number(b.dataset.outline));
   }));
 }
 
@@ -78,41 +67,33 @@ async function renderQA(topic, box) {
 
 window.VIDEO_TABS.push({
   key: 'outline',
-  label: '拍摄提纲',
+  label: '开头和结尾',
   badge: (t) => (t.outline_state === 'running' ? '生成中' : t.outline_path ? '已写' : ''),
   async render(topic, el) {
     if (topic.outline_state === 'running') {
-      el.innerHTML = `<div class="empty"><span class="spin"></span><b>正在写《${esc(topic.title)}》的拍摄提纲</b><span>一般 1–2 分钟。</span></div>`;
+      el.innerHTML = `<div class="empty"><span class="spin"></span><b>正在写《${esc(topic.title)}》的开头和结尾</b><span>一般 1–2 分钟。</span></div>`;
       return;
     }
     if (!topic.outline_path) {
-      el.innerHTML = `<div class="empty"><b>还没有拍摄提纲</b>${topic.outline_state === 'failed' ? `<span class="bad">${esc(topic.outline_error || '')}</span>` : ''}
-        <span>把原始内容加工成能直接照着讲的稿子。两版都写一遍，用过才知道哪个顺手。</span>
+      el.innerHTML = `<div class="empty"><b>还没有开头和结尾</b>${topic.outline_state === 'failed' ? `<span class="bad">${esc(topic.outline_error || '')}</span>` : ''}
+        <span>只写两头：把人留在前一分钟的开头，和让人觉得够得着的结尾。中间是你自己的。</span>
         ${topic.memo ? `<pre class="memo">${esc(topic.memo)}</pre>` : ''}
-        <div class="track-pick">${trackButtons(topic.id)}</div></div>`;
+        <div class="track-pick"><button class="btn primary" type="button" data-outline="${topic.id}">${BOOKEND_LABEL}</button></div></div>`;
       bindOutlineButtons(el);
       return;
     }
-    if (!VD.outline || VD.outline.topic_id !== topic.id || (VD.track && VD.outline.mode !== VD.track)) {
-      const q = VD.track ? `?mode=${VD.track}` : '';
-      try { VD.outline = { ...(await api(`/api/topics/${topic.id}/outline${q}`)), topic_id: topic.id }; }
-      catch (err) { VD.track = null; el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
+    if (!VD.outline || VD.outline.topic_id !== topic.id) {
+      try { VD.outline = { ...(await api(`/api/topics/${topic.id}/outline`)), topic_id: topic.id }; }
+      catch (err) { el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
     }
     const o = VD.outline;
-    const have = o.available || [];
-    // 两版都写过才画切换——只有一版时多一个按钮只会让人以为另一版坏了。
-    const pick = have.length > 1
-      ? `<div class="seg-toggle" role="group">${have.map((v) => `<button type="button" class="${v.mode === o.mode ? 'on' : ''}" data-track-view="${v.mode}">${TRACK_SHORT[v.mode]}</button>`).join('')}</div>`
-      : '';
     el.innerHTML = `<div id="qaBox"></div><div class="art-head"><div><small>${o.mode_label ? `${esc(o.mode_label)} · ` : ''}${o.generated_at ? `生成于 ${day(o.generated_at)} · ` : ''}最后修改 ${day(o.updated_at)}</small></div>
-        <div class="art-head-right">${pick}
-        <div class="seg-toggle" role="group"><button type="button" class="${VD.mode === 'preview' ? 'on' : ''}" data-vmode="preview">预览</button><button type="button" class="${VD.mode === 'edit' ? 'on' : ''}" data-vmode="edit">编辑</button></div></div></div>
+        <div class="seg-toggle" role="group"><button type="button" class="${VD.mode === 'preview' ? 'on' : ''}" data-vmode="preview">预览</button><button type="button" class="${VD.mode === 'edit' ? 'on' : ''}" data-vmode="edit">编辑</button></div></div>
       ${VD.mode === 'edit' ? `<textarea id="outlineText" class="big-text" spellcheck="false">${esc(o.markdown)}</textarea>` : `<article class="md art-md">${renderMarkdown(o.markdown)}</article>`}
       <div class="art-foot">${VD.mode === 'edit' ? '<button class="btn primary" type="button" id="outlineSave">保存</button>' : ''}
-        <button class="btn" type="button" id="outlineCopy">复制稿子</button>
-        ${trackButtons(topic.id, { rewrite: true })}</div>`;
+        <button class="btn" type="button" id="outlineCopy">复制</button>
+        <button class="btn" type="button" data-outline="${topic.id}" title="重新生成，会覆盖现在的">重写</button></div>`;
     bindOutlineButtons(el);
-    $$('[data-track-view]', el).forEach((b) => (b.onclick = () => { VD.track = b.dataset.trackView; VD.mode = 'preview'; VD.dirty = false; $('#videoBody').dataset.sig = ''; renderView(); }));
     $$('[data-vmode]', el).forEach((b) => (b.onclick = () => { VD.mode = b.dataset.vmode; VD.dirty = false; $('#videoBody').dataset.sig = ''; renderView(); }));
     const text = $('#outlineText');
     if (text) text.oninput = () => { VD.dirty = true; };
@@ -125,12 +106,12 @@ window.VIDEO_TABS.push({
       } catch (err) { toast(err.message); }
     };
     renderQA(topic, $('#qaBox', el));
-    $('#outlineCopy').onclick = () => navigator.clipboard.writeText(text ? text.value : o.markdown).then(() => toast('已复制提纲'), () => toast('复制失败'));
+    $('#outlineCopy').onclick = () => navigator.clipboard.writeText(text ? text.value : o.markdown).then(() => toast('已复制'), () => toast('复制失败'));
   },
 });
 
 const TAB_ORDER = ['outline', 'edit', 'publish', 'article'];
-const WORK_STEPS = [['outline', '提纲'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
+const WORK_STEPS = [['outline', '两头'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
 const WK = { topics: null, at: 0 };
 
 window.invalidateWork = () => { WK.topics = null; const body = $('#videoBody'); if (body) body.dataset.sig = ''; };
@@ -139,7 +120,7 @@ window.VIEWS.work = {
   async render() {
     const root = $('#workBody');
     if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'publish') || (typeof AR !== 'undefined' && AR.dirty && VD.tab === 'article')) return;
-    if (VD.topicId !== S.workId) { VD.topicId = S.workId; VD.outline = null; VD.mode = 'preview'; VD.tab = 'outline'; VD.track = null; }
+    if (VD.topicId !== S.workId) { VD.topicId = S.workId; VD.outline = null; VD.mode = 'preview'; VD.tab = 'outline'; }
     try {
       if (!WK.topics || Date.now() - WK.at > 5000) {
         WK.topics = await api('/api/topics?archived=true');
@@ -153,7 +134,7 @@ window.VIEWS.work = {
     const stage = topic.published_video_id ? 'shipped' : card ? card.stage : 'outline';
     const tabs = window.VIDEO_TABS.slice().sort((a, b) => TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key));
     let body = $('#videoBody');
-    const sig = JSON.stringify([VD.topicId, VD.tab, VD.mode, VD.track, VD.outline && VD.outline.updated_at, stage, card && card.next.text, topic.outline_state, Boolean(topic.outline_path), topic.video_project, topic.status, topic.published_video_id, topic.write_state, Boolean(topic.article_path), topic.archived_at]);
+    const sig = JSON.stringify([VD.topicId, VD.tab, VD.mode, VD.outline && VD.outline.updated_at, stage, card && card.next.text, topic.outline_state, Boolean(topic.outline_path), topic.video_project, topic.status, topic.published_video_id, topic.write_state, Boolean(topic.article_path), topic.archived_at]);
     if (body && body.dataset.sig === sig && !VD.forceRender) return;
     VD.forceRender = false;
     const reached = WORK_STEPS.findIndex(([k]) => k === stage);
