@@ -142,9 +142,9 @@ function reachBlock(r) {
   const meta = Object.fromEntries((S.platforms || []).map((x) => [x.key, x]));
   const rows = r.platforms.map((p) => {
     const m = meta[p.key] || {};
-    const badge = m.state === 'linked' ? '<span class="rp-tag ok">自动发布</span>'
-      : m.state === 'stale' ? '<span class="rp-tag warn" title="登录信息超过 30 天">要重新登录</span>'
-        : '<span class="rp-tag">手动发布</span>';
+    const BADGE = { linked: ['ok', '自动发布'], stale: ['warn', '要重新登录'], blocked: ['warn', '平台限制了'], setup: ['warn', '差一步配置'], manual: ['', '手动发布'] };
+    const [cls, word] = BADGE[m.state] || BADGE.manual;
+    const badge = `<span class="rp-tag ${cls}" title="${esc(m.note || '')}">${word}</span>`;
     return `<div class="rp-row ${p.on ? '' : 'off'}">
       <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}>${m.mark ? `<i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>` : ''}<b>${esc(p.label)}</b>${badge}</label>
       <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}>

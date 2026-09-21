@@ -95,7 +95,7 @@ async function renderCopyBox(topic, el) {
         return `<article class="pf-card">
           <div class="pf-h"><i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>
             <b>${esc(m.label)}</b>
-            <span class="rp-tag ${m.state === 'linked' ? 'ok' : m.state === 'stale' ? 'warn' : ''}">${m.state === 'linked' ? '可自动发布' : m.state === 'stale' ? '通道要重新登录' : '手动上传'}</span>
+            <span class="rp-tag ${m.state === 'linked' ? 'ok' : m.state === 'manual' ? '' : 'warn'}" title="${esc(m.note || '')}">${ {linked: '可自动发布', stale: '通道要重新登录', blocked: '平台限制了自动发布', setup: '差一步配置'}[m.state] || '手动上传'}</span>
             <span class="spacer"></span>
             ${m.admin ? `<a class="btn small ghost" href="${esc(m.admin)}" target="_blank" rel="noopener">去${esc(m.label)}上传 ↗</a>` : ''}</div>
           ${field('标题', title, `最多 ${spec.title} 字${over ? ' · 已裁短' : ''}`)}
