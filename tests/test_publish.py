@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from datetime import datetime, timedelta, timezone
@@ -127,3 +129,54 @@ def test_wechat_state_is_cached_so_the_daily_token_quota_is_not_burned(tmp_path)
 
     later = wechat.state(now=now + timedelta(hours=7), opener=lambda *a, **k: Reply(), cache_path=cache)
     assert later["cached"] is False and len(calls) == 2  # 过了 6 小时才重新问
+
+
+def test_a_live_probe_beats_the_cookie_file_date(tmp_path) -> None:
+    """2026-09-21：B 站 cookie 四个月没动，按 mtime 早该「过期」，一问平台却是 valid。
+    把能用的通道报成坏的，会让 Park 白做一次扫码登录。"""
+    from datetime import datetime, timedelta, timezone
+
+    from content_studio import channel_probe, publisher
+
+    cred = tmp_path / "cookie.json"
+    cred.write_text("{}", encoding="utf-8")
+    old = datetime.now().timestamp() - 120 * 86400
+    os.utime(cred, (old, old))
+
+    spec = {"label": "B 站", "credential": cred, "login_hint": "x", "modes": {"upload": {"label": "投稿"}},
+            "probe": ["echo", "valid"], "probe_ok": "valid"}
+
+    channel_probe.CACHE_PATH = tmp_path / "probes.json"
+    got = publisher.readiness({"bilibili": spec})["bilibili"]
+    assert got["age_days"] >= 119  # 文件确实很旧
+    assert got["likely_expired"] is False and "能用" in got["note"]  # 但探测说能用
+
+
+def test_probe_result_is_cached_and_a_failed_probe_does_not_flip_the_state(tmp_path) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from content_studio import channel_probe
+
+    calls = []
+
+    class Done:
+        def __init__(self, out): self.stdout, self.stderr, self.returncode = out, "", 0
+
+    def runner(argv):
+        calls.append(argv)
+        return Done("valid")
+
+    cache = tmp_path / "p.json"
+    spec = {"probe": ["x"], "probe_ok": "valid"}
+    now = datetime(2026, 9, 21, 12, tzinfo=timezone.utc)
+    first = channel_probe.probe("b", spec, now=now, cache_path=cache, runner=runner)
+    assert first["ok"] is True and len(calls) == 1
+    again = channel_probe.probe("b", spec, now=now + timedelta(hours=2), cache_path=cache, runner=runner)
+    assert again["cached"] is True and len(calls) == 1
+
+    def boom(argv):
+        raise OSError("探测命令跑不起来")
+
+    later = channel_probe.probe("b", spec, now=now + timedelta(hours=9), cache_path=cache, runner=boom)
+    assert later["ok"] is True and later.get("stale_probe") is True  # 保留上次结论，不误报成失效
+    assert channel_probe.probe("none", {}, cache_path=cache) is None

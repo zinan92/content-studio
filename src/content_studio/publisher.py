@@ -36,7 +36,11 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "label": "B 站",
         "copy_key": "bilibili",
         "credential": PUBLISH_ROOT / "cookies/bilibili_creator.json",
-        "login_hint": "在电脑上用 content-ops 工作台的「准备通道」重新登录 B 站",
+        # 文件日期只能猜「大概过期了」，这条命令是真去问 B 站。2026-09-21 实测：cookie
+        # 已经 4 个月没动，但依然 valid——只看 mtime 会把能用的通道报成要重新登录。
+        "probe": [str(PUBLISH_ROOT / ".venv/bin/python"), str(PUBLISH_ROOT / "sau_cli.py"), "bilibili", "check", "--account", "creator"],
+        "probe_ok": "valid",
+        "login_hint": f"cd {PUBLISH_ROOT} && ./.venv/bin/python sau_cli.py bilibili login --account creator",
         "modes": {
             "upload": {"label": "投稿（B 站审核后公开）", "argv": ["python3", str(CONTENT_OPS / "scripts/bilibili_web_upload.py"), "--headless", "upload", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
         },
@@ -59,6 +63,8 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "label": "YouTube",
         "copy_key": "youtube",
         "credential": Path("~/.config/park/youtube-token.json").expanduser(),
+        "probe": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "check"],
+        "probe_ok": "token_valid",
         "login_hint": f"python3 {CONTENT_OPS}/scripts/youtube_channel.py auth",
         "modes": {
             "private": {"label": "上传为私享（自己先看）", "argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "upload-private", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
@@ -108,8 +114,19 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
         if path.is_file():
             updated = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
             age = (now - updated).days
-            note = f"登录信息更新于 {updated.astimezone().strftime('%m-%d')}" + ("，已超过 30 天，很可能需要重新登录" if age > 30 else "")
-            result[key] = {"label": spec["label"], "credential": True, "age_days": age, "likely_expired": age > 30, "note": note, "login_hint": spec["login_hint"],
+            stamp = updated.astimezone().strftime("%m-%d")
+            # 有探测命令就以它为准：cookie 放了四个月照样可能有效，光看日期会误报。
+            from .channel_probe import probe as probe_channel
+
+            checked = probe_channel(key, spec)
+            if checked is not None and checked.get("ok") is not None:
+                expired = not checked["ok"]
+                note = (f"登录信息更新于 {stamp}，刚才问过平台，能用" if checked["ok"]
+                        else f"登录已失效（更新于 {stamp}），需要重新登录")
+            else:
+                expired = age > 30
+                note = f"登录信息更新于 {stamp}" + ("，已超过 30 天，很可能需要重新登录" if expired else "")
+            result[key] = {"label": spec["label"], "credential": True, "age_days": age, "likely_expired": expired, "note": note, "login_hint": spec["login_hint"],
                            "no_video": bool(spec.get("no_video")), "modes": {m: v["label"] for m, v in spec["modes"].items()}}
         else:
             result[key] = {"label": spec["label"], "credential": False, "age_days": None, "likely_expired": True, "note": "还没有登录信息", "login_hint": spec["login_hint"],
