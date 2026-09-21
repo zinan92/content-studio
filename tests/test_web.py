@@ -916,3 +916,41 @@ def test_anna_is_given_the_backend_index_and_recent_events_not_just_one_page(cli
         time.sleep(0.02)
     again = _fake_anna.last_user
     assert "拆解报告共 1 份" in again and "正文" not in again.split("## 最近发生了什么")[0]
+
+
+def test_my_own_videos_get_their_own_library_with_no_thin_filter(client: TestClient, tmp_path: Path) -> None:
+    """Park 的内容库：每一条都要在，包括短的和没爆的——分析自己的风格时，
+    失败的那几条同样是证据。对标那边的「太薄就丢」不适用。"""
+    from content_studio import transcripts
+
+    root = tmp_path / "vault-mine"
+    (root / transcripts.MINE_FOLDER).mkdir(parents=True)
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    me = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True}).json()["account"]
+    _wait_sync(client)
+
+    # 把它做成「又老又短」——对标会被丢掉，自己的不该丢
+    store = client.app.state.store
+    old_day = (datetime.now(timezone.utc) - timedelta(days=300)).isoformat()
+    with store.tx() as conn:
+        conn.execute("UPDATE videos SET published_at = ?, title = '今晚8点见' WHERE video_id = '5'", (old_day,))
+
+    client.post("/api/jobs", json={"video_id": "5", "source": "我的视频"})
+    client.app.state.worker.drain()
+
+    notes = list((root / transcripts.MINE_FOLDER).glob("*.md"))
+    assert len(notes) == 1, "自己的视频必须落盘，不受时效和标题筛选影响"
+    assert "douyin.com/video/5" in notes[0].read_text(encoding="utf-8")
+    # 没有混进对标那个文件夹
+    assert not (root / transcripts.FOLDER).exists() or not list((root / transcripts.FOLDER).glob("*.md"))
+
+
+def test_an_image_post_still_gets_a_note_saying_it_is_one(tmp_path: Path) -> None:
+    from content_studio import transcripts
+
+    got = transcripts.render_image_post(
+        video={"video_id": "9", "title": "重新思考公司架构。1. Company 不是先按人定义", "published_at": "2026-03-11T10:00:00", "likes": 88},
+        account="Park的AI世界",
+    )
+    assert "format: 图文" in got and "没有口播内容" in got
+    assert "重新思考公司架构" in got  # 文案全文保留，它就是这条的全部内容
