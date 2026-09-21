@@ -670,26 +670,32 @@ def create_app(
         if video is None:
             return
         account = store.account(video["account_id"])
-        if account["is_self"]:
-            return
         report = _load_report(video_id)
         if report is None:
             return
         text = transcripts.transcript_text(report)
-        skip = transcripts.is_thin(
-            title=video.get("title") or "",
-            text=text,
-            duration_seconds=(report.get("transcript") or {}).get("duration_seconds"),
-            published_at=video.get("published_at"),
-        )
-        if skip:
-            logger.info("transcript skipped %s: %s", video_id, skip)
-            return
-        name = transcripts.note_name(published_at=video.get("published_at"), account=account.get("nickname") or "对标", title=video.get("title") or "")
-        markdown = transcripts.render(video=video, account=account.get("nickname") or "对标", report=report, text=text)
-        path = transcripts.write_note(vault.vault_root(vault_path()), name, markdown)
+        mine = bool(account["is_self"])
+        who = account.get("nickname") or ("我" if mine else "对标")
+        if mine:
+            # 自己的视频不做时效和「太薄」筛选：这是我的内容库，每一条都要在，
+            # 包括短的和没爆的——分析自己的风格时，失败的那几条同样是证据。
+            folder = transcripts.MINE_FOLDER
+        else:
+            skip = transcripts.is_thin(
+                title=video.get("title") or "",
+                text=text,
+                duration_seconds=(report.get("transcript") or {}).get("duration_seconds"),
+                published_at=video.get("published_at"),
+            )
+            if skip:
+                logger.info("transcript skipped %s: %s", video_id, skip)
+                return
+            folder = transcripts.FOLDER
+        name = transcripts.note_name(published_at=video.get("published_at"), account=who, title=video.get("title") or "")
+        markdown = transcripts.render(video=video, account=who, report=report, text=text)
+        path = transcripts.write_note(vault.vault_root(vault_path()), name, markdown, folder=folder)
         logger.info("transcript saved %s", path)
-        store.log_event("teardown", f"拆完了 {account.get('nickname') or '对标'} 的《{(video.get('title') or '')[:24]}》，文字稿进了进项")
+        store.log_event("teardown", f"拆完了{'自己' if mine else who}的《{(video.get('title') or '')[:24]}》，文字稿落进 {folder}")
 
     worker.on_done = _save_transcript
 

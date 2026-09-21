@@ -19,6 +19,9 @@ import tempfile
 from typing import Any
 
 FOLDER = "002_对标内容"
+# Park 自己发出去的，和对标分开放：分析「我的内容适不适合走某条路线」时，要读的是
+# 自己讲了什么、怎么开头、哪里散了——不是点赞数。之前只有对标有文字稿，自己一条没有。
+MINE_FOLDER = "005_我发出的视频"
 MIN_CHARS = 300
 MIN_SECONDS = 40
 # 进项是为了「今天拍什么」服务的。第一次加一个对标账号会同步他的全部历史作品，
@@ -87,6 +90,36 @@ def note_name(*, published_at: str | None, account: str, title: str) -> str:
     return f"{day} {_slug(account)} {_slug(title)}.md".replace("/", "／")
 
 
+def render_image_post(*, video: dict[str, Any], account: str) -> str:
+    """图文帖没有口播可转写。照样给它一篇——分析内容时「哪几条是图文」本身就是信息。"""
+    url = f"https://www.douyin.com/video/{video['video_id']}"
+    title = (video.get("title") or "").strip()
+    return "\n".join([
+        "---",
+        f"title: {title.splitlines()[0][:60] if title else ''}",
+        f"source: {url}",
+        f"author: {account}",
+        f"published: {(video.get('published_at') or '')[:19]}",
+        f"likes: {video.get('likes')}",
+        "format: 图文",
+        "by: content-studio",
+        "---",
+        "",
+        f"# {title.splitlines()[0][:60] if title else '（无标题）'}",
+        "",
+        f"{account} · [原帖]({url}) · 图文帖",
+        "",
+        "## 说明",
+        "",
+        "这条是图文帖，没有口播内容，所以没有文字稿。下面是发布时写的文案全文。",
+        "",
+        "## 文案全文",
+        "",
+        title or "（没有文案）",
+        "",
+    ]) + "\n"
+
+
 def render(*, video: dict[str, Any], account: str, report: dict[str, Any], text: str) -> str:
     facts = report.get("facts") or {}
     url = f"https://www.douyin.com/video/{video['video_id']}"
@@ -115,9 +148,10 @@ def render(*, video: dict[str, Any], account: str, report: dict[str, Any], text:
     return head + "\n".join(body)
 
 
-def write_note(vault_root: Path, name: str, markdown: str) -> str:
+def write_note(vault_root: Path, name: str, markdown: str, folder: str = FOLDER) -> str:
     """Write one transcript into the vault, atomically. Returns the vault-relative path."""
-    folder = vault_root / FOLDER
+    folder_name = folder
+    folder = vault_root / folder_name
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / name
     fd, tmp = tempfile.mkstemp(dir=str(folder), prefix=".t-", suffix=".md")
@@ -128,4 +162,4 @@ def write_note(vault_root: Path, name: str, markdown: str) -> str:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return f"{FOLDER}/{name}"
+    return f"{folder_name}/{name}"
