@@ -498,3 +498,15 @@
 - **图文帖也要有:** 19 条里 3 条是图文，没有口播可转写。照样各写一篇，`format: 图文`，正文放发布时的文案全文并注明没有口播——「哪几条是图文」本身就是分析材料，跳过它等于丢掉一个信号。
 - **Evidence:** 3 条图文已落盘；12 条视频排进拆解队列（4 条之前拆过，不重复）。202 个测试通过。
 - **Gotchas:** `write_note` 原来把文件夹写死成常量，加第二个目标时要先把它变成参数——否则两边会写进同一个文件夹，而且要等到 Park 打开 Obsidian 才发现。
+
+## 2026-09-21 — profile.yaml：把「一个人要告诉工作台的所有事」收进一个文件
+
+- **Context:** Park 想把工作台变成别人也能装的产品，提出先做一个标准化配置文件（社交平台链接、后台 AI、对标账号、Obsidian 路径），放进仓库，改 README，并在别人 fork 安装时提示必填/可选。他明说：先建标准，后续慢慢调。
+- **先数了数要脱钩的东西:** 14 处写死的本机路径、124 处写死的「Park」、9 个假设的 Obsidian 目录名、5 个必须另装的外部程序。这一步只搭骨架，不把 124 处一次换完。
+- **Decision:** `profile.example.yaml` 进仓库当模板，每项标 [必填]/[可选]；`profile.yaml` 进 .gitignore。`profile.py` 只做三件事：找文件（环境变量 → 仓库根 → `~/.config/content-studio/`）、读、逐项核对。**必填项校验的是「填对没有」不是「填了没有」**——抖音链接必须是主页不是视频，`ai.backend` 只认 `claude-cli`（API key 方式没接入，写了直接拒，不假装支持），文件夹必须真的存在。`python3 -m content_studio check` 打清单，必填齐了退出码 0。`serve` 缺项照样起，但终端打一遍清单、页面顶部挂横幅列出缺什么。
+- **第一处真正由配置驱动的行为:** `vault.configure()` 用 profile 的 `folders` / `dailies` 重建 `INBOX_SOURCES` / `DAILY_SOURCES`。可选来源没配就不列——列一个不存在的文件夹只会在进项多一个永远空的 tab。没给的保留默认，所以 Park 不配也和以前一样。
+- **profile 只填空不覆盖:** 启动时把 vault 路径、项目目录、平台账号种进 settings，但设置页手改过的值优先；自己的账号和对标账号只登记不同步——第一次启动就去抓六个账号会把人吓跑。
+- **Evidence:** 用 Park 的真实值生成了一份 profile.yaml（6 个对标、8 个平台、3 份日报），`check` 全 ✅，重启后进项四个来源计数和日报列表与之前一模一样。210 → 212 个测试通过。
+- **Gotchas:** `argparse` 的 subparsers 变量叫 `commands` 不叫 `sub`，抄模板时写错一处，import 时不报、跑到那行才 NameError——新增 CLI 子命令后要真跑一次。`create_app` 的 `profile=None` 是默认值，所有旧测试路径不受影响；但 `/api/state.setup.present` 在没 profile 时是 False 而不是缺键，前端横幅靠它区分「还没配」和「配了但缺项」，措辞不同。
+- **Gotchas（第二个）:** `vault.configure()` 第一版从「当前」`INBOX_SOURCES` 重建——跑过一次配置，被去掉的可选来源就再也回不来，`_allowed_folders()` 的白名单跟着缩，后面三个毫不相干的测试挂在「找不到素材」「同步没完成」上。改成从冻结的 `_DEFAULT_*` 重建、`configure(None)` 复位，再加一个 autouse fixture 每个测试后复位。**凡是让配置改模块全局的地方，都得同时给出「复位」和「每次从默认重建」，否则热加载和测试都会串。**
+- **没做（下一层）:** 124 处「Park」、提示词里的作者名、Anna 的角色文件路径、外部仓库路径——这些还是写死的。profile 里已经留了 `me.name` / `ai.command` / `ai.*_model` 的位，下一步一处一处接。

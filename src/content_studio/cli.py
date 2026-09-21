@@ -89,6 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--store", type=Path, default=DEFAULT_STORE_PATH)
     serve.add_argument("--cookies", type=Path, default=DEFAULT_COOKIE_PATH)
     serve.add_argument("--creator-db", type=Path, default=DEFAULT_DB_PATH)
+
+    check = commands.add_parser("check", help="核对 profile.yaml：哪些必填没填、哪些可选没填")
+    check.add_argument("--profile", type=Path, default=None, help="不给就按 环境变量 → 仓库根目录 → ~/.config/content-studio 找")
     serve.add_argument("--data-dir", type=Path, default=DEFAULT_REPORTS_DIR)
     serve.add_argument("--downloads-dir", type=Path, default=DEFAULT_DOWNLOADS_DIR)
 
@@ -192,10 +195,30 @@ def run_work(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_check(args: argparse.Namespace) -> int:
+    from . import profile
+
+    path = profile.find_profile(args.profile)
+    data = profile.load(path) if path else {}
+    checks = profile.check(data)
+    print(profile.render_checklist(checks, path))
+    return 0 if profile.summary(checks)["ok"] else 1
+
+
 def run_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
+    from . import profile
     from .web import create_app
+
+    # 启动前把 profile 读进来。缺必填项不拦着起服务——页面上会有横幅说缺什么，
+    # 比直接退出对第一次装的人友好；但终端里也打一遍，别让人对着空白页猜。
+    profile_path = profile.find_profile()
+    profile_data = profile.load(profile_path) if profile_path else None
+    checks = profile.check(profile_data or {})
+    if profile_path is None or not profile.summary(checks)["ok"]:
+        print(profile.render_checklist(checks, profile_path), flush=True)
+        print("", flush=True)
 
     # Without this nothing the service logs ever reaches the launchd log, and access logs are
     # off — so a batch of jobs appearing in the queue cannot be traced to the request that made it.
@@ -206,6 +229,7 @@ def run_serve(args: argparse.Namespace) -> int:
         creator_db=args.creator_db,
         data_dir=args.data_dir,
         downloads_dir=args.downloads_dir,
+        profile=profile_data,
     )
     print(f"内容拆解台已启动：http://127.0.0.1:{args.port}", flush=True)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info", access_log=True)
@@ -313,6 +337,7 @@ def main(argv: list[str] | None = None) -> int:
             "sync": run_sync,
             "work": run_work,
             "serve": run_serve,
+            "check": run_check,
             "write-schedule": run_write_schedule,
         }
         if args.command in handlers:

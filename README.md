@@ -67,14 +67,33 @@ git clone https://github.com/zinan92/content-studio.git
 cd content-studio
 python3 -m pip install -e '.[dev]'
 
-# 2. 依赖的两个本机能力
+# 2. 告诉它你是谁：复制模板，按里面的 [必填] / [可选] 填
+cp profile.example.yaml profile.yaml
+python3 -m content_studio check        # 逐项核对，❌ 是必填没过，○ 是可选没填
+
+# 3. 两个本机能力（抖音下载、视频转写）
 git clone https://github.com/zinan92/content-downloader.git ~/work/content-downloader   # 或设 CONTENT_DOWNLOADER_PATH
 python3 -m pip install git+https://github.com/zinan92/content-extractor.git
 
-# 3. 启动
+# 4. 启动
 python3 -m content_studio serve
-# 打开 http://127.0.0.1:8780 ，在「设置」里填 Obsidian 库路径
+# 打开 http://127.0.0.1:8780
 ```
+
+`check` 没过的时候 `serve` 照样能起，页面顶部会挂一条横幅列出还缺什么——第一次装的人不用对着空白页猜。
+
+**profile.yaml 里有什么**（模板里每一项都标了必填/可选）：
+
+| 一节 | 装什么 | 必填 |
+|---|---|---|
+| `me` | 你的名字、你自己的抖音主页链接、其他平台的账号名 | 名字、抖音链接 |
+| `ai` | 后台跑提纲/评分/Anna 的模型。目前只支持本机登录的 Claude Code | `backend` |
+| `benchmarks` | 对标账号的主页链接，一行一个 | — |
+| `vault` | Obsidian 库在哪、「我写的东西」在库里哪个文件夹、剪藏/收藏/日报各在哪 | 库路径、我写的东西 |
+| `video_projects_root` | 口播视频项目目录 | — |
+| `secrets_file` | 公众号 / X 的密钥文件位置（密钥本身不进 profile） | — |
+
+启动时 profile 只填空不覆盖：设置页里手改过的值优先。对标账号只登记不同步，你自己点「同步全部账号」。
 
 - 抖音功能需要浏览器登录抖音网页版与创作者中心后，把 cookies 导出到 `~/.config/content-studio/douyin-cookies.json`（权限 `600`）。
 - 拆解和写文章调用本机已登录的 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI；写文章需要安装 [khazix-writer](https://github.com/KKKKhazix/khazix-skills) skill。
@@ -139,6 +158,7 @@ python3 -m content_studio serve
 | `python3 -m content_studio pipeline --url <视频链接>` | 不入库，直接对链接出报告 |
 | `python3 -m content_studio write-schedule` | 生成每日同步的 launchd 配置，只写文件不启用 |
 
+| `python3 -m content_studio check` | 核对 profile.yaml，列出必填/可选各缺什么；必填齐了退出码 0 |
 ## API 参考
 
 | 方法 | 路径 | 说明 |

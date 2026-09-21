@@ -16,3 +16,6 @@ __pycache__/
 dist/
 build/
 .claude/
+
+# 个人配置（模板是 profile.example.yaml）
+profile.yaml
