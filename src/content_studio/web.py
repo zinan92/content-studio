@@ -768,16 +768,17 @@ def create_app(
                 if key == "wechat_mp":
                     # 凭据有效（2026-09-21 实测拿得到令牌），卡在 IP 白名单上，不是被封。
                     state, note = "setup", "官方接口可用，但这台机器的 IP 还没加进公众号后台的白名单"
-                elif key == "x":
-                    state, note = "setup", "要先在 developer.x.com 建应用，把密钥写进 secrets.yaml"
             elif channel.get("blocked"):
                 state, note = "blocked", channel["note"]
+            elif channel.get("setup"):
+                state, note = "setup", channel["note"]
             else:
                 state = "stale" if channel["likely_expired"] else "linked"
                 note = channel["note"]
             row = {
                 "key": key, "label": label, "mark": style.get("mark", label[:1]), "hue": style.get("hue", "#888"),
-                "auto_publish": channel is not None and not channel.get("blocked"), "auto_data": auto, "state": state, "note": note,
+                "auto_publish": channel is not None and not channel.get("blocked") and not channel.get("setup"), "auto_data": auto, "state": state, "note": note,
+                "login_hint": (channel or {}).get("login_hint", ""),
                 "handle": (opened.get(key) or {}).get("handle") or ("" if key != "douyin" else (me or {}).get("nickname") or ""),
                 "on": bool((opened.get(key) or {}).get("on")) or key == "douyin",
                 "admin": copypack.PLATFORMS.get(key, {}).get("admin"),
@@ -1500,7 +1501,8 @@ def create_app(
 
         topic = store.topic(topic_id)
         video = final_video_path(topic)
-        if video is None:
+        text_only = bool(publisher_specs().get(body.platform, {}).get("no_video"))
+        if video is None and not text_only:
             raise publisher.PublishError("这个选题还没有成片：先关联视频项目并完成剪辑")
         copy = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms")
         payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs())

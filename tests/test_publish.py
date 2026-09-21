@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from datetime import datetime, timedelta, timezone
 
 from content_studio import publish
@@ -63,3 +65,18 @@ def test_a_platform_block_is_not_reported_as_an_expired_login(tmp_path) -> None:
     # a channel without the flag still reports on credential age as before
     ok = publisher.readiness({"bilibili": {"label": "B 站", "credential": cred, "login_hint": "y", "modes": {"upload": {"label": "投稿"}}}})["bilibili"]
     assert ok.get("blocked") is not True and ok["credential"] is True
+
+
+def test_a_text_only_channel_does_not_demand_a_video_or_a_title(tmp_path) -> None:
+    """X 发的是正文本身。Requiring a 成片 or a 标题 would block Park on fields that do not exist there."""
+    from content_studio import publisher
+
+    spec = {"label": "X", "copy_key": "x", "credential": tmp_path / "s.yaml", "login_hint": "",
+            "no_video": True, "modes": {"post": {"label": "发一条推文（纯文字）", "argv": ["python3", "-m", "content_studio.x_post", "--text", "{body}"]}}}
+    copy = {"x": {"title": "", "body": "大多数人以为合规只是流程", "tags": ["AI"]}}
+    payload = publisher.build_payload("x", "post", video=None, copy=copy, publishers={"x": spec})
+    assert payload["video"] == "" and payload["body"] == "大多数人以为合规只是流程"
+    assert publisher.command_for(payload, {"x": spec})[-1] == "大多数人以为合规只是流程"
+
+    with pytest.raises(publisher.PublishError, match="正文"):
+        publisher.build_payload("x", "post", video=None, copy={"x": {"body": ""}}, publishers={"x": spec})
