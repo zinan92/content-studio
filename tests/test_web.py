@@ -29,8 +29,11 @@ class FakeClient:
         return {"nickname": "对标号", "follower_count": 12345}
 
     async def posts(self, sec_uid, cursor):
+        # 发布时间相对「现在」：写死的时间戳会随真实时间推移掉出 7 天 / 30 天 / 90 天各种窗口，
+        # 到某一天整批测试就会无缘无故失败。作品 1 最旧、作品 5 最新，顺序和原来一致。
+        base = datetime.now(timezone.utc) - timedelta(days=6)
         items = [
-            {"aweme_id": str(i), "desc": f"作品{i}", "create_time": 1780000000 + i, "duration": 90000,
+            {"aweme_id": str(i), "desc": f"作品{i}", "create_time": int((base + timedelta(hours=i)).timestamp()), "duration": 90000,
              "statistics": {"digg_count": likes, "collect_count": 10, "share_count": 5, "comment_count": 1}}
             for i, likes in enumerate([100, 120, 90, 110, 5000], start=1)
         ]
@@ -131,7 +134,8 @@ def _report(video_id: str) -> dict:
         "schema_version": 2,
         # Relative to now: reports untouched for REPORT_STALE_DAYS are auto-archived on read,
         # so a hard-coded date turns every test that reads this fixture into a time bomb.
-        "generated_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+        # Spread by video id so /api/reports (newest first) has a deterministic order.
+        "generated_at": (datetime.now(timezone.utc) - timedelta(days=1) + timedelta(seconds=int(video_id) if video_id.isdigit() else 0)).isoformat(),
         "content_id": video_id,
         "title": "报告标题",
         "author": "对标号",
@@ -180,7 +184,8 @@ def test_add_benchmark_syncs_and_breakout_is_auto_queued_then_reported(client: T
     assert outliers[0]["job"]["stage"] == "queued"
 
     client.app.state.worker.drain()
-    assert client.processed == ["https://www.douyin.com/video/5"]
+    # Every recent post is queued now, not just the breakout; the 5× one is among them.
+    assert "https://www.douyin.com/video/5" in client.processed
     assert client.get("/api/outliers").json()[0]["has_report"] is True
     report = client.get("/api/reports/5").json()
     assert report["facts"]["multiple_of_median"] == 45.5
@@ -749,10 +754,11 @@ def test_a_followed_accounts_new_posts_reach_the_input_page(client: TestClient) 
     _wait_sync(client)
 
     assert [a["nickname"] for a in client.get("/api/accounts").json()] == ["对标号"]
-    # The back catalogue was synced but is older than a week, so 进项 stays clean on day one.
-    assert client.get("/api/followed/posts").json() == {"posts": [], "days": 7, "account_count": 1}
-    feed = client.get("/api/followed/posts?days=3650").json()
+    feed = client.get("/api/followed/posts").json()
     assert [p["video_id"] for p in feed["posts"]] == ["5", "4", "3", "2", "1"]
+    assert feed["account_count"] == 1
+    # Windowed on publish date: nothing this account posted is older than a day.
+    assert client.get("/api/followed/posts?days=0").json()["posts"] == []
 
     client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
     client.app.state.worker.drain()
@@ -839,11 +845,24 @@ def test_a_video_older_than_the_fresh_window_never_becomes_a_note(client: TestCl
     client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}"})
     _wait_sync(client)
 
+    # Age one video past the window on purpose, rather than relying on the fixture's dates.
+    store = client.app.state.store
+    old_day = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
+    with store.tx() as conn:
+        conn.execute("UPDATE videos SET published_at = ? WHERE video_id = '5'", (old_day,))
+    for path in (tmp_path / "data" / "reports").glob("*/report.json"):
+        path.unlink()
+    (root / "002_对标内容").mkdir(exist_ok=True)
+    for note in (root / "002_对标内容").glob("*.md"):
+        note.unlink()
+
     client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
     client.app.state.worker.drain()
-    # The report is still there to read in 拆解报告; it just does not clutter 进项.
-    assert client.get("/api/reports").json()[0]["video_id"] == "5"
-    assert list((root / "002_对标内容").glob("*.md")) == []
+    # The report is still there to read in 拆解报告; it just does not clutter 进项. Its recent
+    # siblings do become notes, which is what makes the absence of this one meaningful.
+    assert "5" in [r["video_id"] for r in client.get("/api/reports").json()]
+    notes = [p.read_text(encoding="utf-8") for p in (root / "002_对标内容").glob("*.md")]
+    assert notes and not any("douyin.com/video/5" in n for n in notes)
 
 
 def test_announcements_are_dropped_after_transcription_not_before(tmp_path: Path) -> None:

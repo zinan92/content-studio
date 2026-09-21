@@ -391,3 +391,12 @@
 - **15 条任务的来路（Park 要求查清）:** 只有两个地方会排队——`cli.sync_everything`（每天 9:30 的 launchd）和 `web._sync_and_queue`（`POST /api/sync` 或 `POST /api/accounts/{id}/sync`）。`~/.config/content-studio/logs/daily-sync.log` 只有 09-20 01:30（enqueued 2）和 09-21 01:30（enqueued 4）两条，排除了 CLI。所以是 web 那条路又跑了一次 `auto_enqueue_new_posts`：单次上限 40，第一次同步排的是最新的 40 条，第二次接着排剩下的 15 条——这 15 条的发布时间正好是 08-22→09-12，即 30 天窗口里较旧的那一截，完全吻合。**机制确定，触发它的那次 HTTP 请求查不出来**，因为服务当时既没开 access log 也没配 logging。已打开两者，并让 `auto_enqueue_new_posts` 每次记下窗口/看了多少/排了哪几条。
 - **失败任务会留下半截下载:** 跑完后下载目录还有 548M，全是 4 个失败任务的残留，其中一个 499M。两个后果：占盘；以及 `_find_content_dir` 下次找到这个有元数据没视频的目录、跳过下载，转写永远报 `No video file`——那条 `7684559815099567423` 就这样失败了 3 次。现在失败时删掉没有 `transcript.json` 的目录。
 - **Gotchas:** 第一版按 `content_item.json` 找目录，漏掉了那个 499M——它连 `content_item.json` 都没写出来，只有 `media/`，谁也找不到。补了一层按视频 id 目录名的兜底。另外 `_report` 测试夹具的 `generated_at` 写死 2026-09-14，而超过 7 天未读的报告读取时自动归档，今天正好第 7 天，测试从今天开始必然失败——已改成相对当前时间。这类"到某天才炸"的夹具值得全局排查一次。
+
+## 2026-09-21 — 写死日期全局排查
+
+- **Context:** 09-21 有个测试无缘无故变红：`_report` 夹具的 `generated_at` 写死在 2026-09-14，而超过 7 天没读的报告在读取时自动归档，今天正好第 7 天。Park：把这类地方全局排查一下。
+- **做法:** 两条路并用。(1) 写了个 pytest 插件 `tools/timeshift.py`，把 `content_studio.*` 和测试模块里的 `datetime`/`date` 换成偏移版，`TIMESHIFT_DAYS=365` 跑一遍看什么会炸。(2) 静态扫描所有日期字面量（34 个函数含有），按「这个函数有没有把时间当参数注入」分成 16 安全 / 18 待查，再逐个人工确认。
+- **查出的真雷（已修）:** 两处，都是同一个模式——把时间写死在夹具里，代码却用真实的 `now()` 去比。① `_report` 的 `generated_at`（今天已经炸了）；② `create_time: 1780000000`（= 2026-05-28）出现在 test_web、test_accounts、test_worker 三处，随着时间推移这些假视频会掉出 7 天排队窗、30 天时效窗、90 天触达窗。全部改成相对当前时间。
+- **确认安全的:** 18 个待查里没有第三处真雷。`test_creator_metrics` / `test_publish` / `test_review` / `test_today` 都有模块级的 `NOW`/`DAY` 常量，但全部通过 `now=lambda: NOW` 或参数传进去，所有数据都相对这个锚点——固定锚点 + 相对数据是稳的，可以一直这么写。其余是「日期只当标签用」（项目文件夹名 `2026-01-01_old`、审批记录）或正则误报。
+- **判据（以后照这个写）:** 夹具里的日期只要会跟真实 `now()` 比较，就必须相对当前时间生成；要确定性就把时钟也注入进去（`now=`），不要写死一个日期再让代码去读真实时间。
+- **Gotchas:** `tools/timeshift.py` 伪造不了文件 mtime，所以靠 `vault.inbox`（比较文件修改时间）的测试在拨快之后一定失败——那是工具的假阳性。判断真假看失败原因里有没有日期字面量。另外把 `_report` 的 `generated_at` 改成相对时间后，所有报告时间戳变成同一秒，`/api/reports` 的排序变随机，三个测试跟着挂——按 video_id 加了秒级偏移才稳定。

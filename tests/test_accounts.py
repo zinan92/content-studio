@@ -31,7 +31,8 @@ def _post(aweme_id: str, likes: int, *, top: bool = False, duration: int = 60000
     return {
         "aweme_id": aweme_id,
         "desc": f"视频 {aweme_id}",
-        "create_time": 1780000000 + int(aweme_id),
+        # 相对「现在」，不写死：写死的发布时间迟早会掉出所有时间窗口。
+        "create_time": int((datetime.now(timezone.utc) - timedelta(days=6) + timedelta(hours=int(aweme_id))).timestamp()),
         "is_top": int(top),
         "duration": duration,
         "statistics": {"digg_count": likes, "comment_count": 1, "share_count": 2, "collect_count": 3, "play_count": 0},
