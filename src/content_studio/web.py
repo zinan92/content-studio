@@ -429,6 +429,8 @@ def create_app(
 
     def _sync_and_queue(account_id: int) -> dict:
         result = sync_account(store, account_id, client_factory=factory)
+        acct = store.account(account_id)
+        store.log_event("sync", f"同步完 {acct.get('nickname') or '账号'}，共 {result.get('video_count', '?')} 条作品")
         if store.account(account_id)["is_self"]:
             if creator_sync_fn is not None:
                 result["creator_metrics"] = creator_sync_fn()
@@ -611,6 +613,9 @@ def create_app(
                 note = vault.read_note(vault_path(), body.path)
                 me = store.self_account()
                 topic = store.create_topic(note["title"], note_paths=[body.path], account_id=me["id"] if me else None)
+            store.log_event("pool", f"《{topic['title'][:30]}》从进项进了选题池", topic["id"])
+        elif body.status:
+            store.log_event("triage", f"进项里「{body.path.split('/')[-1][:30]}」标成了{ {'shot': '拍过了', 'ignored': '忽略'}.get(body.status, body.status) }")
         return {"path": body.path, "triage": body.status, "topic": topic}
 
     # -- skills -----------------------------------------------------------
@@ -683,6 +688,7 @@ def create_app(
         markdown = transcripts.render(video=video, account=account.get("nickname") or "对标", report=report, text=text)
         path = transcripts.write_note(vault.vault_root(vault_path()), name, markdown)
         logger.info("transcript saved %s", path)
+        store.log_event("teardown", f"拆完了 {account.get('nickname') or '对标'} 的《{(video.get('title') or '')[:24]}》，文字稿进了进项")
 
     worker.on_done = _save_transcript
 
@@ -789,7 +795,9 @@ def create_app(
             raise ValueError("这条已经归档了")
         previous = store.focus_topic()
         store.set_focus(topic_id)
-        return {"topic": store.topic(topic_id), "previous": previous["title"] if previous and previous["id"] != topic_id else None}
+        swapped = previous and previous["id"] != topic_id
+        store.log_event("focus", f"开始做《{topic['title'][:30]}》" + (f"，《{previous['title'][:20]}》放回选题池" if swapped else ""), topic_id)
+        return {"topic": store.topic(topic_id), "previous": previous["title"] if swapped else None}
 
     @app.delete("/api/topics/{topic_id}/focus")
     def unfocus_topic(topic_id: int) -> dict[str, Any]:
@@ -797,6 +805,7 @@ def create_app(
         current = store.focus_topic()
         if current and current["id"] == topic_id:
             store.set_focus(None)
+            store.log_event("focus", f"《{current['title'][:30]}》放回了选题池", topic_id)
         return {"topic": store.topic(topic_id)}
 
     @app.post("/api/topics/{topic_id}/snooze")
@@ -811,11 +820,13 @@ def create_app(
         return {"topic": store.update_topic(topic_id, snoozed_until=None)}
 
     @app.post("/api/topics/{topic_id}/stage")
-    def set_stage(topic_id: int, body: StageBody) -> dict[str, Any]:
+    def set_stage(topic_id: int, body: StageBody) -> dict[str, Any]:  # noqa: D401
         """Step the focus video back to 提纲 (or clear that override) — the pipeline can move backwards."""
         store.topic(topic_id)
         if body.stage not in (None, "outline"):
             raise ValueError("只能退回到提纲")
+        title = store.topic(topic_id)["title"][:30]
+        store.log_event("stage", f"《{title}》{'退回提纲重写' if body.stage == 'outline' else '提纲改好了，回到录制'}", topic_id)
         return {"topic": store.update_topic(topic_id, manual_stage=body.stage)}
 
     # -- article line ------------------------------------------------------
@@ -866,10 +877,12 @@ def create_app(
                 **({"write_fn": outline_fn} if outline_fn else {})
             )
             store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None, manual_stage=None)
+            store.log_event("outline", f"《{store.topic(topic_id)['title'][:30]}》的提纲写好了", topic_id)
             _run_qa(topic_id)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("outline topic %s failed: %s", topic_id, exc)
             store.update_topic(topic_id, outline_state="failed", outline_error=str(exc)[:300] or type(exc).__name__)
+            store.log_event("outline", f"《{store.topic(topic_id)['title'][:24]}》提纲生成失败：{str(exc)[:60]}", topic_id)
         finally:
             with writing_lock:
                 writing.discard(-topic_id)
@@ -1002,11 +1015,70 @@ def create_app(
             parts.append(block)
         return head + "\n\n## 分段\n" + "\n\n".join(parts)
 
+    def _anna_overview() -> str:
+        """The standing index of the whole backend, ~1 screen, every turn.
+
+        The page Park happens to be on is a wrapper over the same database; without this Anna
+        can only see that one slice and has to guess at everything else. This is deliberately a
+        table of contents, not the contents: 83 teardown reports would be tens of thousands of
+        characters, and she needs to know they exist far more often than she needs to read one.
+        """
+        out: list[str] = []
+        try:
+            data = get_board(None)
+            focus = data.get("focus")
+            out.append(
+                f"- 正在做：{('《' + focus['title'][:30] + '》｜在等：' + focus['next']['text']) if focus else '还没定'}"
+                f"\n- 选题池 {len(data.get('pool') or [])} 条；剪辑/待发 {len(data.get('machine') or [])} 条；暂缓 {len(data.get('snoozed') or [])} 条"
+            )
+        except Exception:  # noqa: BLE001 - the overview must never break a turn
+            pass
+        try:
+            items = vault.inbox(vault_path(), since=vault.window_start(7))
+            by_source: dict[str, int] = {}
+            for i in items:
+                if not i.get("triage") and not i.get("used_by"):
+                    by_source[i["source_label"]] = by_source.get(i["source_label"], 0) + 1
+            out.append("- 进项近 7 天还没处理：" + ("；".join(f"{k} {v}" for k, v in by_source.items()) or "没有"))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            r = get_reach(14)
+            out.append(f"- 触达：今天 {r['today']}，近 7 天日均 {r['avg7']}")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            # not `reports = reports()`: that makes the name local and the call raises.
+            all_reports = reports()
+            recent = "；".join(f"{x['author'] or ''}《{(x['title'] or '')[:20]}》" for x in all_reports[:8])
+            out.append(f"- 拆解报告共 {len(all_reports)} 份，最近的：{recent}")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            accounts = [a["nickname"] or "?" for a in store.followed_accounts()]
+            out.append(f"- 关注的账号 {len(accounts)} 个：{'、'.join(accounts)}")
+        except Exception:  # noqa: BLE001
+            pass
+        return "## 工作台全局（这是目录，不是全文）\n" + "\n".join(out) if out else ""
+
+    def _anna_events(limit: int = 12) -> str:
+        """最近发生了什么。Without it Anna cannot know a topic just moved out of 进项."""
+        rows = store.events(limit)
+        if not rows:
+            return ""
+        def when(iso: str) -> str:
+            try:
+                dt = datetime.fromisoformat(iso).astimezone()
+                return dt.strftime("%m-%d %H:%M")
+            except ValueError:
+                return iso[:16]
+        return "## 最近发生了什么\n" + "\n".join(f"- {when(r['at'])} {r['text']}" for r in rows)
+
     def _anna_context(kind: str, topic_id: int | None, note_path: str | None, report_id: str | None = None) -> str:
-        """What Park is looking at right now, as plain text for one turn."""
+        """What Park is looking at right now, plus the backend index and recent history."""
         from . import board, opening, outline, qa, writer
 
-        lines: list[str] = []
+        lines: list[str] = [x for x in (_anna_overview(), _anna_events()) if x]
         if kind == "input":
             day_value = date.today()
             for item in vault.dailies(vault_path(), day_value):

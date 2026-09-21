@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -95,6 +96,7 @@ def _fake_writer(prompt: str) -> str:
 
 
 def _fake_anna(system: str, user: str, session_id: str | None) -> dict:
+    _fake_anna.last_user = user
     assert "让对的人看得更久" in system or "Anna" in system
     if "炸掉" in user:
         raise RuntimeError("boom")
@@ -879,3 +881,38 @@ def test_announcements_are_dropped_after_transcription_not_before(tmp_path: Path
     assert transcripts.is_thin(title="高客单获客，必须做认知型深度内容", text="正文" * 400, duration_seconds=300) is None
     assert transcripts.is_stale("2026-06-27T10:00:00", now=datetime(2026, 9, 20, tzinfo=timezone.utc)) is True
     assert transcripts.is_stale("2026-09-18T10:00:00", now=datetime(2026, 9, 20, tzinfo=timezone.utc)) is False
+
+
+def test_anna_is_given_the_backend_index_and_recent_events_not_just_one_page(client: TestClient, tmp_path: Path) -> None:
+    """Park: 前端只是后端打包出来的。She must know a topic just moved and what else exists,
+    without being handed all 83 teardown reports every turn."""
+    root = tmp_path / "vault-ctx"
+    (root / "003_park原始输出").mkdir(parents=True)
+    (root / "003_park原始输出" / "n.md").write_text("# 一条笔记\n正文", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+
+    topic = client.put("/api/vault/triage", json={"path": "003_park原始输出/n.md", "status": "topic"}).json()["topic"]
+    client.post(f"/api/topics/{topic['id']}/focus")
+
+    client.post("/api/anna", json={"scope": "output", "message": "现在什么情况"})
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": "output"}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    seen = _fake_anna.last_user  # the fake records the prompt it was handed
+    assert "工作台全局" in seen and "最近发生了什么" in seen
+    assert "从进项进了选题池" in seen and "开始做《一条笔记》" in seen
+    assert "进项近 7 天还没处理" in seen and "触达" in seen
+
+    # index, not contents: once a report exists the block names it, never carries its body
+    report_dir = tmp_path / "data" / "reports" / "555"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "report.json").write_text(json.dumps(_report("555")), encoding="utf-8")
+    client.post("/api/anna", json={"scope": "board", "message": "再看一眼"})
+    for _ in range(200):
+        if not client.get("/api/anna", params={"scope": "board"}).json()["busy"]:
+            break
+        time.sleep(0.02)
+    again = _fake_anna.last_user
+    assert "拆解报告共 1 份" in again and "正文" not in again.split("## 最近发生了什么")[0]
