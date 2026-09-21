@@ -158,3 +158,26 @@ def test_prune_media_drops_the_video_and_keeps_everything_a_reanalysis_needs(tmp
     assert not (item / "media").exists()
     assert sorted(p.name for p in item.iterdir()) == ["content_item.json", "metadata.json", "structured_text.md", "transcript.json"]
     assert prune_media(item) == 0  # already pruned, and never an error
+
+
+def test_drop_partial_clears_a_failed_download_but_never_finished_work(tmp_path: Path) -> None:
+    """A failed download left 499 MB behind, and its content dir then made every retry fail
+    with "No video file" because the download step was skipped."""
+    from content_studio.pipeline import drop_partial
+
+    downloads = tmp_path / "downloads"
+    partial = downloads / "douyin" / "acct" / "111"
+    partial.mkdir(parents=True)
+    (partial / "content_item.json").write_text('{"content_id": "111"}', encoding="utf-8")
+    (partial / "media").mkdir()
+    (partial / "media" / "half.mp4").write_bytes(b"0" * 2048)
+
+    done = downloads / "douyin" / "acct" / "222"
+    done.mkdir(parents=True)
+    (done / "content_item.json").write_text('{"content_id": "222"}', encoding="utf-8")
+    (done / "transcript.json").write_text("{}", encoding="utf-8")
+
+    assert drop_partial(downloads, "111") == 2048 + len('{"content_id": "111"}')
+    assert not partial.exists()
+    assert drop_partial(downloads, "222") == 0 and done.exists()
+    assert drop_partial(downloads, "nosuch") == 0

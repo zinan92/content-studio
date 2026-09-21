@@ -12,6 +12,7 @@ from .pipeline import (
     _content_id_from_url,
     _default_baseline,
     _secure_dir,
+    drop_partial,
     process_url,
 )
 from .store import StudioStore
@@ -100,6 +101,12 @@ class TeardownWorker:
             )
         except Exception as exc:  # noqa: BLE001 - every failure is shown on the job
             logger.warning("teardown job %s failed: %s", job_id, exc)
+            try:
+                freed = drop_partial(_secure_dir(self.config.downloads_dir), job.get("video_id") or _content_id_from_url(job["url"]))
+                if freed:
+                    logger.info("teardown job %s: dropped %.1f MB of partial download", job_id, freed / 1e6)
+            except OSError as cleanup_exc:  # noqa: BLE001 - the job already failed
+                logger.warning("teardown job %s: could not clean partial download: %s", job_id, cleanup_exc)
             return self.store.update_job(job_id, stage="failed", error=str(exc)[:500] or type(exc).__name__)
         finally:
             self.current_job_id = None
