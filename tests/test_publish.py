@@ -80,3 +80,50 @@ def test_a_text_only_channel_does_not_demand_a_video_or_a_title(tmp_path) -> Non
 
     with pytest.raises(publisher.PublishError, match="正文"):
         publisher.build_payload("x", "post", video=None, copy={"x": {"body": ""}}, publishers={"x": spec})
+
+
+def test_wechat_errors_are_told_apart_instead_of_all_reading_as_blocked(tmp_path) -> None:
+    """40164 是 IP 白名单、40125 是密钥不对——2026-09-21 就是靠分清这两个才没去修错地方。"""
+    import json as _json
+
+    from content_studio import wechat
+
+    class Reply:
+        def __init__(self, payload): self.payload = payload
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return _json.dumps(self.payload).encode()
+
+    creds = {"appid": "wx", "secret": "s"}
+    assert wechat.fetch_token(creds, opener=lambda *a, **k: Reply({"access_token": "x", "expires_in": 7200}))["ok"] is True
+    assert wechat.fetch_token(creds, opener=lambda *a, **k: Reply({"errcode": 40164}))["reason"] == "ip"
+    assert wechat.fetch_token(creds, opener=lambda *a, **k: Reply({"errcode": 40125}))["reason"] == "secret"
+    assert wechat.fetch_token({}, opener=None)["reason"] == "unconfigured"
+
+
+def test_wechat_state_is_cached_so_the_daily_token_quota_is_not_burned(tmp_path) -> None:
+    """微信取令牌每天有次数上限；每次渲染页面都问一次，几天就用光了。"""
+    import json as _json
+    from datetime import datetime, timedelta, timezone
+
+    from content_studio import wechat
+
+    calls = []
+
+    class Reply:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self):
+            calls.append(1)
+            return _json.dumps({"access_token": "x"}).encode()
+
+    cache = tmp_path / "state.json"
+    now = datetime(2026, 9, 21, 12, tzinfo=timezone.utc)
+    first = wechat.state(now=now, opener=lambda *a, **k: Reply(), cache_path=cache)
+    assert first["ok"] and first["cached"] is False and len(calls) == 1
+
+    again = wechat.state(now=now + timedelta(hours=1), opener=lambda *a, **k: Reply(), cache_path=cache)
+    assert again["cached"] is True and len(calls) == 1  # 没有再问微信
+
+    later = wechat.state(now=now + timedelta(hours=7), opener=lambda *a, **k: Reply(), cache_path=cache)
+    assert later["cached"] is False and len(calls) == 2  # 过了 6 小时才重新问
