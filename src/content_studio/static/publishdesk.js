@@ -298,6 +298,7 @@ function openPlatform(key) {
   renderDialog();
   if (!dlg.open) dlg.showModal();
   dlg.onclose = () => { PD.open = null; };
+  dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); };
 }
 
 function copyAll(p) {
