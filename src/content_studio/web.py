@@ -29,6 +29,7 @@ from . import today as today_plan
 from . import vault
 from . import video_project
 from . import copypack
+from . import outline as outline_mod
 from .video_project import VideoProjectError
 from .store import StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
@@ -1048,46 +1049,53 @@ def create_app(
         threading.Thread(target=_write_topic, args=(topic_id,), name=f"write-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始写了，一般 1–5 分钟"}
 
-    def _outline_topic(topic_id: int) -> None:
+    def _outline_topic(topic_id: int, mode: str) -> None:
         from . import outline
 
+        label = outline.MODES[mode]["label"]
         try:
             result = outline.write_outline(
-                store.topic(topic_id), vault_raw=vault_path(), drafts_dir=drafts_root, adjustments=latest_adjustments(),
-                **({"write_fn": outline_fn} if outline_fn else {})
+                store.topic(topic_id), vault_raw=vault_path(), mode=mode, drafts_dir=drafts_root,
+                adjustments=latest_adjustments(), **({"write_fn": outline_fn} if outline_fn else {})
             )
-            store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None, manual_stage=None)
-            store.log_event("outline", f"《{store.topic(topic_id)['title'][:30]}》的提纲写好了", topic_id)
+            store.update_topic(topic_id, outline_path=result["outline_path"], outline_mode=mode, outline_state=None, outline_error=None, manual_stage=None)
+            store.log_event("outline", f"《{store.topic(topic_id)['title'][:30]}》的{label}写好了", topic_id)
             _run_qa(topic_id)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
-            logger.warning("outline topic %s failed: %s", topic_id, exc)
+            logger.warning("outline topic %s (%s) failed: %s", topic_id, mode, exc)
             store.update_topic(topic_id, outline_state="failed", outline_error=str(exc)[:300] or type(exc).__name__)
-            store.log_event("outline", f"《{store.topic(topic_id)['title'][:24]}》提纲生成失败：{str(exc)[:60]}", topic_id)
+            store.log_event("outline", f"《{store.topic(topic_id)['title'][:24]}》{label}生成失败：{str(exc)[:60]}", topic_id)
         finally:
             with writing_lock:
                 writing.discard(-topic_id)
 
     @app.post("/api/topics/{topic_id}/outline")
-    def start_outline(topic_id: int) -> dict[str, Any]:
+    def start_outline(topic_id: int, mode: str = outline_mod.DEFAULT_MODE) -> dict[str, Any]:
         topic = store.topic(topic_id)
         if topic["formats"] == "article":
             raise ValueError("这个选题只写文章；先把形式改成「视频」或「文章 + 视频」")
+        if mode not in outline_mod.MODES:
+            raise ValueError(f"没有「{mode}」这个版本")
+        # 框架文件在 Obsidian 里，Park 随时会改。先读一次，缺了就当场说清楚，
+        # 而不是让线程在后台失败、他等两分钟才看到。
+        outline_mod.load_framework(mode)
         with writing_lock:
             if -topic_id in writing:
                 return {"started": False, "message": "提纲正在写"}
             writing.add(-topic_id)
         store.update_topic(topic_id, outline_state="running", outline_error=None)
-        threading.Thread(target=_outline_topic, args=(topic_id,), name=f"outline-{topic_id}", daemon=True).start()
-        return {"started": True, "message": "开始写拍摄提纲，一般 1–2 分钟"}
+        threading.Thread(target=_outline_topic, args=(topic_id, mode), name=f"outline-{topic_id}", daemon=True).start()
+        return {"started": True, "message": f"开始写{outline_mod.MODES[mode]['label']}，一般 1–2 分钟"}
 
     @app.get("/api/topics/{topic_id}/outline")
-    def get_outline(topic_id: int) -> dict[str, Any]:
+    def get_outline(topic_id: int, mode: str | None = None) -> dict[str, Any]:
         from . import outline
 
-        data = outline.read_outline(store.topic(topic_id))
+        topic = store.topic(topic_id)
+        data = outline.read_outline(topic, mode)
         if data is None:
-            raise HTTPException(status_code=404, detail="这个选题还没有拍摄提纲")
-        return data
+            raise HTTPException(status_code=404, detail="这个选题还没有这一版的稿子")
+        return {**data, "available": outline.available(topic), "current_mode": topic.get("outline_mode")}
 
     @app.put("/api/topics/{topic_id}/outline")
     def put_outline(topic_id: int, body: ArticleBody) -> dict[str, Any]:
@@ -1096,7 +1104,7 @@ def create_app(
         topic = store.topic(topic_id)
         if not body.markdown.strip():
             raise ValueError("提纲不能为空")
-        path = Path(topic["outline_path"]) if topic.get("outline_path") else drafts_root / f"topic-{topic_id}" / "outline.md"
+        path = Path(topic["outline_path"]) if topic.get("outline_path") else drafts_root / f"topic-{topic_id}" / f"outline-{outline_mod.DEFAULT_MODE}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body.markdown if body.markdown.endswith("\n") else body.markdown + "\n", encoding="utf-8")
         if not topic.get("outline_path"):
