@@ -10,8 +10,12 @@ async function renderPublishPanel(topic, el) {
   const pending = d.jobs.find((j) => j.state === 'awaiting_confirm');
   const running = d.jobs.find((j) => j.state === 'running');
   let html = '<div class="pn"><h3>一键发布</h3>';
-  if (!d.video) {
-    html += '<p class="muted">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发到视频号、B 站、YouTube。</p>';
+  // X 发的是正文本身，没有成片也能发——别让它被「先去剪辑」挡在门外。
+  const textOnly = Object.entries(d.platforms).filter(([, p]) => p.no_video);
+  if (!d.video && !textOnly.length) {
+    html += '<p class="muted">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发到 B 站、YouTube。</p>';
+  } else if (!d.video) {
+    html += `<p class="muted">还没有成片，但${textOnly.map(([, p]) => esc(p.label)).join('、')}发的是文字，现在就能发。</p>`;
   } else if (!d.has_copy) {
     html += '<p class="muted">先在上面写好标题并保存，发布会用这个标题和简介。</p>';
   } else {
