@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
@@ -128,7 +129,9 @@ def _wait_topic(client: TestClient, topic_id: int) -> dict:
 def _report(video_id: str) -> dict:
     return {
         "schema_version": 2,
-        "generated_at": "2026-09-14T00:00:00+00:00",
+        # Relative to now: reports untouched for REPORT_STALE_DAYS are auto-archived on read,
+        # so a hard-coded date turns every test that reads this fixture into a time bomb.
+        "generated_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
         "content_id": video_id,
         "title": "报告标题",
         "author": "对标号",

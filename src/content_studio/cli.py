@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 import sys
 
@@ -196,6 +197,9 @@ def run_serve(args: argparse.Namespace) -> int:
 
     from .web import create_app
 
+    # Without this nothing the service logs ever reaches the launchd log, and access logs are
+    # off — so a batch of jobs appearing in the queue cannot be traced to the request that made it.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = create_app(
         store_path=args.store,
         cookie_path=args.cookies,
@@ -204,7 +208,7 @@ def run_serve(args: argparse.Namespace) -> int:
         downloads_dir=args.downloads_dir,
     )
     print(f"内容拆解台已启动：http://127.0.0.1:{args.port}", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info", access_log=True)
     return 0
 
 
