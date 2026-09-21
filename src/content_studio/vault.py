@@ -53,6 +53,43 @@ INBOX_SOURCES = (
 )
 
 READABLE_SUFFIXES = (".md", ".html")
+
+# 默认值单独冻结：configure() 每次都从这里重建，不从「当前值」重建。
+# 否则跑过一次配置之后（比如某个测试、或者改了 profile 再热加载），被去掉的可选来源
+# 就再也找不回来了——而且 _allowed_folders() 的白名单会跟着缩，读笔记直接被拒。
+_DEFAULT_INBOX_SOURCES = INBOX_SOURCES
+_DEFAULT_DAILY_SOURCES = DAILY_SOURCES
+
+
+def configure(vault_cfg: dict | None) -> None:
+    """让 profile.yaml 里的文件夹名真正生效，而不是只校验一遍。
+
+    INBOX_SOURCES / DAILY_SOURCES 原来是写死的常量——那是 Park 一个人库的目录名。
+    别人的库叫别的名字，这两个元组就得由配置生成。没给的项保留默认值，
+    所以 Park 自己不配 profile 也和以前一样。传 None 就复位成默认。
+    """
+    global INBOX_SOURCES, DAILY_SOURCES
+    INBOX_SOURCES, DAILY_SOURCES = _DEFAULT_INBOX_SOURCES, _DEFAULT_DAILY_SOURCES
+    if not vault_cfg:
+        return
+    folders = vault_cfg.get("folders") or {}
+    by_key = {s.key: s for s in _DEFAULT_INBOX_SOURCES}
+    rebuilt = []
+    for key, folder_key in (("benchmark", "benchmark_transcripts"), ("clipping", "clippings"), ("saved", "saved"), ("raw", "my_writing")):
+        base = by_key[key]
+        name = str(folders.get(folder_key) or "").strip()
+        if not name and key in ("clipping", "saved"):
+            # 可选来源没配就不列——列一个不存在的文件夹只会让进项多一个永远空的 tab
+            continue
+        rebuilt.append(InboxSource(key, base.label, name or base.folder, passive=base.passive, timeless=base.timeless))
+    INBOX_SOURCES = tuple(rebuilt)
+    dailies = vault_cfg.get("dailies")
+    if isinstance(dailies, list) and dailies:
+        DAILY_SOURCES = tuple(
+            DailySource(str(d["key"]), str(d.get("label") or d["key"]), str(d["folder"]), (".md",))
+            for d in dailies if isinstance(d, dict) and d.get("key") and d.get("folder")
+        )
+
 FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 

@@ -954,3 +954,45 @@ def test_an_image_post_still_gets_a_note_saying_it_is_one(tmp_path: Path) -> Non
     )
     assert "format: 图文" in got and "没有口播内容" in got
     assert "重新思考公司架构" in got  # 文案全文保留，它就是这条的全部内容
+
+
+def test_state_tells_a_fresh_install_that_there_is_no_profile_yet(client: TestClient) -> None:
+    """页面顶部那条横幅读的就是这个：没 profile 时说「还没有」，不是报 5 个必填错吓人。"""
+    setup = client.get("/api/state").json()["setup"]
+    assert setup["present"] is False and setup["ok"] is False
+    assert "profile.example.yaml" in setup["hint"]
+    assert setup["missing_required"] == []
+
+
+def test_profile_seeds_settings_and_accounts_without_overwriting_hand_edits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """profile 只填空不覆盖：设置页里手改过的值优先；账号只登记不同步。"""
+    monkeypatch.setattr(web, "LEGACY_REPORT_DIRS", ())
+    root = tmp_path / "vault"
+    (root / "mine").mkdir(parents=True)
+    profile = {
+        "me": {"name": "某人", "douyin": f"https://www.douyin.com/user/{SEC}", "platforms": {"x": "someone", "bilibili": ""}},
+        "ai": {"backend": "claude-cli"},
+        "benchmarks": ["https://www.douyin.com/user/MS4wLjABAAAAbench1"],
+        "vault": {"path": str(root), "folders": {"my_writing": "mine"}},
+        "video_projects_root": str(tmp_path),
+    }
+    cookie = tmp_path / "c.json"; cookie.write_text("{}", encoding="utf-8")
+    app = web.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None,
+                         data_dir=tmp_path / "d", downloads_dir=tmp_path / "dl",
+                         client_factory=FakeClient, start_worker=False, profile=profile)
+    store = app.state.store
+    try:
+        s = store.settings()
+        assert s["obsidian_vault"] == str(root)
+        assert s["video_projects_root"] == str(tmp_path)
+        assert s["platform_accounts"] == {"x": {"on": True, "handle": "someone"}}   # 空的 bilibili 没登记
+        assert store.self_account()["profile_url"].endswith(SEC)
+        assert [a["profile_url"] for a in store.followed_accounts()] == ["https://www.douyin.com/user/MS4wLjABAAAAbench1"]
+        assert all(a["last_synced_at"] is None for a in store.accounts())               # 只登记，没去抓
+        # 手改过的值不被 profile 覆盖
+        store.update_settings({"obsidian_vault": "/somewhere/else"})
+        web._apply_profile(store, profile)
+        assert store.settings()["obsidian_vault"] == "/somewhere/else"
+        assert len(store.followed_accounts()) == 1                                    # 再跑一次不重复登记
+    finally:
+        store.close()

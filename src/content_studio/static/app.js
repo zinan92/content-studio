@@ -205,6 +205,17 @@ function renderChrome() {
   if (!st.cookies.ok) {
     banner.push(`<div class="banner warn"><div><b>抖音登录信息不可用。</b>${esc(st.cookies.message)}。请在浏览器登录抖音网页版和创作者中心后重新导出 cookies 到 <code>~/.config/content-studio/douyin-cookies.json</code>（权限 600）。</div></div>`);
   }
+  // 第一次装的人看到的第一件事：profile.yaml 缺什么。必填列出来，可选只报个数。
+  if (st.setup && !st.setup.ok) {
+    const req = st.setup.missing_required || [];
+    const opt = st.setup.missing_optional || [];
+    const lines = req.map((m) => `<li><b>${esc(m.label)}</b> <code>${esc(m.key)}</code> — ${esc(m.hint)}</li>`).join('');
+    banner.push(`<div class="banner warn setup"><div><b>${st.setup.present ? `profile.yaml 还有 ${req.length} 项必填没填` : '还没有 profile.yaml'}</b>
+      ${st.setup.present ? '' : `<div>${esc(st.setup.hint)}</div>`}
+      ${lines ? `<ul>${lines}</ul>` : ''}
+      ${opt.length ? `<small>另有 ${opt.length} 项可选没填，不影响启动。终端里 <code>python3 -m content_studio check</code> 看全部。</small>` : ''}
+    </div></div>`);
+  }
   const stopped = st.last_full_sync && (st.last_full_sync.stopped || st.last_full_sync.error);
   if (stopped) banner.push(`<div class="banner warn"><div><b>上次同步中断：</b>${esc(stopped)}</div></div>`);
   $('#globalBanner').innerHTML = banner.length ? `<div style="display:flex;flex-direction:column;gap:10px;margin:0 0 18px;max-width:1180px">${banner.join('')}</div>` : '';

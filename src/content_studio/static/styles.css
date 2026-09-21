@@ -904,3 +904,9 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .pf-f>span i{font-style:normal;font-size:10.5px;opacity:.75}
 .pf-f p{margin:0;font-size:13px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap}
 @media (max-width:760px){.pf-f{grid-template-columns:1fr;gap:4px}}
+
+/* 首次安装：profile.yaml 缺项 */
+.banner.setup ul{margin:8px 0 4px;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.banner.setup li{font-size:13px;line-height:1.5}
+.banner.setup code{font-family:var(--mono);font-size:11.5px;background:var(--sunk);border-radius:4px;padding:0 5px}
+.banner.setup small{display:block;margin-top:6px;color:var(--ink-3)}

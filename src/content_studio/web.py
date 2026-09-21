@@ -209,6 +209,50 @@ def _creator_rows(creator_db: Path | None) -> dict[str, dict[str, Any]]:
     return {row["video_id"]: {k: row[k] for k in row.keys() if k != "raw_json"} for row in rows}
 
 
+def _apply_profile(store: StudioStore, data: dict[str, Any] | None) -> None:
+    """profile.yaml 是「一个人告诉工作台的所有事」；这里把它落到运行时状态上。
+
+    只在启动时做一次，而且只填空不覆盖：设置页里手改过的值优先。账号只登记不同步——
+    第一次启动就去抓六个账号会把人吓跑，让他自己点「同步全部账号」。
+    """
+    vault.configure((data or {}).get("vault") or None)
+    if not data:
+        return
+    from . import profile as profile_mod
+    from .accounts import AccountError, add_account
+
+    current = store.settings()
+    patch: dict[str, Any] = {}
+    vault_path_cfg = str((data.get("vault") or {}).get("path") or "").strip()
+    if vault_path_cfg and current.get("obsidian_vault") in ("", None, "~/park-hands"):
+        patch["obsidian_vault"] = vault_path_cfg
+    root = str(data.get("video_projects_root") or "").strip()
+    if root and not current.get("video_projects_root"):
+        patch["video_projects_root"] = root
+    platforms = (data.get("me") or {}).get("platforms") or {}
+    if isinstance(platforms, dict) and not current.get("platform_accounts"):
+        patch["platform_accounts"] = {
+            k: {"on": True, "handle": str(v).strip()} for k, v in platforms.items()
+            if k in profile_mod.PLATFORM_KEYS and str(v or "").strip()
+        }
+    if patch:
+        store.update_settings(patch)
+    me_url = str((data.get("me") or {}).get("douyin") or "").strip()
+    if me_url and store.self_account() is None:
+        try:
+            add_account(store, me_url, is_self=True)
+        except AccountError as exc:
+            logger.warning("profile: 自己的账号没登记上：%s", exc)
+    known = {a["profile_url"] for a in store.accounts()}
+    for url in data.get("benchmarks") or []:
+        url = str(url or "").strip()
+        if url and url not in known:
+            try:
+                add_account(store, url)
+            except AccountError as exc:
+                logger.warning("profile: 对标账号 %s 没登记上：%s", url[:40], exc)
+
+
 def create_app(
     *,
     store_path: Path,
@@ -232,11 +276,13 @@ def create_app(
     runs_dir: Path | None = None,
     runner_command: str | None = None,
     publishers: dict[str, dict[str, Any]] | None = None,
+    profile: dict[str, Any] | None = None,
 ) -> FastAPI:
     from . import writer
     from . import board as board_mod
 
     store = StudioStore(store_path)
+    _apply_profile(store, profile)
     store.recover_interrupted_writes()
     store.recover_interrupted_publishes()
     # 2026-09-16: the vault's Clippings folder was renamed to 002_clippings.
@@ -354,6 +400,17 @@ def create_app(
 
     # -- state --------------------------------------------------------------
 
+    def _setup_state() -> dict[str, Any]:
+        from . import profile as profile_mod
+
+        if profile is None:
+            return {"present": False, "ok": False, "missing_required": [], "missing_optional": [],
+                    "hint": "还没有 profile.yaml：复制 profile.example.yaml 填一份，或在设置里逐项填"}
+        out = profile_mod.summary(profile_mod.check(profile))
+        out["present"] = True
+        out["path"] = profile.get("_path")
+        return out
+
     @app.get("/api/state")
     def state() -> dict[str, Any]:
         try:
@@ -368,6 +425,7 @@ def create_app(
             "my_accounts": [
                 {k: a[k] for k in ("id", "platform", "nickname", "profile_url", "follower_count")} for a in store.my_accounts()
             ],
+            "setup": _setup_state(),
             "vault": vault_status(store.settings()["obsidian_vault"]),
             "cookies": cookies,
             "creator_metrics_available": bool(_creator_rows(creator_db)),
