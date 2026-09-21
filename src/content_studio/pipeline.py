@@ -18,6 +18,22 @@ from .structure import build_report, load_glossary, render_markdown
 DEFAULT_GLOSSARY_PATH = Path(__file__).resolve().parents[2] / "config" / "glossary.json"
 
 
+def drop_partial(downloads_dir: Path, content_id: str | None) -> int:
+    """Throw away a half-finished download so the next attempt starts clean.
+
+    A failed download can leave a content dir with metadata but no video (one such partial was
+    499 MB). Worse, `_find_content_dir` then finds that dir, skips the download, and extraction
+    fails with "No video file" — the job can never succeed again. Only dirs without a
+    transcript are removed; anything already transcribed is finished work.
+    """
+    content_dir = _find_content_dir(downloads_dir, content_id)
+    if content_dir is None or (content_dir / "transcript.json").is_file():
+        return 0
+    freed = sum(f.stat().st_size for f in content_dir.rglob("*") if f.is_file())
+    shutil.rmtree(content_dir, ignore_errors=True)
+    return freed
+
+
 def prune_media(content_dir: Path) -> int:
     """Drop the downloaded video/audio once the transcript exists.
 
