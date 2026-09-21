@@ -230,7 +230,7 @@ function renderChrome() {
 }
 
 
-const PLAT_STATE = { linked: '已连接', stale: '要重新登录', manual: '手动发布' };
+const PLAT_STATE = { linked: '已连接', stale: '要重新登录', blocked: '平台限制了', setup: '差一步配置', manual: '手动发布' };
 
 /** 左下角的平台条。三种状态，不是两种——一个永远亮不起来的灯就是骗人：
  *  已连接=彩色；要重新登录=彩色带感叹号；手动=灰色（它本来就没有通道可连）。 */
@@ -239,8 +239,9 @@ function renderPlatformStrip() {
   if (!box) return;
   box.innerHTML = S.platforms.map((p) => {
     const title = `${p.label} · ${PLAT_STATE[p.state] || p.state}${p.note ? ' · ' + p.note : ''}`;
-    const style = p.state === 'manual' ? '' : ` style="--plat:${esc(p.hue)}"`;
-    return `<span class="plat s-${p.state}"${style} title="${esc(title)}"><i>${esc(p.mark)}</i>${p.state === 'stale' ? '<b class="plat-warn">!</b>' : ''}</span>`;
+    const style = p.state === 'manual' || p.state === 'blocked' ? '' : ` style="--plat:${esc(p.hue)}"`;
+    const warn = p.state === 'stale' || p.state === 'setup' ? '<b class="plat-warn">!</b>' : '';
+    return `<span class="plat s-${p.state}"${style} title="${esc(title)}"><i>${esc(p.mark)}</i>${warn}</span>`;
   }).join('');
 }
 

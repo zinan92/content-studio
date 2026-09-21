@@ -765,12 +765,19 @@ def create_app(
             channel = ready.get(key)
             if channel is None:
                 state, note = "manual", "手动发布"
+                if key == "wechat_mp":
+                    # 凭据有效（2026-09-21 实测拿得到令牌），卡在 IP 白名单上，不是被封。
+                    state, note = "setup", "官方接口可用，但这台机器的 IP 还没加进公众号后台的白名单"
+                elif key == "x":
+                    state, note = "setup", "要先在 developer.x.com 建应用，把密钥写进 secrets.yaml"
+            elif channel.get("blocked"):
+                state, note = "blocked", channel["note"]
             else:
                 state = "stale" if channel["likely_expired"] else "linked"
                 note = channel["note"]
             row = {
                 "key": key, "label": label, "mark": style.get("mark", label[:1]), "hue": style.get("hue", "#888"),
-                "auto_publish": channel is not None, "auto_data": auto, "state": state, "note": note,
+                "auto_publish": channel is not None and not channel.get("blocked"), "auto_data": auto, "state": state, "note": note,
                 "handle": (opened.get(key) or {}).get("handle") or ("" if key != "douyin" else (me or {}).get("nickname") or ""),
                 "on": bool((opened.get(key) or {}).get("on")) or key == "douyin",
                 "admin": copypack.PLATFORMS.get(key, {}).get("admin"),

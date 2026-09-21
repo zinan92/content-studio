@@ -47,3 +47,19 @@ def test_sync_staleness() -> None:
     assert publish.sync_is_stale(None)
     assert publish.sync_is_stale(iso(NOW - timedelta(hours=7)), now=NOW)
     assert not publish.sync_is_stale(iso(NOW - timedelta(hours=1)), now=NOW)
+
+
+def test_a_platform_block_is_not_reported_as_an_expired_login(tmp_path) -> None:
+    """Park: 视频号腾讯最近两个月开始封。Re-scanning a QR code fixes nothing, so the tile
+    must not send him off to log in again."""
+    from content_studio import publisher
+
+    cred = tmp_path / "account.json"
+    cred.write_text("{}", encoding="utf-8")
+    spec = {"label": "视频号", "credential": cred, "blocked": "平台限制了自动发布", "login_hint": "x", "modes": {"draft": {"label": "草稿"}}}
+    got = publisher.readiness({"channels": spec})["channels"]
+    assert got["blocked"] is True and got["note"] == "平台限制了自动发布" and got["login_hint"] == ""
+
+    # a channel without the flag still reports on credential age as before
+    ok = publisher.readiness({"bilibili": {"label": "B 站", "credential": cred, "login_hint": "y", "modes": {"upload": {"label": "投稿"}}}})["bilibili"]
+    assert ok.get("blocked") is not True and ok["credential"] is True

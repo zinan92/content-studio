@@ -23,6 +23,9 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "label": "视频号",
         "copy_key": "channels",
         "credential": PUBLISH_ROOT / "cookies/tencent_uploader/account.json",
+        # 2026-09-21 Park：腾讯最近两个月开始封自动发布，以前能用。重新登录治不好平台侧的限制，
+        # 所以这里不是「登录过期」——通道留着（万一他记错了或者以后解封），但按钮由 blocked 状态挡住。
+        "blocked": "视频号最近开始限制自动发布，先手动上传",
         "login_hint": f"python3 {CONTENT_OPS}/scripts/push_wechat_channels_draft.py --login-only",
         "modes": {
             "draft": {"label": "存为视频号草稿", "argv": ["python3", str(CONTENT_OPS / "scripts/push_wechat_channels_draft.py"), "--headless", "--video", "{video}", "--title", "{title}", "--description", "{body}"]},
@@ -63,6 +66,13 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
     now = now or now_utc()
     result = {}
     for key, spec in publishers.items():
+        if spec.get("blocked"):
+            # A platform-side block: the credential may be perfectly fine and re-scanning a QR
+            # code fixes nothing. Saying 「要重新登录」 here would send Park off on a dead errand.
+            result[key] = {"label": spec["label"], "credential": True, "age_days": None, "likely_expired": True,
+                           "blocked": True, "note": spec["blocked"], "login_hint": "",
+                           "modes": {m: v["label"] for m, v in spec["modes"].items()}}
+            continue
         path = Path(spec["credential"])
         if path.is_file():
             updated = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
