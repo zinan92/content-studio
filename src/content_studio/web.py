@@ -830,8 +830,7 @@ def create_app(
 
     # -- 触达：Park's first KPI, every platform in one number -----------------
 
-    @app.get("/api/platforms")
-    def platforms() -> dict[str, Any]:
+    def _platform_rows(ready: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         """每个平台：发布通道有没有、登录还在不在、数据是不是自动来的。
 
         三种状态，不是两种：已连接（有真实通道且登录没过期）、要登录（有通道但凭据旧了）、
@@ -841,7 +840,7 @@ def create_app(
 
         opened = store.settings()["platform_accounts"] or {}
         me = store.self_account()
-        ready = publisher.readiness()
+        ready = publisher.readiness(publisher_specs()) if ready is None else ready
         rows = []
         for key, label, auto in reach.PLATFORMS:
             style = reach.PLATFORM_STYLE.get(key, {})
@@ -872,7 +871,60 @@ def create_app(
                 "admin": copypack.PLATFORMS.get(key, {}).get("admin"),
             }
             rows.append(row)
-        return {"platforms": rows}
+        return rows
+
+    @app.get("/api/platforms")
+    def platforms() -> dict[str, Any]:
+        return {"platforms": _platform_rows()}
+
+    @app.get("/api/publish/desk")
+    def publish_desk(topic_id: int | None = None) -> dict[str, Any]:
+        """发布台：一条内容铺在所有平台上。哪条内容由 topic_id 定，没给就取最接近能发的那条。"""
+        from . import board, copypack, handoff as handoff_mod, publish_desk, publisher
+
+        cards = [c for c in get_board(None)["cards"] if not c.get("snoozed_until")]
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        shipped = [{"id": t["id"], "title": t["title"], "stage": "shipped", "focus": False, "updated_at": t.get("updated_at")}
+                   for t in store.topics() if board.is_shipped(t) and (t.get("updated_at") or "") >= cutoff]
+        ordered = publish_desk.order_candidates(cards, shipped)
+        candidates = []
+        for c in ordered:
+            n = len(store.publish_records(c["id"])) + (1 if c["stage"] == "shipped" and "douyin" not in store.publish_records(c["id"]) else 0)
+            candidates.append({"id": c["id"], "title": c["title"], "stage": c["stage"], "stage_label": dict(board.MILESTONES).get(c["stage"], c["stage"]), "shipped_count": n})
+        chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (candidates[0] if candidates else None)
+        if topic_id is not None and chosen is None:
+            # 不在候选里（归档了、或者太老）也允许直接打开——链接可能是从别处带过来的。
+            t = store.topic(topic_id)
+            chosen = {"id": t["id"], "title": t["title"], "stage": "shipped" if board.is_shipped(t) else "outline", "stage_label": "", "shipped_count": len(store.publish_records(t["id"]))}
+        ready = publisher.readiness(publisher_specs())
+        platform_rows = _platform_rows(ready)
+        if chosen is None:
+            empty = {"title": "", "body": "", "tags": []}
+            return {"candidates": [], "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty,
+                    "platforms": publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready, records={}, jobs=[], entry=empty)}
+        topic = store.topic(chosen["id"])
+        copy = copypack.read_copy(drafts_root, topic["id"])
+        entry = publish_desk.shared_entry(copy)
+        video = final_video_path(topic)
+        article = writer.read_draft(topic)
+        handoff_done = False
+        try:
+            root = vault.vault_root(vault_path())
+            handoff_done = (root / handoff_mod.FOLDER / handoff_mod.slug(topic["title"]) / handoff_mod.PACKAGE / "wechat-article.md").exists()
+        except (vault.VaultError, OSError):
+            pass
+        rows = publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready,
+                                 records=store.publish_records(topic["id"]), jobs=store.publish_jobs(topic["id"]), entry=entry,
+                                 douyin_linked=board.is_shipped(topic), handoff_done=handoff_done)
+        return {
+            "candidates": candidates,
+            "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url")},
+            "video": {"path": str(video), "name": video.name, "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
+            "has_copy": bool(entry["title"] or entry["body"]),
+            "has_article": article is not None,
+            "entry": entry,
+            "platforms": rows,
+        }
 
     @app.get("/api/reach")
     def get_reach(days: int = 14) -> dict[str, Any]:

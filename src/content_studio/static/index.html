@@ -16,7 +16,8 @@
     <nav class="flow" id="nav" aria-label="阶段">
       <button type="button" data-view="input" data-stage="in"><i class="node"></i><span class="flow-k">01</span><span class="flow-t">进项<small>读进来什么</small></span><b class="count" id="navIn"></b></button>
       <button type="button" data-view="board" data-stage="work"><i class="node"></i><span class="flow-k">02</span><span class="flow-t">加工中<small>正在做哪几条</small></span><b class="count" id="navWork"></b></button>
-      <button type="button" data-view="output" data-stage="out"><i class="node"></i><span class="flow-k">03</span><span class="flow-t">已发出<small>数据和复盘</small></span><b class="count" id="navOut"></b></button>
+      <button type="button" data-view="publish" data-stage="pub"><i class="node"></i><span class="flow-k">03</span><span class="flow-t">发布<small>发到哪几个平台</small></span><b class="count" id="navPub"></b></button>
+      <button type="button" data-view="output" data-stage="out"><i class="node"></i><span class="flow-k">04</span><span class="flow-t">已发出<small>数据和复盘</small></span><b class="count" id="navOut"></b></button>
     </nav>
     <button type="button" class="rail-anna" id="railAnna"><i class="an-dot"></i><span>Anna<small>内容主编 · 叫她过来</small></span></button>
     <button type="button" class="rail-set" data-view="settings">设置与 Skills</button>
@@ -52,10 +53,19 @@
       <div id="workBody"></div>
     </section>
 
-    <!-- 03 OUTPUT -->
+    <!-- 03 PUBLISH -->
+    <section class="view wide" id="v-publish" data-stage="pub">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">03 · 发布</div><h1>这一条发到哪</h1><p>每个平台一张它自己的上传页：灰的还没发，彩色的发完了。点开一张，该复制的、该点的都在右边。</p></div>
+        <div class="page-figs" id="publishFigs"></div>
+      </header>
+      <div id="publishBody"></div>
+    </section>
+
+    <!-- 04 OUTPUT -->
     <section class="view" id="v-output" data-stage="out">
       <header class="page-h">
-        <div><div class="stage-eyebrow">03 · 已发出 · 概览</div><h1>这一周怎么样</h1><p>触达是第一个数。每个数字旁边的「?」说明它怎么算的。</p></div>
+        <div><div class="stage-eyebrow">04 · 已发出 · 概览</div><h1>这一周怎么样</h1><p>触达是第一个数。每个数字旁边的「?」说明它怎么算的。</p></div>
         <div class="topbar-actions"><button class="btn small" type="button" data-sync-all>同步抖音</button></div>
       </header>
       <nav class="subnav" data-subnav aria-label="已发出"></nav>
@@ -65,7 +75,7 @@
     <!-- MINE -->
     <section class="view" id="v-mine" data-stage="out">
       <header class="page-h">
-        <div><div class="stage-eyebrow">03 · 已发出 · 总览</div><h1>全部作品</h1><p>倍数 = 点赞 ÷ 你账号非置顶作品的点赞中位数。涨粉、完播、跳出来自创作者后台（只保留 90 天）。</p></div>
+        <div><div class="stage-eyebrow">04 · 已发出 · 总览</div><h1>全部作品</h1><p>倍数 = 点赞 ÷ 你账号非置顶作品的点赞中位数。涨粉、完播、跳出来自创作者后台（只保留 90 天）。</p></div>
         <div class="topbar-actions" id="mineActions"></div>
       </header>
       <nav class="subnav" data-subnav aria-label="已发出"></nav>
@@ -74,7 +84,7 @@
     <!-- RADAR -->
     <section class="view" id="v-radar" data-stage="out">
       <header class="page-h">
-        <div><div class="stage-eyebrow">03 · 已发出 · 对标雷达</div><h1>对标雷达</h1><p>每个账号用自己的点赞中位数做基准。默认只看这一周；更早的在「全部」里。下面的门槛管这页显示哪些；自动拆解另有 5× 的门槛，每天最多 2 条。</p></div>
+        <div><div class="stage-eyebrow">04 · 已发出 · 对标雷达</div><h1>对标雷达</h1><p>每个账号用自己的点赞中位数做基准。默认只看这一周；更早的在「全部」里。下面的门槛管这页显示哪些；自动拆解另有 5× 的门槛，每天最多 2 条。</p></div>
         <div class="topbar-actions"><button class="btn small" type="button" data-sync-all>同步全部账号</button></div>
       </header>
       <nav class="subnav" data-subnav aria-label="已发出"></nav>
@@ -103,7 +113,7 @@
     <!-- REPORT -->
     <section class="view" id="v-report" data-stage="out">
       <header class="page-h">
-        <div><div class="stage-eyebrow">03 · 已发出 · 拆解报告</div><h1>拆解报告</h1><p>我的视频和对标爆款的结构拆解。下面是拆解队列，贴任意抖音链接就能加。</p></div>
+        <div><div class="stage-eyebrow">04 · 已发出 · 拆解报告</div><h1>拆解报告</h1><p>我的视频和对标爆款的结构拆解。下面是拆解队列，贴任意抖音链接就能加。</p></div>
       </header>
       <nav class="subnav" data-subnav aria-label="已发出"></nav>
       <div class="rep-shell">
@@ -158,6 +168,7 @@
     <div class="dlg-actions"><button type="button" class="btn" id="addCancel">取消</button><button class="btn primary" type="submit" id="addSubmit">加入</button></div>
   </form>
 </dialog>
+<dialog id="pubDlg" class="pub-dlg" aria-label="平台发布"></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
@@ -168,6 +179,7 @@
 <script src="/static/publish.js"></script>
 <script src="/static/publishnow.js"></script>
 <script src="/static/copypack.js"></script>
+<script src="/static/publishdesk.js"></script>
 <script src="/static/article.js"></script>
 <script src="/static/output.js"></script>
 <script src="/static/skills.js"></script>

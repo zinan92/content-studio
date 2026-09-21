@@ -197,6 +197,7 @@ async function refreshAll() {
   S.outliers = await api('/api/outliers' + (threshold ? `?threshold=${state.settings.threshold}` : ''));
   renderChrome();
   renderView();
+  if (window.refreshPublishNav) window.refreshPublishNav();
 }
 
 function renderChrome() {
