@@ -104,15 +104,19 @@ const hm = (iso) => {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+// 这三个状态都是 Park 自己手点的，所以每一个都得能反悔。
+const TRIAGE_LABEL = { shot: '拍过了', ignored: '已忽略', topic: '已入选题池' };
+
 function rowActions(r) {
+  // 唯一没有按钮的情况：它真的在加工中或已发出，那颗 chip 本身就是入口。
   if (r.taken === 'topic' && r.topicId) {
     return r.shipped ? '<span class="chip-state shipped">已发出</span>'
       : `<button class="chip-state working" type="button" data-work="${r.topicId}">在加工中 →</button>`;
   }
-  if (r.taken) return '<span class="chip-state">已入选题池</span>';
-  // 以前标过「不做了」：说清楚它去哪了，再给一颗能改主意的按钮。
-  const again = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">${r.dropped ? '再捡回来' : '入选题池'}</button>`;
-  return r.dropped ? `<span class="chip-state">标过不做了</span>${again}` : again;
+  const again = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">${r.dropped || r.taken ? '再捡回来' : '入选题池'}</button>`;
+  if (r.dropped) return `<span class="chip-state">标过不做了</span>${again}`;
+  // 标过拍过了 / 已忽略：说清楚是哪一种（以前一律写成「已入选题池」，是错的），并留一条回头路。
+  return r.taken ? `<span class="chip-state">${TRIAGE_LABEL[r.taken] || r.taken}</span>${again}` : again;
 }
 
 window.VIEWS.input = {
