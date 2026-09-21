@@ -230,7 +230,7 @@ function renderChrome() {
 }
 
 
-const PLAT_STATE = { linked: '已连接', stale: '要重新登录', blocked: '平台限制了', setup: '差一步配置', manual: '手动发布' };
+const PLAT_STATE = { linked: '已连接', ready: '凭据就绪', stale: '要重新登录', blocked: '平台限制了', setup: '差一步配置', manual: '手动发布' };
 
 /** 左下角的平台条。三种状态，不是两种——一个永远亮不起来的灯就是骗人：
  *  已连接=彩色；要重新登录=彩色带感叹号；手动=灰色（它本来就没有通道可连）。 */

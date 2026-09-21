@@ -882,6 +882,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .plat.s-manual,.plat.s-blocked{background:transparent;border:1px solid #3A3F47;color:var(--rail-dim)}
 .plat.s-blocked{border-style:dashed}
 .plat.s-setup{opacity:.7}
+.plat.s-ready{opacity:.85}
 .plat.s-stale{opacity:.55}
 .plat-warn{position:absolute;top:-3px;right:-3px;width:13px;height:13px;border-radius:50%;background:var(--warn);
   color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1}

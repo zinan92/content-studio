@@ -766,8 +766,13 @@ def create_app(
             if channel is None:
                 state, note = "manual", "手动发布"
                 if key == "wechat_mp":
-                    # 凭据有效（2026-09-21 实测拿得到令牌），卡在 IP 白名单上，不是被封。
-                    state, note = "setup", "官方接口可用，但这台机器的 IP 还没加进公众号后台的白名单"
+                    # 真去问微信，不写死：40164 是 IP 白名单、40125 是 AppSecret，两件事要分清。
+                    # 带 6 小时缓存——每次渲染都问一次会把微信每天的取令牌配额耗光。
+                    from . import wechat
+
+                    wx = wechat.state()
+                    state = "ready" if wx["ok"] else "setup"
+                    note = ("凭据没问题，图文发布通道还没做" if wx["ok"] else wx["note"])
             elif channel.get("blocked"):
                 state, note = "blocked", channel["note"]
             elif channel.get("setup"):

@@ -142,7 +142,7 @@ function reachBlock(r) {
   const meta = Object.fromEntries((S.platforms || []).map((x) => [x.key, x]));
   const rows = r.platforms.map((p) => {
     const m = meta[p.key] || {};
-    const BADGE = { linked: ['ok', '自动发布'], stale: ['warn', '要重新登录'], blocked: ['warn', '平台限制了'], setup: ['warn', '差一步配置'], manual: ['', '手动发布'] };
+    const BADGE = { linked: ['ok', '自动发布'], ready: ['ok', '凭据就绪'], stale: ['warn', '要重新登录'], blocked: ['warn', '平台限制了'], setup: ['warn', '差一步配置'], manual: ['', '手动发布'] };
     const [cls, word] = BADGE[m.state] || BADGE.manual;
     const badge = `<span class="rp-tag ${cls}" title="${esc(m.note || '')}">${word}</span>`;
     return `<div class="rp-row ${p.on ? '' : 'off'}">
