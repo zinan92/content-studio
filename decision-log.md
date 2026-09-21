@@ -510,3 +510,10 @@
 - **Gotchas:** `argparse` 的 subparsers 变量叫 `commands` 不叫 `sub`，抄模板时写错一处，import 时不报、跑到那行才 NameError——新增 CLI 子命令后要真跑一次。`create_app` 的 `profile=None` 是默认值，所有旧测试路径不受影响；但 `/api/state.setup.present` 在没 profile 时是 False 而不是缺键，前端横幅靠它区分「还没配」和「配了但缺项」，措辞不同。
 - **Gotchas（第二个）:** `vault.configure()` 第一版从「当前」`INBOX_SOURCES` 重建——跑过一次配置，被去掉的可选来源就再也回不来，`_allowed_folders()` 的白名单跟着缩，后面三个毫不相干的测试挂在「找不到素材」「同步没完成」上。改成从冻结的 `_DEFAULT_*` 重建、`configure(None)` 复位，再加一个 autouse fixture 每个测试后复位。**凡是让配置改模块全局的地方，都得同时给出「复位」和「每次从默认重建」，否则热加载和测试都会串。**
 - **没做（下一层）:** 124 处「Park」、提示词里的作者名、Anna 的角色文件路径、外部仓库路径——这些还是写死的。profile 里已经留了 `me.name` / `ai.command` / `ai.*_model` 的位，下一步一处一处接。
+
+## 2026-09-21 — 发布台：一条内容铺在所有平台上
+
+- **Context:** Park 的原话是「把每个平台的上传页截个图铺开，没发的是灰的，发了的变彩色」。他每个平台都有号，但发一条内容要在 8 个后台之间来回切，发没发过只能靠记。
+- **Decision:** `/api/publish/desk` 把「一条内容 × 每个平台」算成一张表。**四种对待方式（treatment）由通道本身决定，不靠猜**：`manual` 没通道要自己发；`scan` 有通道但靠扫码 cookie；`auto` 密钥在文件里直接发；`handoff` 工作台只写到正文、交给既有管线。
+- **为什么 treatment 不写死在前端:** 平台的状态会变（视频号这两个月刚被限制自动发布），写死就要改两处。通道有没有、登录过没过期，都从 `publisher.readiness()` 的实时探测来。
+- **Evidence:** `_platform_rows()` 从 `/api/platforms` 抽出来复用，`readiness()` 一次请求只算一遍。219 个测试通过。
