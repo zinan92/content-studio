@@ -656,9 +656,12 @@ def create_app(
                 continue
             for path in topic["note_paths"]:
                 used.setdefault(path, {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped})
+        from . import hot
+
+        rows = [{**item, "triage": (triage.get(item["path"]) or {}).get("status"), "used_by": used.get(item["path"])} for item in items]
         return {
             "since": since.isoformat(timespec="minutes"),
-            "items": [{**item, "triage": (triage.get(item["path"]) or {}).get("status"), "used_by": used.get(item["path"])} for item in items],
+            "items": hot.mark_breakouts(rows, store.outliers(float(store.settings()["threshold"]))),
         }
 
     @app.put("/api/vault/triage")
@@ -1870,17 +1873,9 @@ def create_app(
             "pool": pool,
             "machine": machine,
             "snoozed": snoozed,
-            "attention": attention_breakouts(),
             "streak": today_plan.shooting_streak(target, shot_days()),
             "project_root_ok": root is not None,
         }
-
-    def attention_breakouts(days: int = 7, limit: int = 3) -> list[dict[str, Any]]:
-        """Benchmark videos that blew up this week: brought to the board so Park never has to go looking."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()[:10]
-        fresh = [v for v in store.outliers(float(store.settings()["threshold"])) if (v.get("published_at") or "") >= cutoff]
-        return [{"video_id": v["video_id"], "title": v["title"], "account": v.get("account_nickname"), "multiple": v["multiple"], "likes": v["likes"],
-                 "published_at": v["published_at"], "url": v.get("url"), **teardown_state(v["video_id"])} for v in fresh[:limit]]
 
     # -- Anna 的标准 ----------------------------------------------------------
 

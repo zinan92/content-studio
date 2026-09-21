@@ -102,14 +102,6 @@ function machineRow(c) {
   return `<button class="machine-row" type="button" data-work="${c.id}"><span class="badge">${c.stage === 'edit' ? '剪辑' : '待发'}</span><b>${esc(c.title)}</b><small>${esc(c.next.text)}</small></button>`;
 }
 
-function attentionBlock(items) {
-  if (!items.length) return '';
-  return `<section class="panel attn"><div class="panel-h"><h2>对标这周爆了</h2><small>超过门槛的新爆款</small></div>
-    ${items.map((v) => `<div class="attn-row"><span class="pill hot">${v.multiple.toFixed(1)}×</span>
-      <div class="attn-main"><b class="clamp">${esc(cleanTitle(v.title))}</b><small>${esc(v.account || '')} · ${day(v.published_at)} · ${fmt(v.likes)} 赞</small></div>
-      <div class="acts">${typeof teardownButton === 'function' ? teardownButton(v, { source: `看板 · 对标本周爆款 · ${v.account || ''}` }) : ''}</div></div>`).join('')}</section>`;
-}
-
 window.VIEWS.board = {
   async render() {
     const body = $('#boardBody');
@@ -133,7 +125,6 @@ window.VIEWS.board = {
           ${d.machine.map(machineRow).join('') || '<div class="col-empty">—</div>'}
           ${d.project_root_ok ? '' : '<p class="sync-note">外接硬盘上的视频项目目录没找到，剪辑进度暂时读不到。</p>'}
         </section>
-        ${attentionBlock(d.attention || [])}
       </div>
     </div>`;
 
