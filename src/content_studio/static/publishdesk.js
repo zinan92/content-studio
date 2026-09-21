@@ -256,7 +256,10 @@ window.VIEWS.publish = {
     if (S.publishId && S.publishId !== PD.topicId) { PD.topicId = S.publishId; PD.data = null; }
     let d;
     try { d = await loadDesk(false); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
-    const sig = JSON.stringify([PD.at, PD.topicId]);
+    // 只在内容真变了才重画：15 秒一次的刷新如果每次都重画，弹窗里正在输的链接会被抹掉。
+    const sig = JSON.stringify([PD.topicId, d.has_copy, d.has_article, d.video && d.video.mb,
+      d.candidates.map((c) => [c.id, c.stage, c.shipped_count]),
+      d.platforms.map((p) => [p.shipped, p.state, p.on, p.handoff_done, p.job && p.job.id, p.job && p.job.state, p.fill.title, p.fill.body])]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
     const shipped = d.platforms.filter((p) => p.shipped).length;
@@ -380,6 +383,8 @@ function renderDialog() {
   const p = d.platforms.find((x) => x.key === PD.open);
   if (!p) return;
   const [stLabel, stCls] = stateOf(p);
+  const typed = $('#pdlUrl', dlg);
+  const keep = typed ? { value: typed.value, focus: document.activeElement === typed } : null;
   dlg.innerHTML = `<div class="pdl-h"><i class="plat s-${p.state}"${p.state === 'manual' || p.state === 'blocked' ? '' : ` style="--plat:${esc(p.hue)}"`}>${esc(p.mark)}</i><b>${esc(p.label)}</b><small>${esc(p.handle || '')}</small><span class="ps ${stCls}">${stLabel}</span><span class="ps">${esc(p.treatment_label)}</span><span class="spacer"></span><small>${d.topic ? esc(d.topic.title) : ''}</small><button class="pdl-x" type="button" id="pdlClose" aria-label="关闭">×</button></div>
     <div class="pdl-body">
       <div class="pdl-shot"><div class="rc-wrap ${p.shipped || (p.job && ['running', 'awaiting_confirm'].includes(p.job.state)) ? '' : 'dim'} ${p.job && p.job.state === 'running' ? 'live' : ''}">${replica(p, d)}</div></div>
@@ -387,6 +392,8 @@ function renderDialog() {
     </div>`;
   fitReplicas(dlg);
   requestAnimationFrame(() => fitReplicas(dlg));
+  const url = $('#pdlUrl', dlg);
+  if (url && keep) { url.value = keep.value; if (keep.focus) url.focus(); }
   $('#pdlClose', dlg).onclick = () => dlg.close();
   if (!d.topic) return;
   const t = d.topic;
