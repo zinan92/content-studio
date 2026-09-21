@@ -28,6 +28,7 @@ from .creator_metrics import CookieFileError, load_cookie_file
 from . import today as today_plan
 from . import vault
 from . import video_project
+from . import copypack
 from .video_project import VideoProjectError
 from .store import StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
@@ -745,6 +746,37 @@ def create_app(
         return {"started": True, "message": "开始复盘这一周，一般 1–3 分钟"}
 
     # -- 触达：Park's first KPI, every platform in one number -----------------
+
+    @app.get("/api/platforms")
+    def platforms() -> dict[str, Any]:
+        """每个平台：发布通道有没有、登录还在不在、数据是不是自动来的。
+
+        三种状态，不是两种：已连接（有真实通道且登录没过期）、要登录（有通道但凭据旧了）、
+        手动（根本没有通道）。一个永远亮不起来的灯就是骗人。
+        """
+        from . import publisher, reach
+
+        opened = store.settings()["platform_accounts"] or {}
+        me = store.self_account()
+        ready = publisher.readiness()
+        rows = []
+        for key, label, auto in reach.PLATFORMS:
+            style = reach.PLATFORM_STYLE.get(key, {})
+            channel = ready.get(key)
+            if channel is None:
+                state, note = "manual", "手动发布"
+            else:
+                state = "stale" if channel["likely_expired"] else "linked"
+                note = channel["note"]
+            row = {
+                "key": key, "label": label, "mark": style.get("mark", label[:1]), "hue": style.get("hue", "#888"),
+                "auto_publish": channel is not None, "auto_data": auto, "state": state, "note": note,
+                "handle": (opened.get(key) or {}).get("handle") or ("" if key != "douyin" else (me or {}).get("nickname") or ""),
+                "on": bool((opened.get(key) or {}).get("on")) or key == "douyin",
+                "admin": copypack.PLATFORMS.get(key, {}).get("admin"),
+            }
+            rows.append(row)
+        return {"platforms": rows}
 
     @app.get("/api/reach")
     def get_reach(days: int = 14) -> dict[str, Any]:

@@ -11,7 +11,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
-# key, label, auto (data pulled by the workbench) — order is how they show on the page.
+# key, label, auto (the workbench pulls the numbers itself), mark (the tile letter), hue.
+# Park has an account on all nine. `auto` is about *data*, not publishing — only 抖音 reports
+# its own numbers today; for the rest he types them in, or the nightly Obsidian read picks
+# them up. Brand logos are deliberately not bundled: they are other companies' trademarks,
+# so each platform gets a letter tile in its own hue instead.
 PLATFORMS: tuple[tuple[str, str, bool], ...] = (
     ("douyin", "抖音", True),
     ("channels", "视频号", False),
@@ -24,6 +28,17 @@ PLATFORMS: tuple[tuple[str, str, bool], ...] = (
     ("xiaoyuzhou", "小宇宙", False),
 )
 PLATFORM_KEYS = tuple(k for k, _, _ in PLATFORMS)
+PLATFORM_STYLE: dict[str, dict[str, str]] = {
+    "douyin": {"mark": "抖", "hue": "#FE2C55"},
+    "channels": {"mark": "视", "hue": "#07C160"},
+    "xiaohongshu": {"mark": "红", "hue": "#FF2442"},
+    "wechat_mp": {"mark": "公", "hue": "#07C160"},
+    "miniprogram": {"mark": "小", "hue": "#5B8FF9"},
+    "x": {"mark": "X", "hue": "#111111"},
+    "bilibili": {"mark": "B", "hue": "#00A1D6"},
+    "youtube": {"mark": "Y", "hue": "#FF0000"},
+    "xiaoyuzhou": {"mark": "宇", "hue": "#FA4D3C"},
+}
 
 
 def daily_views(snapshots: list[dict[str, Any]], days: int, today: date) -> dict[str, int]:

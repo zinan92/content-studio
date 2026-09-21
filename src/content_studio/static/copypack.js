@@ -70,14 +70,49 @@ async function renderCopyBox(topic, el) {
       </div>
       <div class="dy-side" id="cbPreview">${dyPreview(e.title, e.body, e.tags || [])}</div>
     </div>
+    <div id="cbPlatforms"></div>
   </section>`;
   const title = $('#cbTitle', el);
   const read = () => ({ title: title.value.trim(), body: $('#cbBody', el).value.trim(), tags: $('#cbTags', el).value.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean) });
+  /** 每个平台一张卡：标题/正文/话题按这个平台的字数上限裁好，每个空一个「复制」。
+   *  不替 Park 上传——但他到了平台上，每个空该粘什么，这里已经备好了。 */
+  function platformCards() {
+    const box = $('#cbPlatforms', el);
+    if (!box) return;
+    const entry = read();
+    const on = (S.platforms || []).filter((m) => m.on && specs[m.key]);
+    box.innerHTML = on.length ? `<section class="pf">
+      <div class="panel-h"><h3>各平台怎么填</h3><small>按各家的字数裁好了，点「复制」去粘贴 · 不会替你上传</small></div>
+      ${on.map((m) => {
+        const spec = specs[m.key];
+        const title = spec.title ? entry.title.slice(0, spec.title) : '';
+        const body = entry.body.slice(0, spec.body);
+        const tags = entry.tags.slice(0, spec.tags);
+        const over = spec.title && entry.title.length > spec.title;
+        const field = (label, value, hint) => value
+          ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-pf-copy="${esc(value)}">复制</button></div>`
+          : '';
+        return `<article class="pf-card">
+          <div class="pf-h"><i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>
+            <b>${esc(m.label)}</b>
+            <span class="rp-tag ${m.state === 'linked' ? 'ok' : m.state === 'stale' ? 'warn' : ''}">${m.state === 'linked' ? '可自动发布' : m.state === 'stale' ? '通道要重新登录' : '手动上传'}</span>
+            <span class="spacer"></span>
+            ${m.admin ? `<a class="btn small ghost" href="${esc(m.admin)}" target="_blank" rel="noopener">去${esc(m.label)}上传 ↗</a>` : ''}</div>
+          ${field('标题', title, `最多 ${spec.title} 字${over ? ' · 已裁短' : ''}`)}
+          ${field(m.key === 'wechat_mp' ? '正文开头' : '简介', body, `最多 ${spec.body} 字`)}
+          ${field('话题', tags.map((t) => '#' + t).join(' '), `最多 ${spec.tags} 个`)}
+        </article>`;
+      }).join('')}
+    </section>` : '';
+    $$('[data-pf-copy]', box).forEach((b) => (b.onclick = () => navigator.clipboard.writeText(b.dataset.pfCopy).then(() => toast('已复制'), () => toast('复制失败'))));
+  }
+
   const repaint = () => {
     const entry = read();
     $('#cbLens', el).innerHTML = lengthChips(entry.title, specs);
     $('#cbCount', el).textContent = `${entry.body.length}/1000`;
     $('#cbPreview', el).innerHTML = dyPreview(entry.title, entry.body, entry.tags);
+    platformCards();
   };
   $$('input, textarea', el).forEach((input) => (input.oninput = () => { CP.dirty = true; repaint(); }));
   repaint();
