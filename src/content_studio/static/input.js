@@ -39,20 +39,25 @@ const noteRow = (i) => ({
   id: 'n:' + i.path, path: i.path, title: i.title, sub: i.author || i.source_label,
   at: i.is_new ? i.created_at : i.modified_at, summary: i.summary, taken: i.triage || (i.used_by ? 'topic' : ''),
   topicId: i.used_by ? i.used_by.topic_id : null, shipped: i.used_by ? i.used_by.shipped : false,
+  url: i.url || null, hot: i.breakout || null,
 });
 const dailyRow = (d) => ({
   id: 'd:' + d.path, path: d.path, title: d.title, sub: d.label, at: d.day || d.modified_at, summary: '',
   taken: '', topicId: null, shipped: false, external: d.kind === 'html' ? d.path : null,
 });
 
+// 爆的排前面，其余保持时间顺序（sort 是稳定的）。时间窗仍然由上面的 3/7/30 决定——
+// 这里只改窗口内的先后，不会把窗口外的东西捞进来。
+const hotFirst = (rows) => rows.slice().sort((a, b) => (b.hot ? 1 : 0) - (a.hot ? 1 : 0));
+
 function rowsFor(tab) {
   const def = tabDef(tab);
   if (def.kind === 'daily') return (C.dailies[tab] || []).map(dailyRow);
-  if (def.kind === 'note') return (C.items || []).filter((i) => i.source === tab).map(noteRow);
+  if (def.kind === 'note') return hotFirst((C.items || []).filter((i) => i.source === tab).map(noteRow));
   // 全部 = 这段时间「新进来的」。Park 原始输出不受时间窗限制（素材库，不是新闻流），
   // 67 条全塞进来会把当天真正新的东西压到看不见，所以它只在自己那一页整片出现。
   // 日报同理：一份摘要装着很多条，放进来也会淹掉别的。
-  return (C.items || []).filter((i) => i.source !== 'raw').map(noteRow);
+  return hotFirst((C.items || []).filter((i) => i.source !== 'raw').map(noteRow));
 }
 
 function renderMarkdown(md) {
@@ -139,9 +144,11 @@ window.VIEWS.input = {
       return 0;
     };
 
-    const list = rows.length ? rows.map((r) => `<div class="in-row ${C.open === r.path ? 'on' : ''} ${r.taken ? 'state-' + r.taken : ''}" ${r.path ? `data-note="${esc(r.path)}" role="button" tabindex="0"` : ''}>
+    const list = rows.length ? rows.map((r) => `<div class="in-row ${C.open === r.path ? 'on' : ''} ${r.taken ? 'state-' + r.taken : ''} ${r.hot ? 'blew' : ''}" ${r.path ? `data-note="${esc(r.path)}" role="button" tabindex="0"` : ''}>
+        ${r.hot ? `<span class="blew-x" title="${esc(r.hot.account || '')}平时中位 ${fmt(r.hot.median)} 赞，这条 ${fmt(r.hot.likes)}">${r.hot.multiple.toFixed(1)}×</span>` : ''}
         <div class="in-meta"><span class="src">${esc(r.sub)}</span><span class="num">${hm(r.at)}</span></div>
         <b class="clamp">${esc(r.title)}</b>
+        ${r.hot ? `<small class="blew-why">爆了 · 平时中位 ${fmt(r.hot.median)} 赞，这条 ${fmt(r.hot.likes)}</small>` : ''}
         ${r.summary ? `<p class="clamp">${esc(r.summary)}</p>` : ''}
         <div class="acts">${rowActions(r)}${r.url ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">去抖音 ↗</a>` : ''}</div>
       </div>`).join('')

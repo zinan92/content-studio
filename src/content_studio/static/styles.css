@@ -135,6 +135,15 @@ button.chip-state{cursor:pointer}
 .in-row.state-working p,.in-row.state-shipped p,.in-row.state-shot p,.in-row.state-ignored p{display:none}
 .in-row .acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:2px}
 .in-meta{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-3)}
+/* 爆了：用的是全站已有的爆款色（图表、倍数 pill 都是它），不新造一个黄。
+   :not(.on) 让「选中」仍然压过它，否则点开哪条都看不出来。 */
+.in-row.blew{position:relative;border-left:3px solid var(--hot);padding-left:15px}
+.in-row.blew:not(.on){background:var(--hot-soft)}
+.in-row.blew .in-meta{padding-right:52px}
+.blew-x{position:absolute;top:12px;right:16px;font-size:13px;font-weight:700;letter-spacing:.2px;
+  color:var(--hot);background:var(--bg);border:1px solid var(--hot);border-radius:999px;
+  padding:1px 8px;font-variant-numeric:tabular-nums}
+.blew-why{color:var(--hot);font-size:12px}
 .src{font-size:11px;font-weight:600;letter-spacing:.02em;border-radius:4px;padding:0 6px;background:var(--sunk);color:var(--ink-2)}
 .reader{position:sticky;top:16px;max-height:calc(100vh - 220px);overflow-y:auto;min-width:0}
 .reader-empty{min-height:260px;justify-content:center}

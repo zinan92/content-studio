@@ -736,7 +736,8 @@ def test_board_is_a_single_focus_pipeline(client: TestClient) -> None:
 
     client.delete(f"/api/topics/{b['id']}/focus")
     board = client.get("/api/board").json()
-    assert board["focus"] is None and len(board["pool"]) == 3 and board["attention"] == []
+    # 「对标这周爆了」不在看板上了——爆款属于进项，和别的进项一起按优先级排。
+    assert board["focus"] is None and len(board["pool"]) == 3 and "attention" not in board
 
 
 def test_reach_combines_douyin_snapshots_with_hand_typed_platforms(client: TestClient) -> None:
