@@ -110,7 +110,7 @@ window.VIDEO_TABS.push({
   },
 });
 
-const TAB_ORDER = ['outline', 'edit', 'publish', 'article'];
+const TAB_ORDER = ['outline', 'edit', 'article'];
 const WORK_STEPS = [['outline', '两头'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
 const WK = { topics: null, at: 0 };
 
@@ -119,7 +119,7 @@ window.invalidateWork = () => { WK.topics = null; const body = $('#videoBody'); 
 window.VIEWS.work = {
   async render() {
     const root = $('#workBody');
-    if (VD.dirty || (typeof CP !== 'undefined' && CP.dirty && VD.tab === 'publish') || (typeof AR !== 'undefined' && AR.dirty && VD.tab === 'article')) return;
+    if (VD.dirty || (typeof AR !== 'undefined' && AR.dirty && VD.tab === 'article')) return;
     if (VD.topicId !== S.workId) { VD.topicId = S.workId; VD.outline = null; VD.mode = 'preview'; VD.tab = 'outline'; }
     try {
       if (!WK.topics || Date.now() - WK.at > 5000) {

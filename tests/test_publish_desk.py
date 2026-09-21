@@ -71,15 +71,28 @@ def test_order_candidates_ready_first_then_shipped():
     assert [c["id"] for c in publish_desk.order_candidates(cards, shipped)] == [2, 3, 1, 4, 6, 5]
 
 
+def test_only_a_finished_video_shows_up_on_the_publish_page(client):
+    """Park：「通常我只会有一条视频在这个环节中，而不是六个」。
+
+    还在写提纲、还在录的不该出现在发布页——列一排选不了的东西，等于让人每次
+    重新判断哪条才是真的能发。发不了的时候，页面要说清最近的那条卡在哪。
+    """
+    topic = client.post("/api/topics", json={"title": "还在录的"}).json()
+    d = client.get("/api/publish/desk").json()
+    assert d["candidates"] == [] and d["topic"] is None
+    assert d["waiting"]["id"] == topic["id"] and d["waiting"]["stage"] == "outline"
+    assert [c["id"] for c in d["others"]] == [topic["id"]]
+    # 真有成片但工作台不知道时，仍然能直接指名打开——不能把人锁在外面。
+    assert client.get(f"/api/publish/desk?topic_id={topic['id']}").json()["topic"]["id"] == topic["id"]
+
+
 def test_desk_endpoint_shape(client):
     topic = client.post("/api/topics", json={"title": "发布台测试"}).json()
     client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"douyin": {"title": "标题", "body": "简介", "tags": ["AI"]}}})
     client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "bilibili", "published": True, "url": "https://b23.tv/1"})
-    d = client.get("/api/publish/desk").json()
+    d = client.get(f"/api/publish/desk?topic_id={topic['id']}").json()
     assert d["topic"]["id"] == topic["id"]
     assert d["has_copy"] is True and d["entry"]["title"] == "标题"
-    assert [c["id"] for c in d["candidates"]] == [topic["id"]]
-    assert d["candidates"][0]["shipped_count"] == 1
     rows = {r["key"]: r for r in d["platforms"]}
     assert set(rows) == {"douyin", "channels", "xiaohongshu", "wechat_mp", "miniprogram", "x", "bilibili", "youtube", "xiaoyuzhou"}
     assert rows["bilibili"]["shipped"] is True and rows["bilibili"]["record"]["url"] == "https://b23.tv/1"
@@ -94,3 +107,4 @@ def test_desk_endpoint_shape(client):
 def test_desk_endpoint_empty(client):
     d = client.get("/api/publish/desk").json()
     assert d["topic"] is None and d["candidates"] == [] and len(d["platforms"]) == 9
+    assert d["waiting"] is None and d["others"] == []

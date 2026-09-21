@@ -101,3 +101,18 @@ def order_candidates(cards: list[dict[str, Any]], shipped: list[dict[str, Any]])
     active = sorted(cards, key=lambda c: (STAGE_ORDER.get(c.get("stage"), 5), not c.get("focus"), -(c.get("id") or 0)))
     done = sorted(shipped, key=lambda t: (t.get("updated_at") or "", t.get("id") or 0), reverse=True)
     return [*active, *done]
+
+
+def ready_to_publish(ordered: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """能发的只有两种：成片已经出来的，和已经发出去的（还要补记别的平台）。
+
+    Park：「通常我只会有一条视频在这个环节中」。还在写提纲、还在录的不该出现在发布页——
+    它们在加工中。列一排选不了的东西，等于让人每次都重新判断一遍哪条才是真的能发。
+    """
+    return [c for c in ordered if c.get("stage") in ("ready", "shipped")]
+
+
+def waiting_for(ordered: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """一条都不能发时，指出最接近的那条卡在哪——空页面不该只说「没有」。"""
+    nearest = next((c for c in ordered if c.get("stage") not in ("ready", "shipped")), None)
+    return {k: nearest[k] for k in ("id", "title", "stage", "stage_label")} if nearest else None

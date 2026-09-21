@@ -911,7 +911,9 @@ def create_app(
         for c in ordered:
             n = len(store.publish_records(c["id"])) + (1 if c["stage"] == "shipped" and "douyin" not in store.publish_records(c["id"]) else 0)
             candidates.append({"id": c["id"], "title": c["title"], "stage": c["stage"], "stage_label": dict(board.MILESTONES).get(c["stage"], c["stage"]), "shipped_count": n})
-        chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (candidates[0] if candidates else None)
+        sendable = publish_desk.ready_to_publish(candidates)
+        waiting = publish_desk.waiting_for(candidates) if not sendable else None
+        chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (sendable[0] if sendable else None)
         if topic_id is not None and chosen is None:
             # 不在候选里（归档了、或者太老）也允许直接打开——链接可能是从别处带过来的。
             t = store.topic(topic_id)
@@ -920,7 +922,7 @@ def create_app(
         platform_rows = _platform_rows(ready)
         if chosen is None:
             empty = {"title": "", "body": "", "tags": []}
-            return {"candidates": [], "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty,
+            return {"candidates": [], "waiting": waiting, "others": candidates, "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty,
                     "platforms": publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready, records={}, jobs=[], entry=empty)}
         topic = store.topic(chosen["id"])
         copy = copypack.read_copy(drafts_root, topic["id"])
@@ -937,7 +939,10 @@ def create_app(
                                  records=store.publish_records(topic["id"]), jobs=store.publish_jobs(topic["id"]), entry=entry,
                                  douyin_linked=board.is_shipped(topic), handoff_done=handoff_done)
         return {
-            "candidates": candidates,
+            # 能发的才列出来；其余的留在 others 里，页面上折起来。
+            "candidates": sendable,
+            "waiting": waiting,
+            "others": [c for c in candidates if c["id"] not in {s["id"] for s in sendable}],
             "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url")},
             "video": {"path": str(video), "name": video.name, "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
             "has_copy": bool(entry["title"] or entry["body"]),

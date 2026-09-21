@@ -135,6 +135,12 @@ button.chip-state{cursor:pointer}
 .in-row.state-working p,.in-row.state-shipped p,.in-row.state-shot p,.in-row.state-ignored p{display:none}
 .in-row .acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:2px}
 .in-meta{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-3)}
+/* 发布台：发不了的那些折起来，别再摆成一排让人重新挑一次 */
+.pub-others{margin:8px 0 0}
+.pub-others summary{cursor:pointer;color:var(--ink-3);font-size:12px;padding:4px 2px}
+.pub-others summary:hover{color:var(--ink-2)}
+.pub-others .pub-topics{padding-top:6px}
+.pub-empty .btn{margin-top:4px}
 /* 爆了：用的是全站已有的爆款色（图表、倍数 pill 都是它），不新造一个黄。
    :not(.on) 让「选中」仍然压过它，否则点开哪条都看不出来。 */
 .in-row.blew{position:relative;border-left:3px solid var(--hot);padding-left:15px}
