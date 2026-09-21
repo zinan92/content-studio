@@ -103,6 +103,7 @@ const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷�
 const S = {
   view: 'board',
   workId: null,
+  publishId: null,
   accountId: (() => { try { return Number(localStorage.getItem('cs-account')) || null; } catch (_) { return null; } })(),
   state: null,
   mine: null,
@@ -142,7 +143,7 @@ function go(view, { push = true } = {}) {
   S.view = view;
   paintChrome(view);
   if (push) {
-    const hash = view === 'report' && S.reportId ? `#report/${S.reportId}` : view === 'work' && S.workId ? `#work/${S.workId}` : `#${view}`;
+    const hash = view === 'report' && S.reportId ? `#report/${S.reportId}` : view === 'work' && S.workId ? `#work/${S.workId}` : view === 'publish' && S.publishId ? `#publish/${S.publishId}` : `#${view}`;
     if (location.hash !== hash) history.pushState(null, '', hash);
   }
   window.scrollTo(0, 0);
@@ -155,6 +156,7 @@ function readHash() {
   let [view, id] = location.hash.replace(/^#/, '').split('/');
   view = OLD_ROUTES[view] || view; // old bookmarks
   if (view === 'report' && id) S.reportId = id;
+  if (view === 'publish') S.publishId = id ? Number(id) : null;
   if (view === 'work') {
     if (!id) return 'board';
     S.workId = Number(id);

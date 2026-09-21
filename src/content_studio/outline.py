@@ -1,8 +1,12 @@
-"""Shooting outline for a talking-head video topic.
+"""拍摄提纲：Park 的原始内容 → 能直接口播的稿子，两条轨道任选。
 
-Bullet points only: one thesis line and 4–8 short points Park speaks from. The first
-point must state the thesis, because his recent videos are watched for only 14–26
-seconds on average, and every point must serve the thesis (the teardown's drift test).
+两份框架是 Anna 的工作流文件，人写的、放在 Obsidian 里，Park 随时能改：
+
+- 保真版   不重排、不删减，只在原稿前后新增开场和结尾。他已经想清楚顺序时用。
+- 重构版   允许重排、删减、合并，只留一条主线。003 里大多数是思考记录，所以这是默认。
+
+提示词不写死在代码里——框架改了，下一次生成就跟着变。框架文件找不到就直接报错，
+不偷偷退回旧提示词：Park 会以为他的修改生效了，其实没有。
 """
 from __future__ import annotations
 
@@ -17,131 +21,189 @@ from .judge import JudgeLoginError
 from .writer import ARTICLE_BLOCK, DEFAULT_DRAFTS_DIR, WriteFn, WriterError, cli_write, gather_sources
 
 OUTLINE_COMMAND_ENV = "CONTENT_STUDIO_OUTLINE_CMD"
+WORKFLOWS_ENV = "CONTENT_STUDIO_WORKFLOWS"
+DEFAULT_WORKFLOWS = Path("~/park-hands/001_role/content_editor Anna/workflows")
 DEFAULT_OUTLINE_COMMAND = (
     "claude -p --model opus --output-format text "
     '--disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Skill"'
 )
 
+# 顺序就是按钮顺序：重构版在前，因为它是默认。
+MODES: dict[str, dict[str, str]] = {
+    "restructured": {
+        "label": "重构版",
+        "file": "Park双轨编辑框架-重构版.md",
+        "hint": "重排、删减、合并，只留一条主线",
+    },
+    "faithful": {
+        "label": "保真版",
+        "file": "Park双轨编辑框架-保真版.md",
+        "hint": "不搬家，只在前后新增开场和结尾",
+    },
+}
+DEFAULT_MODE = "restructured"
 
-def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None, adjustments: list[str] | None = None) -> str:
+
+def workflows_dir() -> Path:
+    return Path(os.environ.get(WORKFLOWS_ENV) or DEFAULT_WORKFLOWS).expanduser()
+
+
+def load_framework(mode: str, root: Path | None = None) -> str:
+    """读框架原文。缺文件是配置问题，说清楚缺哪个、该放哪里。"""
+    if mode not in MODES:
+        raise WriterError(f"没有「{mode}」这个版本，只有：{'、'.join(m['label'] for m in MODES.values())}")
+    path = (root or workflows_dir()) / MODES[mode]["file"]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        raise WriterError(f"找不到{MODES[mode]['label']}框架：{path}") from None
+    body = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S).strip()
+    if not body:
+        raise WriterError(f"{MODES[mode]['label']}框架是空的：{path}")
+    return body
+
+
+def build_prompt(
+    topic: dict[str, Any],
+    sources: list[dict[str, Any]],
+    *,
+    mode: str = DEFAULT_MODE,
+    framework: str,
+    error: str | None = None,
+    adjustments: list[str] | None = None,
+) -> str:
     material = "\n\n".join(
         f"### 素材 {i + 1}：{s['title']}\n来源：{s['url'] or s['path']}\n\n{s['body']}" for i, s in enumerate(sources)
     ) or "（没有附带素材，只根据选题和备注写。）"
     retry = f"\n\n上一次输出有问题：{error}。请修正后重新输出。" if error else ""
     adjust = "\n".join(f"- {a}" for a in (adjustments or [])[:3])
-    adjust_block = f"\n\n最近一次每周复盘定下的调整，这份提纲要照着做：\n{adjust}" if adjust else ""
-    return f"""你在帮 Park 准备一条抖音口播视频的拍摄提纲。Park 的号是「Park 的 AI 世界」（AI + 金融），他对着提纲即兴讲，不念逐字稿。
+    adjust_block = f"\n\n## 最近一次每周复盘定下的调整\n这一稿要照着做：\n{adjust}" if adjust else ""
+    return f"""你在帮 Park 把他自己写的东西，加工成一条抖音口播视频能直接照着讲的稿子。
+他的号是「Park 的 AI 世界」（AI + 金融），对着稿子即兴讲，不念逐字稿。
 
-硬约束来自 Park 自己定的原则：他要优化的不是完播率，是**前 1 分钟的留存**，以及收藏、评论、推荐。
-三点是整条内容的骨架，顺序固定——认知反差 → 痛点具象 → 交付可行性，不要打乱：
+下面是 Park 和 Anna 定的「{MODES[mode]['label']}」加工框架。**严格照着做**，它比你的习惯优先：
 
-1. **第一分钟要紧凑，唯一任务是把人留下。** 开场第一句是一句泛话题的反常识暴论，让所有人都觉得跟自己搭点边；不寒暄、不铺垫、不自我介绍，也不要在这里摆结果。写成「大多数人以为……，其实……」这类冲突，后半句要有素材支撑。然后很快落到痛点具象——具体的人、场景和损失，让想跟 Park 学的人觉得「这说的就是我」。交付不要放进第一分钟。
-2. **第一分钟之后按 Park 自己的顺序讲。** 他已经在情绪上认可你了，这一段要有认知、有深度，不用再考核节奏。
-3. **交付可行性放在后半段，通常在结尾。** 真实结果，或者观众能迈出的第一步。素材里没有结果，就在这一条写「需要补素材：……」，不要编。
-4. **不说教。** 没有人想在自媒体上听课，他要的是共鸣和被理解。能用他的话说的，不要用讲课的话说。
-5. 每一条都要为主线服务：删掉这一条主线会不会明显变弱？不会就不要这一条。{adjust_block}
+---
+
+{framework}
+
+---
 
 ## 选题
 {topic['title']}
 
-## Park 的备注（可能包含每日统筹给的 Hook 和骨架）
+## Park 的备注
 {topic.get('memo') or '（无）'}
 
-## 素材
-{material}
+## 素材（Park 的原始内容）
+{material}{adjust_block}
 
-## 输出要求
-Markdown，严格按下面的结构，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间。只写要点，每条一句话，不展开解释，不写逐字稿：
-
-# 视频标题
-
-## 主线
-一句话。
-
-## 前一分钟
-- 第一句：……（泛话题的认知冲突 / 反常识暴论，不是主线摘要，不摆结果）
-- ……
-- ……
-
-（3–6 条。这是全片最紧的一段，每条对应 5–10 秒，每一条都要是一个论点，不能只是过渡。
-中间要落到痛点具象，写出具体的人、场景和损失，让他觉得「这说的就是我」。这一段不放交付。）
-
-## 后面讲什么
-- ……
-- ……
-- 结尾：……（交付可行性：真实结果或观众能迈出的第一步；素材里没有结果就写「需要补素材：……」）
-
-（3–8 条。这一段是认知和深度，节奏按 Park 自己的来，但大约每条要能抓一下——
-强调一遍主线，或者给一个能被记住的爆点。素材里别人的观点注明是谁说的。）
-
-## 不要讲过头
-- ……（可选，最多 3 条：素材缺证据、不能说成事实、不能给投资建议的地方；没有就删掉这一节）
-
-不要编造 Park 的经历、数据和收入。{retry}"""
+## 输出
+按框架的「输出」一节写，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间。
+不要写编辑说明、评分、变更清单，也不要留任何占位符。不要编造 Park 的经历、数据和收入。{retry}"""
 
 
 def extract_outline(output: str) -> str:
+    """只校验下游真正依赖的两件事：有标题，有主线。
+
+    正文长什么样由框架管——保真版和重构版的形状本来就不一样，在这里加结构检查等于
+    把框架里的规则抄第二遍，改框架的时候会对不上。
+    """
     match = ARTICLE_BLOCK.search(output)
     if not match:
-        raise WriterError("模型没有按格式返回提纲")
+        raise WriterError("模型没有按格式返回稿子")
     text = match.group(1).strip()
     if not text.startswith("#"):
-        raise WriterError("提纲缺少标题")
-    for heading in ("## 主线", "## 前一分钟", "## 后面讲什么"):
-        if not re.search(rf"^{heading}\s*$", text, flags=re.MULTILINE):
-            raise WriterError(f"提纲缺少「{heading[3:]}」一节")
-    # The two halves run at different speeds, so they are counted separately: a hook that sprawls
-    # is the exact failure Park named (前 30 秒抓不住), and it hides inside a single total.
-    for heading, low, high in (("前一分钟", 3, 6), ("后面讲什么", 3, 8)):
-        body = re.search(rf"^## {heading}\s*\n(.*?)(?=^## |\Z)", text, flags=re.MULTILINE | re.DOTALL).group(1)
-        n = len(re.findall(r"^\s*[-*] +\S", body, flags=re.MULTILINE))
-        if not low <= n <= high:
-            raise WriterError(f"「{heading}」需要 {low}–{high} 条要点，现在是 {n} 条")
+        raise WriterError("稿子缺少标题")
+    match = re.search(r"^##\s*主线\s*\n+(.+?)(?:\n\s*\n|\Z)", text, flags=re.MULTILINE | re.DOTALL)
+    if not match or not match.group(1).strip():
+        raise WriterError("稿子缺少「主线」一节，开头检查和三点评分要从这里读")
+    # 主线之后还得有东西可讲。只数主线那一段之后的字，不然「一句话 + 标题」也能过。
+    rest = text[match.end():]
+    if len(re.sub(r"[#\s>*\-|]", "", rest)) < 150:
+        raise WriterError("只有主线没有正文")
     return text + "\n"
+
+
+def _paths(topic: dict[str, Any], mode: str, drafts_dir: Path) -> tuple[Path, Path]:
+    folder = drafts_dir.expanduser() / f"topic-{topic['id']}"
+    return folder / f"outline-{mode}.md", folder / f"outline-{mode}.meta.json"
 
 
 def write_outline(
     topic: dict[str, Any],
     *,
     vault_raw: str,
+    mode: str = DEFAULT_MODE,
     drafts_dir: Path = DEFAULT_DRAFTS_DIR,
     write_fn: WriteFn | None = None,
+    workflows: Path | None = None,
     attempts: int = 2,
     now: datetime | None = None,
     adjustments: list[str] | None = None,
 ) -> dict[str, Any]:
+    framework = load_framework(mode, workflows)
     fn = write_fn or (lambda prompt: cli_write(prompt, command=os.environ.get(OUTLINE_COMMAND_ENV) or DEFAULT_OUTLINE_COMMAND, timeout=900))
     sources = gather_sources(vault_raw, topic.get("note_paths") or [])
     error: str | None = None
     for _ in range(attempts):
         try:
-            outline = extract_outline(fn(build_prompt(topic, sources, error, adjustments)))
+            outline = extract_outline(fn(build_prompt(topic, sources, mode=mode, framework=framework, error=error, adjustments=adjustments)))
             break
         except JudgeLoginError:
             raise
         except WriterError as exc:
             error = str(exc)
     else:
-        raise WriterError(f"连续 {attempts} 次没写成提纲：{error}")
-    folder = drafts_dir.expanduser() / f"topic-{topic['id']}"
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / "outline.md"
+        raise WriterError(f"连续 {attempts} 次没写成稿子：{error}")
+    path, meta_path = _paths(topic, mode, drafts_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(outline, encoding="utf-8")
     meta = {
         "topic_id": topic["id"],
+        "mode": mode,
+        "mode_label": MODES[mode]["label"],
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"),
         "sources": [{k: s[k] for k in ("path", "title", "url")} for s in sources],
     }
-    (folder / "outline.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"outline_path": str(path), **meta}
 
 
-def read_outline(topic: dict[str, Any]) -> dict[str, Any] | None:
-    if not topic.get("outline_path"):
-        return None
-    path = Path(topic["outline_path"])
+def _read(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
-    meta_path = path.with_name("outline.meta.json")
+    meta_path = path.with_name(path.stem + ".meta.json")
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
-    return {"markdown": path.read_text(encoding="utf-8"), "updated_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds"), **meta}
+    return {
+        "markdown": path.read_text(encoding="utf-8"),
+        "updated_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds"),
+        "path": str(path),
+        **meta,
+    }
+
+
+def read_outline(topic: dict[str, Any], mode: str | None = None) -> dict[str, Any] | None:
+    """mode 为 None 时读「当前这一版」，也就是 outline_path 指着的那个。
+
+    老选题的 outline.md 没有 mode 字段，照样读得出来——换版本不该让以前写的提纲消失。
+    """
+    if mode is not None:
+        current = Path(topic["outline_path"]).parent if topic.get("outline_path") else None
+        if current is None:
+            return None
+        return _read(current / f"outline-{mode}.md")
+    return _read(Path(topic["outline_path"])) if topic.get("outline_path") else None
+
+
+def available(topic: dict[str, Any]) -> list[dict[str, Any]]:
+    """哪些版本已经写过了——前端拿它画切换按钮。两版同时存在才谈得上比较。"""
+    if not topic.get("outline_path"):
+        return []
+    folder = Path(topic["outline_path"]).parent
+    out = []
+    for key, spec in MODES.items():
+        path = folder / f"outline-{key}.md"
+        if path.is_file():
+            out.append({"mode": key, "label": spec["label"], "updated_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")})
+    return out
