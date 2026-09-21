@@ -154,6 +154,14 @@ CREATE TABLE IF NOT EXISTS reach_entries (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (day, platform)
 );
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    topic_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS events_at ON events(at DESC);
 CREATE TABLE IF NOT EXISTS anna_chats (
     scope TEXT PRIMARY KEY,
     session_id TEXT,
@@ -233,6 +241,28 @@ class StudioStore:
                     if (table, name) == ("accounts", "kind"):
                         # Rows written before kinds existed: Park's own account, everything else 对标.
                         self._conn.execute("UPDATE accounts SET kind = CASE is_self WHEN 1 THEN 'self' ELSE 'benchmark' END")
+
+    # -- events: what happened in the workbench, so Anna is not told only about one page ----
+
+    def log_event(self, kind: str, text: str, topic_id: int | None = None) -> None:
+        """One line of history. Anna reads these so she knows a topic just moved, a sync
+        finished, a teardown landed — none of which is visible in the page Park happens to
+        be looking at. Never let logging break the action it describes."""
+        try:
+            with self.tx() as conn:
+                conn.execute(
+                    "INSERT INTO events(at, kind, text, topic_id) VALUES(?, ?, ?, ?)",
+                    (now_iso(), kind, text[:300], topic_id),
+                )
+        except sqlite3.Error:
+            pass
+
+    def events(self, limit: int = 25) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM events ORDER BY at DESC, id DESC LIMIT ?", (limit,))
+
+    def prune_events(self, keep: int = 500) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)", (keep,))
 
     # -- Anna (resident editor) chats, one thread per page ---------------------
 
