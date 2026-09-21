@@ -108,6 +108,7 @@ const S = {
   mine: null,
   accounts: [],
   followed: { posts: [] },
+  platforms: [],
   standard: null,
   outliers: [],
   jobs: [],
@@ -177,11 +178,12 @@ try { const t = localStorage.getItem('cs-theme'); if (t) document.documentElemen
 /* ================= data loading ================= */
 async function refreshAll() {
   const threshold = S.state ? S.state.settings.threshold : undefined;
-  const [state, mine, accounts, followed, jobs, reports] = await Promise.all([
+  const [state, mine, accounts, followed, platforms, jobs, reports] = await Promise.all([
     api('/api/state'),
     api('/api/mine' + (S.accountId ? `?account_id=${S.accountId}` : '')),
     api('/api/accounts'),
     api('/api/followed/posts'),
+    api('/api/platforms'),
     api('/api/jobs'),
     api('/api/reports'),
   ]);
@@ -189,6 +191,7 @@ async function refreshAll() {
   S.mine = mine;
   S.accounts = accounts;
   S.followed = followed;
+  S.platforms = platforms.platforms || [];
   S.jobs = jobs;
   S.reports = reports;
   S.outliers = await api('/api/outliers' + (threshold ? `?threshold=${state.settings.threshold}` : ''));
@@ -208,11 +211,7 @@ function renderChrome() {
   const weekAgo = Date.now() - 7 * 86400000;
   const shipped = S.mine.videos.filter((v) => !v.is_image_post && v.published_at && new Date(v.published_at).getTime() >= weekAgo).length;
   $('#navOut').textContent = shipped ? `${shipped} 条/周` : '';
-  const mineList = st.my_accounts || [];
-  $('#acctSwitchWrap').hidden = mineList.length < 2;
-  const sel = $('#acctSwitch');
-  const current = S.mine.account ? S.mine.account.id : null;
-  sel.innerHTML = mineList.map((a) => `<option value="${a.id}" ${a.id === current ? 'selected' : ''}>${esc(a.nickname || a.profile_url)}</option>`).join('');
+  renderPlatformStrip();
   $('#brandSub').textContent = S.mine.account && S.mine.account.nickname ? `${S.mine.account.nickname} · 本机` : 'Park · 本机';
   const failedJobs = S.jobs.filter((j) => j.stage === 'failed').length;
   $('#qSummary').textContent = `${st.active_jobs ? `${st.active_jobs} 条进行中` : '没有进行中的'}${failedJobs ? ` · ${failedJobs} 条失败` : ''}`;
@@ -230,11 +229,20 @@ function renderChrome() {
   }
 }
 
-$('#acctSwitch').onchange = async (e) => {
-  S.accountId = Number(e.target.value);
-  try { localStorage.setItem('cs-account', String(S.accountId)); } catch (_) { /* ignore */ }
-  await refreshAll();
-};
+
+const PLAT_STATE = { linked: '已连接', stale: '要重新登录', manual: '手动发布' };
+
+/** 左下角的平台条。三种状态，不是两种——一个永远亮不起来的灯就是骗人：
+ *  已连接=彩色；要重新登录=彩色带感叹号；手动=灰色（它本来就没有通道可连）。 */
+function renderPlatformStrip() {
+  const box = $('#platStrip');
+  if (!box) return;
+  box.innerHTML = S.platforms.map((p) => {
+    const title = `${p.label} · ${PLAT_STATE[p.state] || p.state}${p.note ? ' · ' + p.note : ''}`;
+    const style = p.state === 'manual' ? '' : ` style="--plat:${esc(p.hue)}"`;
+    return `<span class="plat s-${p.state}"${style} title="${esc(title)}"><i>${esc(p.mark)}</i>${p.state === 'stale' ? '<b class="plat-warn">!</b>' : ''}</span>`;
+  }).join('');
+}
 
 async function syncAll(btn) {
   if (btn) btn.disabled = true;

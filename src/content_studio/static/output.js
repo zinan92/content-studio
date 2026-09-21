@@ -139,13 +139,20 @@ const q = (text) => `<button class="help-q" type="button" data-tip="${esc(text)}
 
 function reachBlock(r) {
   const today = new Date().toLocaleDateString('sv-SE');
-  const rows = r.platforms.map((p) => `<div class="rp-row ${p.on ? '' : 'off'}">
-      <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}><b>${esc(p.label)}</b></label>
+  const meta = Object.fromEntries((S.platforms || []).map((x) => [x.key, x]));
+  const rows = r.platforms.map((p) => {
+    const m = meta[p.key] || {};
+    const badge = m.state === 'linked' ? '<span class="rp-tag ok">自动发布</span>'
+      : m.state === 'stale' ? '<span class="rp-tag warn" title="登录信息超过 30 天">要重新登录</span>'
+        : '<span class="rp-tag">手动发布</span>';
+    return `<div class="rp-row ${p.on ? '' : 'off'}">
+      <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}>${m.mark ? `<i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>` : ''}<b>${esc(p.label)}</b>${badge}</label>
       <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}>
       ${p.auto
         ? `<span class="rp-views num">${p.today === null || p.today === undefined ? '—' : fmt(p.today)}</span><small>自动 · ${esc(ago(r.douyin_synced_at))}</small>`
         : `<input class="rp-views" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="今天播放"><small>手填</small>`}
-    </div>`).join('');
+    </div>`;
+  }).join('');
   return `<section class="reach">
     <div class="reach-hero">
       <div class="reach-big"><span>今天触达 ${q(`今天各平台播放的合计。\n抖音：今天同步的播放数 − 上次同步的播放数，逐条视频相加（老视频第一次同步只当基线，不算）。\n其他平台：你手填的今天播放。\n今天包含：${r.platforms.filter((p) => p.today).map((p) => `${p.label} ${fmt(p.today)}`).join('、') || '还没有数'}`)}</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>

@@ -19,6 +19,9 @@ PLATFORMS: dict[str, dict[str, Any]] = {
     "bilibili": {"label": "B 站", "title": 80, "body": 2000, "tags": 10, "admin": "https://member.bilibili.com/platform/upload/video/frame"},
     "youtube": {"label": "YouTube", "title": 100, "body": 5000, "tags": 15, "admin": "https://studio.youtube.com/"},
     "x": {"label": "X", "title": 0, "body": 280, "tags": 3, "admin": "https://x.com/compose/post", "weighted": True},
+    "wechat_mp": {"label": "公众号", "title": 64, "body": 20000, "tags": 5, "admin": "https://mp.weixin.qq.com/"},
+    "miniprogram": {"label": "小程序", "title": 64, "body": 200, "tags": 5, "admin": None},
+    "xiaoyuzhou": {"label": "小宇宙", "title": 32, "body": 1000, "tags": 5, "admin": "https://podcaster.xiaoyuzhoufm.com/"},
     "yanxishi": {"label": "研习室", "title": 64, "body": 200, "tags": 5, "admin": None},
 }
 
