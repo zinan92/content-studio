@@ -37,8 +37,11 @@ async function loadDaily(key, force) {
 const noteRow = (i) => ({
   // 对标转录显示博主的名字；其余笔记显示它来自哪个文件夹。
   id: 'n:' + i.path, path: i.path, title: i.title, sub: i.author || i.source_label,
-  at: i.is_new ? i.created_at : i.modified_at, summary: i.summary, taken: i.triage || (i.used_by ? 'topic' : ''),
+  at: i.is_new ? i.created_at : i.modified_at, summary: i.summary,
+  // 标过「不做了」的选题不算「已拿走」——那篇笔记重新是可选的。
+  taken: (i.used_by && i.used_by.dropped) ? '' : (i.triage || (i.used_by ? 'topic' : '')),
   topicId: i.used_by ? i.used_by.topic_id : null, shipped: i.used_by ? i.used_by.shipped : false,
+  dropped: Boolean(i.used_by && i.used_by.dropped),
   url: i.url || null, hot: i.breakout || null,
 });
 const dailyRow = (d) => ({
@@ -107,7 +110,9 @@ function rowActions(r) {
       : `<button class="chip-state working" type="button" data-work="${r.topicId}">在加工中 →</button>`;
   }
   if (r.taken) return '<span class="chip-state">已入选题池</span>';
-  return `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">入选题池</button>`;
+  // 以前标过「不做了」：说清楚它去哪了，再给一颗能改主意的按钮。
+  const again = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">${r.dropped ? '再捡回来' : '入选题池'}</button>`;
+  return r.dropped ? `<span class="chip-state">标过不做了</span>${again}` : again;
 }
 
 window.VIEWS.input = {

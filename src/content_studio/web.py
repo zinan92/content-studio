@@ -652,10 +652,12 @@ def create_app(
         used: dict[str, dict[str, Any]] = {}
         for topic in store.topics(include_archived=True):
             shipped = bool(topic.get("published_video_id"))
-            if topic.get("archived_at") and not shipped:
-                continue
+            dropped = bool(topic.get("archived_at")) and not shipped
             for path in topic["note_paths"]:
-                used.setdefault(path, {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped})
+                row = {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped, "dropped": dropped}
+                # 还在做的优先；标过「不做了」的，只在没别的选题占着这篇时才显示。
+                if path not in used or (used[path]["dropped"] and not dropped):
+                    used[path] = row
         from . import hot
 
         rows = [{**item, "triage": (triage.get(item["path"]) or {}).get("status"), "used_by": used.get(item["path"])} for item in items]
@@ -676,7 +678,14 @@ def create_app(
                 note = vault.read_note(vault_path(), body.path)
                 me = store.self_account()
                 topic = store.create_topic(note["title"], note_paths=[body.path], account_id=me["id"] if me else None)
-            store.log_event("pool", f"《{topic['title'][:30]}》从进项进了选题池", topic["id"])
+                store.log_event("pool", f"《{topic['title'][:30]}》从进项进了选题池", topic["id"])
+            elif topic.get("archived_at"):
+                # 以前标过「不做了」。再点一次「入选题池」就是改主意了，把它拿回看板——
+                # 否则接口返回成功、选题却还在归档里，进项和加工中永远对不上。
+                topic = store.update_topic(topic["id"], archived_at=None)
+                store.log_event("pool", f"《{topic['title'][:30]}》又捡回来了", topic["id"])
+            else:
+                store.log_event("pool", f"《{topic['title'][:30]}》从进项进了选题池", topic["id"])
         elif body.status:
             store.log_event("triage", f"进项里「{body.path.split('/')[-1][:30]}」标成了{ {'shot': '拍过了', 'ignored': '忽略'}.get(body.status, body.status) }")
         return {"path": body.path, "triage": body.status, "topic": topic}
@@ -710,7 +719,14 @@ def create_app(
         fields = {k: v for k, v in body.model_dump(exclude={"archived"}).items() if v is not None}
         if body.archived is not None:
             fields["archived_at"] = now_iso() if body.archived else None
-        return store.update_topic(topic_id, **fields)
+        topic = store.update_topic(topic_id, **fields)
+        if body.archived:
+            # 「不做了」= 这几篇笔记重新变成可选的。不清掉 triage 的话，进项会一直显示
+            # 「已入选题池」，而那个选题已经不在看板上——点不进去，也加不回来。
+            for path in topic.get("note_paths") or []:
+                if (store.triage().get(path) or {}).get("status") == "topic":
+                    store.set_triage(path, None)
+        return topic
 
     # -- 每周复盘定下的调整，写提纲时带上 -------------------------------------
 
