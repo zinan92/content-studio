@@ -270,22 +270,33 @@ window.VIEWS.publish = {
       <span>文案 ${d.has_copy ? '<b>✓</b>' : '<span class="bad">还没写</span>'}</span>
       <button class="linklike" type="button" id="pdEditCopy">${d.has_copy ? '改文案' : '去写文案'} →</button>
     </div>` : '';
+    const chip = (c, cur) => `<button class="pub-topic ${c.id === cur ? 'on' : ''}" type="button" data-pd-topic="${c.id}"><span class="ms-chip s-${c.stage}" title="${esc(c.stage_label || '')}"><i aria-hidden="true">${typeof MS_ICON !== 'undefined' ? (MS_ICON[c.stage] || '') : ''}</i>${esc(c.stage_label || '')}</span><b>${esc(c.title)}</b>${c.shipped_count === undefined ? '' : `<span class="num">${c.shipped_count}/${on}</span>`}</button>`;
+    // 发不了的时候，说清最近那条卡在哪，别只说「没有」。
+    const others = (d.others || []).length
+      ? `<details class="pub-others"><summary>我已经有成片了，工作台还不知道</summary><div class="pub-topics">${d.others.map((c) => chip(c, null)).join('')}</div></details>` : '';
     if (!d.topic) {
-      body.innerHTML = `<div class="pub-empty"><b>还没有能发的内容</b><span>「加工中」里的一条走到「待发」，或者写好了文案，就会出现在这里。</span></div>
+      const w = d.waiting;
+      body.innerHTML = `<div class="pub-empty"><b>还没有能发的成片</b>
+          ${w ? `<span>最近的一条是《${esc(w.title)}》，还在<b>${esc(w.stage_label || w.stage)}</b>。成片文件出现在视频项目目录里，它就会自己走到「待发」，然后出现在这儿。</span>
+            <button class="btn small" type="button" data-pd-work="${w.id}">去看这一条 →</button>`
+            : '<span>「加工中」里的一条走到「待发」，就会出现在这里。</span>'}
+        </div>${others}
         <div class="pub-grid" style="margin-top:6px">${d.platforms.map((p) => tile(p, d)).join('')}</div>`;
     } else {
+      const pick = d.candidates.filter((c) => c.id !== d.topic.id);
       body.innerHTML = `<div class="pub-head">
-        <div class="pub-topics"><small>发哪条</small>${d.candidates.map((c) => `<button class="pub-topic ${c.id === d.topic.id ? 'on' : ''}" type="button" data-pd-topic="${c.id}"><span class="ms-chip s-${c.stage}" title="${esc(c.stage_label)}"><i aria-hidden="true">${typeof MS_ICON !== 'undefined' ? (MS_ICON[c.stage] || '') : ''}</i>${esc(c.stage_label)}</span><b>${esc(c.title)}</b><span class="num">${c.shipped_count}/${on}</span></button>`).join('')}
-        ${d.candidates.some((c) => c.id === d.topic.id) ? '' : `<button class="pub-topic on" type="button"><b>${esc(d.topic.title)}</b></button>`}</div>
-      </div>
+        <div class="pub-topics"><small>发这条</small>${chip({ ...d.topic, shipped_count: (d.candidates.find((c) => c.id === d.topic.id) || {}).shipped_count }, d.topic.id)}
+        ${pick.map((c) => chip(c, d.topic.id)).join('')}</div>
+      </div>${others}
       <div class="pub-grid">${d.platforms.map((p) => tile(p, d)).join('')}</div>`;
     }
     fitReplicas(body);
     if (!PD.ro && window.ResizeObserver) { PD.ro = new ResizeObserver(() => fitReplicas(body)); PD.ro.observe(body); }
+    $$('[data-pd-work]', body).forEach((b) => (b.onclick = () => openWork(Number(b.dataset.pdWork))));
     $$('[data-pd-topic]', body).forEach((b) => (b.onclick = () => { PD.topicId = Number(b.dataset.pdTopic); S.publishId = PD.topicId; PD.data = null; history.replaceState(null, '', `#publish/${PD.topicId}`); renderView(); }));
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
     const edit = $('#pdEditCopy');
-    if (edit) edit.onclick = () => { if (typeof VD !== 'undefined') { VD.topicId = d.topic.id; VD.outline = null; VD.tab = 'publish'; } openWork(d.topic.id); };
+    if (edit) edit.onclick = () => openCopy(d.topic);
     if (d.platforms.some((p) => p.job && p.job.state === 'running')) setTimeout(() => { if (S.view === 'publish') { PD.data = null; renderView(); } }, 8000);
     if (PD.open) renderDialog();
   },
@@ -328,7 +339,7 @@ function sideFor(p, d) {
     return `<div class="pdl-done"><b>✓ 已发到${esc(p.label)}${p.record && p.record.published_at ? ' · ' + day(p.record.published_at) : ''}</b>
         ${p.record && p.record.url ? `<a href="${esc(p.record.url)}" target="_blank" rel="noopener">${esc(p.record.url)}</a>` : (p.key === 'douyin' && t.published_url ? `<a href="${esc(t.published_url)}" target="_blank" rel="noopener">${esc(t.published_url)}</a>` : '<small>没记链接</small>')}
         ${p.record ? '<button class="linklike" type="button" id="pdlUnmark">记错了，撤销</button>' : ''}</div>
-      ${p.key === 'douyin' ? '<p class="pdl-note">抖音的数据在「加工中 → 这条视频 → 发布」页签里关联后自动来。</p>' : ''}${history}${fields}`;
+      ${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
   }
   if (p.job && p.job.state === 'awaiting_confirm') {
     const pl = p.job.payload || {};
@@ -374,7 +385,49 @@ function sideFor(p, d) {
   }
   return `<h4>${esc(p.treatment_label)}</h4>
     <p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>
-    ${manual}${mark}${history}${fields}`;
+    ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
+}
+
+/* 抖音单独有一块：把发出去的那条视频和这个选题对上。对上之后点赞和播放才会自己回来，
+   卡片也才算「已发出」。以前这块在「加工中 → 发布」页签里，那个页签已经去掉了。 */
+async function renderDouyinLink(dlg, topicId) {
+  const box = $('#pdlDouyin', dlg);
+  if (!box) return;
+  box.innerHTML = '<p class="pdl-note"><span class="spin"></span> 正在找你发出去的视频…</p>';
+  let d;
+  try { d = await api(`/api/topics/${topicId}/publish`); } catch (err) { box.innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
+  if (!d.account) { box.innerHTML = '<p class="pdl-note">还没设置自己的抖音号，先去设置里加。</p>'; return; }
+  if (d.video) {
+    box.innerHTML = `<div class="pdl-done"><b>✓ 已对上：${esc(cleanTitle(d.video.title))}</b>
+      <small>${day(d.video.published_at)} · ${fmt(d.video.likes)} 赞</small>
+      <button class="linklike" type="button" id="pdlUnlink">不是这条，解除</button></div>`;
+    $('#pdlUnlink', box).onclick = async () => {
+      try { await api(`/api/topics/${topicId}/publish`, { method: 'PUT', body: { video_id: null } }); toast('已解除'); renderDouyinLink(dlg, topicId); } catch (err) { toast(err.message); }
+    };
+    return;
+  }
+  const link = async (videoId) => {
+    try { await api(`/api/topics/${topicId}/publish`, { method: 'PUT', body: { video_id: videoId } }); toast('对上了，数据会自己回来'); PD.data = null; $('#publishBody').dataset.sig = ''; renderDouyinLink(dlg, topicId); } catch (err) { toast(err.message); }
+  };
+  box.innerHTML = `<div class="pdl-mark"><h4>发到抖音了？对一下是哪条</h4>
+    ${d.suggestions.length ? d.suggestions.map((v) => `<div class="hot-row"><span class="pill mid">${Math.round(v.score * 100)}%</span><div class="hot-main"><b class="clamp">${esc(cleanTitle(v.title))}</b><small>${day(v.published_at)} · ${fmt(v.likes)} 赞</small></div><div class="acts"><button class="btn small primary" type="button" data-dy="${esc(v.video_id)}">就是这条</button></div></div>`).join('')
+      : `<p class="pdl-note">没找到标题相近、在这个选题之后发出的视频。${d.stale_sync ? '数据有点旧了，' : ''}<button class="linklike" type="button" id="pdlSync">同步我的数据</button>，或者在下面手动选。</p>`}
+    ${d.recent.length ? `<div class="linkbox"><select id="pdlPick">${d.recent.map((v) => `<option value="${esc(v.video_id)}">${day(v.published_at)} · ${esc(cleanTitle(v.title).slice(0, 40))}</option>`).join('')}</select><button class="btn" type="button" id="pdlLink">对上</button></div>` : ''}</div>`;
+  $$('[data-dy]', box).forEach((b) => (b.onclick = () => link(b.dataset.dy)));
+  const pick = $('#pdlLink', box); if (pick) pick.onclick = () => link($('#pdlPick', box).value);
+  const sync = $('#pdlSync', box);
+  if (sync) sync.onclick = async () => {
+    try { const r = await api('/api/sync', { method: 'POST' }); toast(r.message); } catch (err) { toast(err.message); }
+  };
+}
+
+function openCopy(topic) {
+  const dlg = $('#copyDlg');
+  dlg.innerHTML = `<div class="pdl-h"><b>标题和简介</b><small>所有平台共用</small><span class="spacer"></span><small>${esc(topic.title)}</small><button class="pdl-x" type="button" id="cpClose" aria-label="关闭">×</button></div>
+    <div class="pdl-body"><div id="copyBox" style="flex:1;min-width:0"></div></div>`;
+  $('#cpClose', dlg).onclick = () => { dlg.close(); PD.data = null; $('#publishBody').dataset.sig = ''; renderView(); };
+  if (!dlg.open) dlg.showModal();
+  if (window.renderCopyBox) window.renderCopyBox(topic, $('#copyBox', dlg));
 }
 
 function renderDialog() {
@@ -401,13 +454,14 @@ function renderDialog() {
   const refresh = async () => { PD.data = null; $('#publishBody').dataset.sig = ''; try { await loadDesk(true); } catch (err) { toast(err.message); } renderView(); };
   $$('[data-copy]', dlg).forEach((b) => (b.onclick = () => navigator.clipboard.writeText(b.dataset.copy).then(() => toast('已复制'), () => toast('复制失败'))));
   const all = $('#pdlCopyAll', dlg); if (all) all.onclick = () => copyAll(p);
-  const write = $('#pdlWrite', dlg); if (write) write.onclick = () => { dlg.close(); if (typeof VD !== 'undefined') { VD.topicId = t.id; VD.outline = null; VD.tab = 'publish'; } openWork(t.id); };
+  const write = $('#pdlWrite', dlg); if (write) write.onclick = () => { dlg.close(); openCopy(t); };
   const mark = $('#pdlMark', dlg);
   if (mark) mark.onclick = async () => {
     const url = $('#pdlUrl', dlg).value.trim() || null;
     if (url && !/^https?:\/\//.test(url)) { toast('链接要以 https:// 开头'); return; }
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: true, url } }); toast(`${p.label} 记为已发`); await refresh(); } catch (err) { toast(err.message); }
   };
+  if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
   const unmark = $('#pdlUnmark', dlg);
   if (unmark) unmark.onclick = async () => {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: false, url: null } }); toast('已撤销'); await refresh(); } catch (err) { toast(err.message); }
