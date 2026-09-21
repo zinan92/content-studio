@@ -1005,3 +1005,33 @@ def test_profile_seeds_settings_and_accounts_without_overwriting_hand_edits(tmp_
         assert len(store.followed_accounts()) == 1                                    # 再跑一次不重复登记
     finally:
         store.close()
+
+
+def test_a_dropped_topic_can_be_picked_up_again_from_the_inbox(client: TestClient, tmp_path: Path) -> None:
+    """Park 标了「不做了」，又改主意。进项必须说实话，而且要能真的拿回来。
+
+    之前这条路是断的：「入选题池」找到那个已归档的选题就不动了，接口返回成功，
+    看板上却永远不出现——进项显示「已入选题池」，点进去是死路。
+    """
+    root = tmp_path / "vault"
+    (root / "003_park原始输出").mkdir(parents=True)
+    note = "003_park原始输出/想清楚了再拍.md"
+    (root / note).write_text("---\ntitle: 想清楚了再拍\n---\n\n正文。\n", encoding="utf-8")
+    client.app.state.store.update_settings({"obsidian_vault": str(root)})
+
+    created = client.put("/api/vault/triage", json={"path": note, "status": "topic"}).json()
+    topic_id = created["topic"]["id"]
+    assert any(t["id"] == topic_id for t in client.get("/api/topics").json())
+
+    # 不做了：笔记要重新变成可选的，不能留一个指向归档选题的死标记。
+    client.patch(f"/api/topics/{topic_id}", json={"archived": True})
+    row = next(i for i in client.get("/api/vault/inbox?days=30").json()["items"] if i["path"] == note)
+    assert row["triage"] is None and row["used_by"]["dropped"] is True
+    assert not any(t["id"] == topic_id for t in client.get("/api/topics").json())
+
+    # 改主意：捡回来的是原来那条，不是新建一条——提纲、备注、拆解都还在上面。
+    again = client.put("/api/vault/triage", json={"path": note, "status": "topic"}).json()
+    assert again["topic"]["id"] == topic_id and again["topic"]["archived_at"] is None
+    assert any(t["id"] == topic_id for t in client.get("/api/topics").json())
+    back = next(i for i in client.get("/api/vault/inbox?days=30").json()["items"] if i["path"] == note)
+    assert back["used_by"]["dropped"] is False
