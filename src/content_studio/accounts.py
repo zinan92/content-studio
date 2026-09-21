@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
@@ -8,6 +9,8 @@ from typing import Any, Awaitable, Callable, Protocol
 from urllib.parse import urlparse
 
 from .store import StoreError, StudioStore, now_iso
+
+logger = logging.getLogger(__name__)
 
 
 PLATFORM_DOUYIN = "抖音"
@@ -316,6 +319,7 @@ def auto_enqueue_new_posts(
     # of videos that are fresh enough to read but were never fetched.
     days = FRESH_DAYS if days is None else days
     created: list[dict[str, Any]] = []
+    seen = 0
     for video in store.followed_posts(days, now):
         if len(created) >= limit:
             break
@@ -329,8 +333,15 @@ def auto_enqueue_new_posts(
             video_id=video["video_id"],
             source=f"{AUTO_SOURCE_PREFIX} · {video.get('account_nickname') or '对标'}",
         )
+        seen += 1
         if is_new:
             created.append(job)
+    # Who queued what, and why: without this a batch appearing in the queue cannot be traced
+    # back to the sync that caused it, and "where did these 15 jobs come from" has no answer.
+    logger.info(
+        "auto_enqueue_new_posts: window=%sd considered=%s queued=%s (%s)",
+        days, seen, len(created), ", ".join(j["video_id"] for j in created) or "none",
+    )
     return created
 
 
