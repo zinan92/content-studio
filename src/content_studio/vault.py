@@ -25,6 +25,10 @@ class InboxSource:
     key: str
     label: str
     folder: str
+    # 主动 vs 被动。Clippings / 我收藏的 / 我写的 是 Park 自己放进去的，「新」看他什么时候放。
+    # 对标内容是工作台替他收的：一个新账号第一次同步会一次性写进几十篇，按写入时间算它们
+    # 全是「今天的」。所以被动来源的时间以作者的发布时间为准。
+    passive: bool = False
 
 
 # Park reads all three dailies in the morning (2026-09-19: he asked for 财经 and K 线 back).
@@ -38,7 +42,7 @@ DAILY_SOURCES = (
 INBOX_SOURCES = (
     # 对标内容 is the one folder the workbench writes to: transcripts of what the accounts Park
     # follows just posted, so he can read them in 进项 and attach them to a topic as 素材.
-    InboxSource("benchmark", "对标内容", "002_对标内容"),
+    InboxSource("benchmark", "对标内容", "002_对标内容", passive=True),
     InboxSource("clipping", "Clippings", "002_clippings"),
     InboxSource("saved", "我收藏的", "002_个人收藏"),
     InboxSource("raw", "我写的", "003_park原始输出"),
@@ -118,6 +122,14 @@ def _created(path: Path, meta: dict[str, str]) -> datetime:
         pass
     stat = path.stat()
     return datetime.fromtimestamp(getattr(stat, "st_birthtime", stat.st_mtime))
+
+
+def _published(meta: dict[str, str]) -> datetime | None:
+    raw = (meta.get("published") or "").strip()
+    try:
+        return datetime.fromisoformat(raw[:19]) if "T" in raw else datetime.combine(date.fromisoformat(raw[:10]), datetime.min.time())
+    except ValueError:
+        return None
 
 
 def date_tokens(day: date) -> tuple[str, ...]:
@@ -211,6 +223,12 @@ def inbox(raw_root: str, *, since: datetime, sources: tuple[str, ...] | None = N
                 continue
             meta, body = parse_frontmatter(text)
             created = _created(path, meta)
+            if source.passive:
+                # The author's publish time is the event; when the file landed is irrelevant.
+                published = _published(meta)
+                if published is None:
+                    continue
+                created = modified = published
             if max(created, modified) < since:
                 continue
             items.append(
