@@ -26,11 +26,19 @@ def drop_partial(downloads_dir: Path, content_id: str | None) -> int:
     fails with "No video file" — the job can never succeed again. Only dirs without a
     transcript are removed; anything already transcribed is finished work.
     """
-    content_dir = _find_content_dir(downloads_dir, content_id)
-    if content_dir is None or (content_dir / "transcript.json").is_file():
+    if not content_id:
         return 0
-    freed = sum(f.stat().st_size for f in content_dir.rglob("*") if f.is_file())
-    shutil.rmtree(content_dir, ignore_errors=True)
+    # _find_content_dir looks for content_item.json, but a download can die before writing it
+    # and leave a folder holding nothing but media/ (one such orphan was 499 MB). Fall back to
+    # the folder the downloader names after the video id.
+    candidates = [d for d in [_find_content_dir(downloads_dir, content_id)] if d is not None]
+    candidates += [d for d in downloads_dir.rglob(content_id) if d.is_dir() and d not in candidates]
+    freed = 0
+    for content_dir in candidates:
+        if (content_dir / "transcript.json").is_file():
+            continue
+        freed += sum(f.stat().st_size for f in content_dir.rglob("*") if f.is_file())
+        shutil.rmtree(content_dir, ignore_errors=True)
     return freed
 
 

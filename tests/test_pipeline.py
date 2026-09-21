@@ -181,3 +181,11 @@ def test_drop_partial_clears_a_failed_download_but_never_finished_work(tmp_path:
     assert not partial.exists()
     assert drop_partial(downloads, "222") == 0 and done.exists()
     assert drop_partial(downloads, "nosuch") == 0
+
+    # A download that died before writing content_item.json leaves a folder holding only media/;
+    # nothing can find it by content id, so it is matched by the folder name instead.
+    orphan = downloads / "douyin" / "acct" / "333"
+    (orphan / "media").mkdir(parents=True)
+    (orphan / "media" / "half.mp4").write_bytes(b"0" * 4096)
+    assert drop_partial(downloads, "333") == 4096
+    assert not orphan.exists()
