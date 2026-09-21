@@ -14,7 +14,7 @@ const TABS = [
   { key: 'saved', label: '我收藏的', kind: 'note' },
   { key: 'clipping', label: 'Clippings', kind: 'note' },
 ];
-const DAY_TABS = [[7, '7 天'], [30, '30 天'], [90, '90 天']];
+const DAY_TABS = [[3, '3 天'], [7, '7 天'], [30, '30 天']];
 
 const C = { tab: 'all', days: 7, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0 };
 
@@ -158,7 +158,7 @@ window.VIEWS.input = {
         <div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div>
         ${def.kind === 'daily' ? '' : `<div class="seg-toggle" role="group" aria-label="时间">${DAY_TABS.map(([d, l]) => `<button type="button" class="${C.days === d ? 'on' : ''}" data-days="${d}">${l}</button>`).join('')}</div>`}
       </div>
-      <p class="in-note">数字是还没入选题池的条数 · 只读 Obsidian，不会改你的笔记</p>
+      <p class="in-note">数字是还没入选题池的条数 · 我写的 / 收藏的 / Clippings 按你加进去的时间算，对标按作者发布时间算 · 只读 Obsidian</p>
       <div class="in-grid"><div class="panel in-list">${list}</div><div class="panel reader">${reader}</div></div>`;
 
     $$('[data-tab]', body).forEach((b) => (b.onclick = () => { C.tab = b.dataset.tab; C.open = null; C.note = null; renderView(); }));

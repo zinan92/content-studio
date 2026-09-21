@@ -85,7 +85,7 @@ def test_inbox_carries_the_author_so_进项_can_show_the_blogger(tmp_path) -> No
     root = tmp_path / "v"
     (root / "002_对标内容").mkdir(parents=True)
     (root / "002_对标内容" / "a.md").write_text(
-        "---\ntitle: 一条内容\nauthor: 柱子哥TzFilm\nsource: https://www.douyin.com/video/1\n---\n\n正文", encoding="utf-8"
+        f"---\ntitle: 一条内容\nauthor: 柱子哥TzFilm\npublished: {(datetime.now() - timedelta(hours=2)).isoformat(timespec='seconds')}\nsource: https://www.douyin.com/video/1\n---\n\n正文", encoding="utf-8"
     )
     items = vault.inbox(str(root), since=datetime.now() - timedelta(days=1))
     assert [(i["source"], i["author"]) for i in items] == [("benchmark", "柱子哥TzFilm")]
@@ -106,3 +106,29 @@ def test_daily_history_lists_only_dated_issues_and_labels_a_second_one(tmp_path)
     assert [i["title"] for i in items] == [
         "AI 日报 · 2026-09-20", "AI 日报 · 2026-09-19 晚", "AI 日报 · 2026-09-19",
     ]
+
+
+def test_passive_sources_are_windowed_on_publish_date_and_active_ones_on_when_park_added_them(tmp_path) -> None:
+    """Park: 我收藏的 / 我写的 / Clippings 是我主动加的，看我什么时候加；对标是被动收的，
+    一个新账号第一次同步会写进几十篇，按写入时间它们全是今天的——所以看作者什么时候发。"""
+    from datetime import datetime, timedelta
+
+    from content_studio import vault
+
+    root = tmp_path / "v"
+    (root / "002_对标内容").mkdir(parents=True)
+    (root / "002_clippings").mkdir()
+    old_pub = (datetime.now() - timedelta(days=40)).strftime("%Y-%m-%dT10:00:00")
+    new_pub = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%dT10:00:00")
+    # both benchmark notes were written just now; only the recently published one counts
+    (root / "002_对标内容" / "old.md").write_text(f"---\ntitle: 老\nauthor: A\npublished: {old_pub}\n---\n正文", encoding="utf-8")
+    (root / "002_对标内容" / "new.md").write_text(f"---\ntitle: 新\nauthor: A\npublished: {new_pub}\n---\n正文", encoding="utf-8")
+    # a clipping Park saved today, of an article written months ago: it is new to him
+    (root / "002_clippings" / "c.md").write_text("---\ntitle: 剪藏\npublished: 2025-01-01\nsource: https://x\n---\n正文", encoding="utf-8")
+
+    since = datetime.now() - timedelta(days=7)
+    got = {(i["source"], i["title"]) for i in vault.inbox(str(root), since=since)}
+    assert got == {("benchmark", "新"), ("clipping", "剪藏")}
+    # 3-day window: the 2-day-old benchmark post still shows; a 1-day window drops it
+    assert {i["title"] for i in vault.inbox(str(root), since=datetime.now() - timedelta(days=3))} == {"新", "剪藏"}
+    assert {i["title"] for i in vault.inbox(str(root), since=datetime.now() - timedelta(days=1))} == {"剪藏"}

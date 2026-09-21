@@ -829,7 +829,8 @@ def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(
     body = next(b for b in notes.values() if "video/5" in b)
     assert "source: https://www.douyin.com/video/5" in body and "## 全文" in body and "author: 对标号" in body
 
-    item = next(i for i in client.get("/api/vault/inbox?days=1").json()["items"] if i["source"] == "benchmark")
+    # 对标 notes are windowed on the author's publish date (the fixture posts are ~6 days old).
+    item = next(i for i in client.get("/api/vault/inbox?days=7").json()["items"] if i["source"] == "benchmark")
     assert item["author"] == "对标号"  # 进项 shows the blogger, not the folder
     assert client.get("/api/vault/note", params={"path": item["path"]}).json()["body"]
     topic = client.put("/api/vault/triage", json={"path": item["path"], "status": "topic"}).json()["topic"]
