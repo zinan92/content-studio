@@ -79,7 +79,8 @@ def test_build_worktable_runs_the_skills_own_script(tmp_path: Path) -> None:
         f"pathlib.Path(out).write_text({fake_rows!r} if out.endswith('.json') else '<html>x</html>', encoding='utf-8')\n",
         encoding="utf-8",
     )
-    out = koubo.build_worktable(base, srt=srt, skill=tmp_path / "skill")
+    # 标点那一步平时走本机 claude；这里给个假的，测试不依赖这台机器装了什么。
+    out = koubo.build_worktable(base, srt=srt, skill=tmp_path / "skill", write_fn=lambda prompt: "你好世界。")
     assert out == base / "analysis" / "worktable.html" and out.is_file()
     rows = json.loads((base / "subtitles" / "transcript.sentences.json").read_text(encoding="utf-8"))["transcript"]
     assert len(rows) == 19
