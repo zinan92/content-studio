@@ -99,9 +99,11 @@ def transcribe(video: Path, base: Path, *, model: str | None = None) -> Path:
         raise KouboError("这台机器上没有 mlx-whisper，装一下或者自己导一份 SRT 放进项目目录") from exc
     out = base / "subtitles"
     out.mkdir(parents=True, exist_ok=True)
+    # word_timestamps 是为了镜头对点：没有它，转写只有「这一整段 505.96–570.38 秒」，
+    # 想把画面卡在段中间某句话上只能按字数插值猜——真发生过，猜偏了 12 秒。
     result = mlx_whisper.transcribe(
         str(video), path_or_hf_repo=model or os.environ.get(WHISPER_MODEL_ENV) or DEFAULT_WHISPER_MODEL,
-        language="zh", verbose=None,
+        language="zh", verbose=None, word_timestamps=True,
     )
     # writer 的第二个参数是**文件名**，不是路径：它做的是 Path(output_dir) / output_name。
     # 传绝对路径的话绝对路径会直接盖掉 output_dir，字幕就落到视频旁边去了。
@@ -109,7 +111,39 @@ def transcribe(video: Path, base: Path, *, model: str | None = None) -> Path:
     target = out / "source.srt"
     if not target.is_file():
         raise KouboError(f"转写跑完了但没找到字幕文件：{target}")
+    write_words(result, out / "words.json")
     return target
+
+
+def write_words(result: dict[str, Any], path: Path) -> int:
+    """每个词一行真实时间。镜头要卡在哪句话上，查这张表，不要插值。"""
+    import json
+
+    words = [
+        {"w": (w.get("word") or "").strip(), "start": round(float(w["start"]), 3), "end": round(float(w["end"]), 3)}
+        for seg in (result.get("segments") or [])
+        for w in (seg.get("words") or [])
+        if (w.get("word") or "").strip() and w.get("start") is not None and w.get("end") is not None
+    ]
+    path.write_text(json.dumps({"words": words}, ensure_ascii=False), encoding="utf-8")
+    return len(words)
+
+
+def find_quote(words: list[dict[str, Any]], quote: str) -> dict[str, float] | None:
+    """这句话真正是第几秒说的。按去标点后的字符流匹配，返回首末词的真实时间。"""
+    clean = re.sub(r"[^\w]", "", quote)
+    if not clean:
+        return None
+    flat, index = [], []
+    for i, w in enumerate(words):
+        for ch in re.sub(r"[^\w]", "", w["w"]):
+            flat.append(ch)
+            index.append(i)
+    at = "".join(flat).find(clean)
+    if at < 0:
+        return None
+    first, last = words[index[at]], words[index[min(at + len(clean) - 1, len(index) - 1)]]
+    return {"start": first["start"], "end": last["end"]}
 
 
 def srt_text(srt: Path) -> str:
