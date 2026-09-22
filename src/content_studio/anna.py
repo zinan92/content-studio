@@ -25,7 +25,8 @@ from typing import Any, Callable
 ANNA_COMMAND_ENV = "CONTENT_STUDIO_ANNA_CMD"
 ANNA_ROLE_ENV = "CONTENT_STUDIO_ANNA_ROLE"
 ANNA_SKILL_ENV = "CONTENT_STUDIO_QA_GUIDE"
-DEFAULT_ROLE = Path("~/park-hands/001_role/content_editor Anna.md")
+# The bundled role is a generic editor; point `anna.role` in profile.yaml at your own.
+DEFAULT_ROLE = Path(__file__).resolve().parent / "examples" / "anna" / "Anna.md"
 DEFAULT_SKILL = Path("~/.claude/skills/park-content-qa/SKILL.md")
 # Claude Code, logged in on this Mac: fast enough for a chat turn, resumable, no API key.
 # Every tool is disabled; Anna reads the prompt and answers.
@@ -70,7 +71,7 @@ def load_soul(role_path: Path | None = None, skill_path: Path | None = None) -> 
         parts.append(_strip_frontmatter(role.read_text(encoding="utf-8")))
         sources.append(str(role))
     except OSError:
-        parts.append("# Anna｜内容主编\n\n第一目标：让对的人看得更久。Park 的抖音号是「Park 的 AI 世界」（AI + 金融），口播视频。")
+        parts.append("# Anna｜内容主编\n\n第一目标：让对的人看得更久。你是内容工作台的常驻主编，只动嘴不动手。")
     knowledge_dir = role.with_suffix("") / "knowledge"
     if knowledge_dir.is_dir():
         for path in sorted(knowledge_dir.iterdir()):

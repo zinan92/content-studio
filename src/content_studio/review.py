@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from typing import Any, Callable
 
+from .identity import author
 from .judge import JudgeError, JudgeLoginError, cli_judge
 
 REVIEW_COMMAND_ENV = "CONTENT_STUDIO_REVIEW_CMD"
@@ -102,10 +103,11 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
     videos = "\n".join(fmt_video(v) for v in inputs["videos"]) or "（这周没有发视频）"
     breakouts = "\n".join(f"- id {b['video_id']}｜{b['account']}｜{b['title']}｜{b['multiple']}×｜{'；'.join(b['why_boom'])}" for b in inputs["breakouts"]) or "（没有）"
     retry = f"\n\n上一次输出没有通过校验：{error}\n请修正后重新输出完整 JSON。" if error else ""
-    return f"""你是 Park 的内容复盘教练。Park 的抖音号「Park 的 AI 世界」，AI + 金融，口播长视频。账号点赞中位数 {inputs['median_likes']}。
+    me = author()
+    return f"""你是 {me.name} 的内容复盘教练。{me.channel_phrase}口播视频。账号点赞中位数 {inputs['median_likes']}。
 复盘区间：{inputs['since']} 到 {inputs['until']}。
 
-## 这周 Park 发的视频（数字由代码算好，引用时只能用这里的数）
+## 这周 {me.name} 发的视频（数字由代码算好，引用时只能用这里的数）
 {videos}
 
 ## 这周完成的选题

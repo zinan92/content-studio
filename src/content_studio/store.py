@@ -4,13 +4,15 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+
+from .paths import config_dir
 import sqlite3
 import statistics
 import threading
 from typing import Any, Iterator
 
 
-DEFAULT_STORE_PATH = Path("~/.config/content-studio/data/studio.sqlite3")
+DEFAULT_STORE_PATH = config_dir() / "data/studio.sqlite3"
 
 JOB_STAGES = ("queued", "downloading", "transcribing", "analyzing", "done", "failed")
 ACTIVE_STAGES = ("downloading", "transcribing", "analyzing")
@@ -23,7 +25,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "auto_enqueue_threshold": 5.0,
     "sync_pages": 3,
     "sync_delay_seconds": 1.5,
-    "obsidian_vault": "~/park-hands",
+    "obsidian_vault": "",
     "yanxishi_admin_url": "",
     "video_projects_root": "",
     # {platform: {"on": bool, "handle": str}} — which platforms Park has opened accounts on.

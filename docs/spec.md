@@ -2,7 +2,7 @@
 
 > 状态：**已批准**（Park，2026-09-13）：新建独立仓库 `zinan92/content-studio`，按本说明开工。
 > 日期：2026-09-13 · 规模：L（按 模块 → 里程碑 → 任务 拆，一任务一 issue 一 PR）
-> 治理：遵守 `~/work/park-operating-system/manual.md`，本文不重复其条款。
+> 治理：本仓库的协作规则见 [AGENTS.md](../AGENTS.md)；本文只写需求。
 
 ## 1. 要做成什么
 

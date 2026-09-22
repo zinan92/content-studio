@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+
+from .paths import config_dir
 import shlex
 import signal
 import subprocess
@@ -20,7 +22,7 @@ DEFAULT_RUNNER_COMMAND = (
     '--allowedTools "Skill Bash Read Write Edit Glob Grep" '
     '--disallowedTools "WebFetch WebSearch"'
 )
-DEFAULT_RUNS_DIR = Path("~/.config/content-studio/runs")
+DEFAULT_RUNS_DIR = config_dir() / "runs"
 GATE_APPROVAL_KEYS = {"H1": "hook", "H2": "visual_spec", "H3": "final"}
 
 

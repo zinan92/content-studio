@@ -15,6 +15,7 @@ import subprocess
 from typing import Any, Callable
 
 from . import vault
+from .paths import config_dir
 from .judge import JudgeLoginError
 
 DEFAULT_WRITER_COMMAND = (
@@ -23,7 +24,7 @@ DEFAULT_WRITER_COMMAND = (
     '--disallowedTools "Bash Edit Write WebFetch WebSearch NotebookEdit"'
 )
 WRITER_COMMAND_ENV = "CONTENT_STUDIO_WRITER_CMD"
-DEFAULT_DRAFTS_DIR = Path("~/.config/content-studio/drafts")
+DEFAULT_DRAFTS_DIR = config_dir() / "drafts"
 MAX_NOTE_CHARS = 12000
 MAX_SOURCE_CHARS = 30000
 ARTICLE_BLOCK = re.compile(r"<<<ARTICLE>>>\s*\n(.*?)\n\s*<<<END>>>", re.DOTALL)

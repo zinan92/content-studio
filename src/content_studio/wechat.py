@@ -13,13 +13,15 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+
+from .paths import config_dir
 import time
 from typing import Any
 import urllib.parse
 import urllib.request
 
 SECRETS_PATH = Path(os.environ.get("PARK_SECRETS", "~/.config/park/secrets.yaml")).expanduser()
-CACHE_PATH = Path("~/.config/content-studio/wechat-state.json").expanduser()
+CACHE_PATH = config_dir() / "wechat-state.json"
 CACHE_SECONDS = 6 * 3600
 TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
 

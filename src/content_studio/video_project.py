@@ -1,6 +1,9 @@
-"""Read the state of an ask-park-video (口播 workflow v2.6) project from its artifacts.
+"""Read the state of an ask-park-video (口播 workflow v2.6 layout) project from its artifacts.
 
-The workbench never runs the workflow and never edits a project. A status label in
+This module only reads. Running the workflow to its next gate lives in workflow_runner.py;
+nothing here edits a project. The artifact names and step numbers below are the contract
+with the skill (SUPPORTED_LAYOUT); when the skill changes its layout, bump this together
+with the tests in tests/test_video_project.py. A status label in
 project.json only counts where the workflow itself has no required artifact; for every
 other step the artifact is the evidence (the skill's own rule).
 """
@@ -13,7 +16,9 @@ from pathlib import Path
 import re
 from typing import Any, Callable
 
-DEFAULT_ROOTS = (Path("/Volumes/Phone SSD/视频/exports"), Path("~/Movies/口播项目"))
+# Only used when neither profile.yaml nor the settings page names a directory.
+DEFAULT_ROOTS = (Path("~/Movies/口播项目"),)
+SUPPORTED_LAYOUT = "v2.6"
 DONE_LABELS = {"pass", "approved", "skipped"}
 STAGES = (
     ("A", "准备", (1, 2, 3, 4)),
@@ -227,7 +232,7 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
     delivered = current is None
     return {
         **common,
-        "layout": "v2.6",
+        "layout": SUPPORTED_LAYOUT,
         "delivered": delivered,
         "final_video": "final/video.mp4" if artifacts["final/video.mp4"] else None,
         "summary": "已交付" if delivered else (f"Step {current}：{STEP_NAMES[current]}" + (f" · {gate['title']}" if gate else "")),

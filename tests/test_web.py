@@ -84,7 +84,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         + "\n## 结尾\n你手里有人，来找我聊聊。\n<<<END>>>",
     )
     app.state.worker.process_fn = process
-    # Never let a test reach Park's real vault: the setting defaults to ~/park-hands, and the
+    # Never let a test reach Park's real vault: the setting used to default to Park's vault, and the
     # transcript hook writes there on every successful teardown.
     app.state.store.update_settings({"obsidian_vault": str(tmp_path / "vault-default")})
     (tmp_path / "vault-default").mkdir(exist_ok=True)

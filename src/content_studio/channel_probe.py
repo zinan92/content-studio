@@ -11,10 +11,12 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+
+from .paths import config_dir
 import subprocess
 from typing import Any
 
-CACHE_PATH = Path("~/.config/content-studio/channel-probes.json").expanduser()
+CACHE_PATH = config_dir() / "channel-probes.json"
 CACHE_SECONDS = 6 * 3600
 TIMEOUT_SECONDS = 90
 

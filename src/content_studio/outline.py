@@ -18,12 +18,14 @@ from pathlib import Path
 import re
 from typing import Any
 
+from .identity import author
 from .judge import JudgeLoginError
 from .writer import ARTICLE_BLOCK, DEFAULT_DRAFTS_DIR, WriteFn, WriterError, cli_write, gather_sources
 
 OUTLINE_COMMAND_ENV = "CONTENT_STUDIO_OUTLINE_CMD"
 WORKFLOWS_ENV = "CONTENT_STUDIO_WORKFLOWS"
-DEFAULT_WORKFLOWS = Path("~/park-hands/001_role/content_editor Anna/workflows")
+# Bundled generic framework; point `anna.workflows` in profile.yaml at your own folder.
+DEFAULT_WORKFLOWS = Path(__file__).resolve().parent / "examples" / "anna" / "Anna" / "workflows"
 FRAMEWORK_FILE = "一勾式骨架.md"
 LABEL = "一勾式骨架"
 FILENAME = "skeleton.md"
@@ -68,11 +70,12 @@ def build_prompt(
     retry = f"\n\n上一次输出有问题：{error}。请修正后重新输出。" if error else ""
     adjust = "\n".join(f"- {a}" for a in (adjustments or [])[:3])
     adjust_block = f"\n\n## 最近一次每周复盘定下的调整\n这一稿要照着做：\n{adjust}" if adjust else ""
-    return f"""你在帮 Park 准备一条抖音口播视频的**骨架**。他的号是「Park 的 AI 世界」，对着骨架即兴讲。
+    me = author()
+    return f"""你在帮 {me.name} 准备一条抖音口播视频的**骨架**。{me.channel_phrase}他对着骨架即兴讲。
 
-**不要写成稿。** 中间怎么讲是 Park 自己的事，你只给骨架。
+**不要写成稿。** 中间怎么讲是 {me.name} 自己的事，你只给骨架。
 
-下面是他和 Anna 定的加工框架，每一条规则都来自一勾工作号真实视频的逐字稿和点赞倍数。
+下面是他和 Anna 定的加工框架。
 **严格照着做**，它比你的写作习惯优先：
 
 ---

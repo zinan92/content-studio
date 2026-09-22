@@ -8,6 +8,7 @@ import sys
 
 import httpx
 
+from .paths import config_dir
 from .creator_metrics import (
     CREATOR_MANAGE_URL,
     CreatorMetricsError,
@@ -30,9 +31,9 @@ from .store import DEFAULT_STORE_PATH, StoreError, StudioStore
 from .structure import ReportError
 
 
-DEFAULT_COOKIE_PATH = Path("~/.config/content-studio/douyin-cookies.json")
-DEFAULT_DB_PATH = Path("~/.config/content-studio/data/creator-metrics.sqlite3")
-DEFAULT_DATA_DIR = Path("~/.config/content-studio")
+DEFAULT_COOKIE_PATH = config_dir() / "douyin-cookies.json"
+DEFAULT_DB_PATH = config_dir() / "data/creator-metrics.sqlite3"
+DEFAULT_DATA_DIR = config_dir()
 DEFAULT_REPORTS_DIR = DEFAULT_DATA_DIR / "studio"
 DEFAULT_DOWNLOADS_DIR = DEFAULT_DATA_DIR / "downloads"
 DEFAULT_PORT = 8780
@@ -57,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pipeline.add_argument("--url", dest="urls", action="append", required=True)
     pipeline.add_argument("--cookies", type=Path, default=DEFAULT_COOKIE_PATH)
-    pipeline.add_argument("--data-dir", type=Path, default=Path("~/.config/content-studio"))
+    pipeline.add_argument("--data-dir", type=Path, default=config_dir())
     pipeline.add_argument("--downloads-dir", type=Path, default=None)
     pipeline.add_argument("--whisper-model", default="turbo")
     pipeline.add_argument("--creator-db", type=Path, default=DEFAULT_DB_PATH)
