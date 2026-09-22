@@ -57,6 +57,13 @@ vault:
   # dailies:
   #   - { key: ai_daily, label: AI 日报, folder: 006_ai daily newsletter }
 
+# ─── Anna（常驻主编）──────────────────────────────────────────────────────
+# 不填也能用：仓库自带一个通用版角色和提纲框架（src/content_studio/examples/anna/）。
+# 想要「你的」Anna，把那两个文件复制到你的笔记库里改，然后指过来。
+anna:
+  role: ""                          # [可选] 角色 Markdown，形如 ~/my-vault/roles/Anna.md；同名文件夹下的 knowledge/ 会一起读
+  workflows: ""                     # [可选] 提纲框架所在文件夹，里面要有 一勾式骨架.md
+
 # ─── 其他 ─────────────────────────────────────────────────────────────────
 video_projects_root: ""             # [可选] 口播视频项目目录（剪辑进度从这里读）
 secrets_file: ~/.config/park/secrets.yaml   # [可选] 公众号 appid/secret、X 密钥放这里，权限 600

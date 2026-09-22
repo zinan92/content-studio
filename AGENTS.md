@@ -3,9 +3,17 @@
 ## Operating pointer
 
 Read `NORTH_STAR.md`, `REGISTRY.md`, and the latest relevant entry in `daily/`
-before planning or changing this repository. The cross-project operating rules
-live in the canonical Park Operating System manual; this file holds only this
-project's local delta.
+before planning or changing this repository. This file is self-contained: an
+agent working from a clone needs nothing outside this repository.
+
+## How work lands here
+
+- One task = one GitHub issue = one PR onto `main`; branch names `feat/…` / `fix/…`.
+- Commit subject in Chinese, imperative, says what changed for the person using it
+  (see `git log`); body says why.
+- Before opening a PR: `git diff --check` and `python3 -m pytest -q` must pass; CI runs both.
+- `decision-log.md` gets an entry when a durable choice is made (format: 面对什么 / 定了什么 /
+  为什么 / 怎么验证 / 踩了什么坑). `daily/` is dated progress; `REGISTRY.md` is the current snapshot.
 
 ## Project delta
 
@@ -14,8 +22,8 @@ project's local delta.
 - **Verify with:** `git diff --check`；项目测试命令；`gitleaks detect --source . --no-banner`（若已安装）。
 - **Do not:** 不发布、评论、私信或代操作任何账号；不把 cookies、登录凭据或本机数据上传到仓库或第三方；不把“5 类生态位”标签和“四步结构检查”写成爆款判定规则。
 
-Do not copy the company operating manual here. Update this local delta only
-when the project needs a durable exception or operating instruction.
+Update this file only when the project needs a durable exception or operating
+instruction.
 
 ## Agent skills
 

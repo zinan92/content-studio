@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+
+from .paths import config_dir
 import re
 from typing import Any, Callable
 
@@ -21,7 +23,7 @@ PROFILE_ENV = "CONTENT_STUDIO_PROFILE"
 # 找文件的顺序：环境变量 → 仓库根目录 → 用户配置目录
 SEARCH_PATHS = (
     Path(__file__).resolve().parents[2] / "profile.yaml",
-    Path("~/.config/content-studio/profile.yaml").expanduser(),
+    config_dir() / "profile.yaml",
 )
 EXAMPLE_PATH = Path(__file__).resolve().parents[2] / "profile.example.yaml"
 
@@ -118,6 +120,12 @@ def check(data: dict[str, Any] | None = None) -> list[Check]:
     item("video_projects_root", "口播视频项目目录", False,
          lambda v: _filled(v) and Path(str(v)).expanduser().is_dir(),
          "剪辑进度从这里读；没有就不显示剪辑进度")
+    item("anna.role", "Anna 的角色文件", False,
+         lambda v: _filled(v) and Path(str(v)).expanduser().is_file(),
+         "不填就用仓库自带的通用版主编；填你自己的 Markdown 才是你的 Anna")
+    item("anna.workflows", "提纲框架文件夹", False,
+         lambda v: _filled(v) and (Path(str(v)).expanduser() / "一勾式骨架.md").is_file(),
+         "里面要有 一勾式骨架.md；不填用仓库自带的通用版")
     item("secrets_file", "密钥文件", False,
          lambda v: _filled(v) and Path(str(v)).expanduser().is_file(),
          "公众号、X 的密钥放这里，权限 600；不填这些平台就是手动发")

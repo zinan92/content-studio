@@ -103,13 +103,15 @@ def test_wechat_errors_are_told_apart_instead_of_all_reading_as_blocked(tmp_path
     assert wechat.fetch_token({}, opener=None)["reason"] == "unconfigured"
 
 
-def test_wechat_state_is_cached_so_the_daily_token_quota_is_not_burned(tmp_path) -> None:
+def test_wechat_state_is_cached_so_the_daily_token_quota_is_not_burned(tmp_path, monkeypatch) -> None:
     """微信取令牌每天有次数上限；每次渲染页面都问一次，几天就用光了。"""
     import json as _json
     from datetime import datetime, timedelta, timezone
 
     from content_studio import wechat
 
+    # 凭据平时读 ~/.config/park/secrets.yaml；测试不碰这台机器上的真文件。
+    monkeypatch.setattr(wechat, "load_credentials", lambda: {"appid": "wx-test", "secret": "s"})
     calls = []
 
     class Reply:

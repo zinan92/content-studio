@@ -8,7 +8,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-local_web-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![SQLite](https://img.shields.io/badge/SQLite-local_only-003B57.svg?logo=sqlite&logoColor=white)](https://sqlite.org)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skills-D97757.svg)](https://docs.anthropic.com/en/docs/claude-code)
-[![License](https://img.shields.io/badge/license-not_specified-lightgrey.svg)](#license)
+[![CI](https://github.com/zinan92/content-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/zinan92/content-studio/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 </div>
 
@@ -25,7 +26,21 @@ fail 本机 claude 未登录       → 任务标失败并写明「重新登录�
 fail 模型输出不合格          → 带错误重试，仍失败则保留原因可手动重试
 ```
 
-这是 Park 自己的内容工作流，不追求普适。它只在本机运行：笔记只读、cookies 与数据不出本机；发布只在 Park 逐次确认后执行。
+它只在本机运行：笔记只读、cookies 与数据不出本机；发布只在你逐次确认后执行。
+
+## 适合谁
+
+这是从 Park 一个人的内容工作流里长出来的，判断口味（三点评分、时间窗、爆款门槛）都按他调过。
+它假设你也是**一个人做内容**，并且：
+
+| 前提 | 没有会怎样 |
+|---|---|
+| 一个 **Obsidian 库**（或任何 Markdown 文件夹），素材和自己写的东西都在里面 | 「进项」是空的；其它功能照常 |
+| 一个**抖音号**，能在浏览器登录网页版和创作者中心 | 数据同步、对标雷达、拆解队列不可用 |
+| 本机装好并登录 **Claude Code**（`claude` 命令） | 提纲、评分、写文章、Anna、复盘全部不可用 |
+| macOS（转写用 mlx-whisper，发布用本机浏览器） | Linux 上网页和看板能跑，转写和机器代发不能 |
+
+不适合：多人团队、要部署到服务器、要接 API key 而不是本机 CLI。
 
 ## 三段怎么用
 
@@ -66,7 +81,7 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 # 1. 克隆并安装
 git clone https://github.com/zinan92/content-studio.git
 cd content-studio
-python3 -m pip install -e '.[dev]'
+python3 -m pip install -e .            # 要跑测试加 '.[dev]'
 
 # 2. 告诉它你是谁：复制模板，按里面的 [必填] / [可选] 填
 cp profile.example.yaml profile.yaml
@@ -92,6 +107,7 @@ python3 -m content_studio serve
 | `benchmarks` | 对标账号的主页链接，一行一个 | — |
 | `vault` | Obsidian 库在哪、「我写的东西」在库里哪个文件夹、剪藏/收藏/日报各在哪 | 库路径、我写的东西 |
 | `video_projects_root` | 口播视频项目目录 | — |
+| `anna` | Anna 的角色文件和提纲框架文件夹；不填用仓库自带的通用版（`src/content_studio/examples/anna/`），想要「你的」Anna 就复制出去改 | — |
 | `secrets_file` | 公众号 / X 的密钥文件位置（密钥本身不进 profile） | — |
 
 启动时 profile 只填空不覆盖：设置页里手改过的值优先。对标账号只登记不同步，你自己点「同步全部账号」。
@@ -159,7 +175,6 @@ python3 -m content_studio serve
 | `python3 -m content_studio creator-sync` | 只抓自己的创作者后台数据（最近 90 天） |
 | `python3 -m content_studio pipeline --url <视频链接>` | 不入库，直接对链接出报告 |
 | `python3 -m content_studio write-schedule` | 生成每日同步的 launchd 配置，只写文件不启用 |
-
 | `python3 -m content_studio check` | 核对 profile.yaml，列出必填/可选各缺什么；必填齐了退出码 0 |
 ## API 参考
 
@@ -193,15 +208,18 @@ python3 -m content_studio serve
 
 | 项 | 说明 | 默认值 |
 |---|---|---|
-| 设置 · Obsidian 库路径 | 读取进项的库 | `~/park-hands` |
+| 设置 · Obsidian 库路径 | 读取进项的库；一般写在 profile.yaml 的 `vault.path` | 空 |
 | 设置 · 研习室电脑后台地址 | 「交给研习室」时打开 | 空 |
-| 设置 · 口播视频项目目录 | ask-park-video 项目所在目录 | `/Volumes/Phone SSD/视频/exports` |
+| 设置 · 口播视频项目目录 | ask-park-video 项目所在目录；一般写在 profile.yaml 的 `video_projects_root` | `~/Movies/口播项目` |
 | 设置 · 爆款门槛 | 点赞 ÷ 账号自身中位数 | `5×` |
+| `CONTENT_STUDIO_HOME` | 工作台自己的文件放哪（SQLite、报告、草稿、cookies、运行日志） | `~/.config/content-studio` |
+| `CONTENT_STUDIO_PROFILE` | profile.yaml 的位置 | 仓库根目录 → `$CONTENT_STUDIO_HOME/profile.yaml` |
 | `CONTENT_DOWNLOADER_PATH` | content-downloader 路径 | `~/work/content-downloader` |
 | `CONTENT_STUDIO_LLM_CMD` | 结构拆解命令（stdin 提示词 → stdout JSON） | `claude -p --model sonnet …` |
 | `CONTENT_STUDIO_WRITER_CMD` | 写文章命令 | `claude -p --model opus …`（允许 Skill/Read） |
 | `CONTENT_STUDIO_BRIEF_CMD` · `…_OUTLINE_CMD` · `…_QA_CMD` · `…_REVIEW_CMD` | 推荐 / 提纲 / 三点评分 / 复盘命令 |
-| `CONTENT_STUDIO_ANNA_CMD` · `…_ANNA_ROLE` | Anna 用的命令（默认本机 `claude -p --model sonnet --output-format json`，全部工具禁用；换 Codex 改这一项）和角色文件路径 | 本机 `claude -p`，禁用工具 |
+| `CONTENT_STUDIO_ANNA_CMD` | Anna 用的命令（默认本机 `claude -p --model sonnet --output-format json`，全部工具禁用；换 Codex 改这一项） | 本机 `claude -p`，禁用工具 |
+| `CONTENT_STUDIO_ANNA_ROLE` · `CONTENT_STUDIO_WORKFLOWS` | Anna 的角色文件、提纲框架文件夹；一般写在 profile.yaml 的 `anna:` 里，这两个环境变量只是显式覆盖 | 仓库自带的通用版 |
 
 ## For AI Agents
 
@@ -233,7 +251,7 @@ endpoints:
   - path: /api/topics/{id}/write
     method: POST
     description: start writing an article draft in the background
-install_command: python3 -m pip install -e '.[dev]'
+install_command: python3 -m pip install -e .
 start_command: python3 -m content_studio serve
 health_check: GET /api/state
 ```
@@ -274,7 +292,12 @@ draft = httpx.get(f"{base}/api/topics/{topic['id']}/article").json()["markdown"]
 | [park-koubo-workflow](https://github.com/zinan92/park-koubo-workflow) | Park 的口播视频工作流 skill |
 | [content-production](https://github.com/zinan92/content-production) | Content 宇宙注册表 |
 
+## 跨仓库的契约
+
+工作台不装、不改口播 workflow，只按约定**读**一个项目目录里的产物来判断 14 步走到哪（`video_project.py`，`SUPPORTED_LAYOUT = "v2.6"`），
+并在后台用本机 `claude` 代跑到下一个审批门（`workflow_runner.py`）。skill 本身没有版本字段，所以这条契约靠测试守：
+[park-koubo-workflow](https://github.com/zinan92/park-koubo-workflow) 改了产物名或步骤编号，`tests/test_video_project.py` 会先红，再一起改 `SUPPORTED_LAYOUT`。
+
 ## License
 
-未指定。这是 Park 自己的工作流，公开是为了让别人看见做法，不是为了让人直接拿去用——
-里面的判断（三点评分、时间窗、平台状态）都是照着他一个人的习惯调的。
+[MIT](LICENSE)。拿去用、拿去改都可以；里面的判断口味（三点评分、时间窗、爆款门槛）是照着一个人的习惯调的，装完先在设置页和 `profile.yaml` 里改成你的。

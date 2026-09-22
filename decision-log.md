@@ -688,3 +688,11 @@
 - **顺手补的隐患:** `review_visual_spec.py` 调 claude 时**没带 `--model`**，吃的是用户 `settings.json` 的默认值。默认一改，评审会悄悄降级且没有任何提示。写死成 opus。
 - **Evidence:** 248 个测试通过（新增 5 个，每一条都照着真实发生过的那次失败写）。拿 Park 真实的 visual-plan 跑过。
 - **Gotchas:** `check_budget` 第一版从 `motion` 那段散文里用正则数「依次亮几个值」，在真实 plan 上**误报成 10 段**（实际是 1 段，而且 agent 早改好了）。**一份会误报的检查比没有检查更糟**——它会让 agent 去修一个不存在的问题，正好是我想消灭的那种浪费。改成只认结构化字段（`relabel_stages`），数不清就只查最保守的「一遍都放不下」。代价是原来那条 V02 抓不到了，那条本来就要读散文理解，**归还给评审是对的分工**。
+
+## 2026-09-22 · 把仓库从「Park 的机器」里拆出来，让别人 clone 了能跑
+
+- **面对什么**：要把仓库给朋友复用。之前 public 但没有 LICENSE，README 还写「不是为了让人直接拿去用」；AGENTS.md 和 spec 指向私有的 park-operating-system 手册；Obsidian 库、外接硬盘、Anna 的角色文件都把 Park 本机路径写成默认值；pyyaml 没进依赖（本机全局装过所以一直没发现）；没有 CI。
+- **定了什么**：MIT；README 加「适合谁」和前提表；AGENTS.md 自包含；默认路径全部中性化，个人路径只能来自 profile.yaml / 设置页；Anna 的角色和提纲框架随包附带一份通用版（`examples/anna/`），profile.yaml 新增 `anna.role` / `anna.workflows` 指向自己的；提示词里的「Park」改读 profile 的 `me.name`（`identity.py`）；数据目录统一走 `CONTENT_STUDIO_HOME`（`paths.py`）；GitHub Actions 跑 `git diff --check` + pytest。
+- **为什么**：一个 Agent 照 README 装，会依次卡在 license、私有手册、空 Anna 三处，每处都是一行改动但都是死路。
+- **怎么验证**：`tests/test_productize.py` 7 条；在临时 venv + 空 `CONTENT_STUDIO_HOME` 下 clone 分支跑 `check` / `serve` / `/api/state`，看不到 Park 的任何数据。
+- **踩了什么坑**：冒烟测试时在临时目录 `pip install -e .`，把全局的 editable 安装指到了临时副本，之后跑的测试其实测的是旧代码。以后冒烟一律用 venv。

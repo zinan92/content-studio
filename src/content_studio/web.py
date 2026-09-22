@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .paths import config_dir
 from .accounts import (
     PENDING_NOTES,
     PLATFORM_DOUYIN,
@@ -38,7 +39,7 @@ from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 REPORT_STALE_DAYS = 7
-LEGACY_REPORT_DIRS = (Path("~/.config/content-studio/m1"),)
+LEGACY_REPORT_DIRS = (config_dir() / "m1",)
 
 
 class UrlBody(BaseModel):
@@ -227,17 +228,26 @@ def _apply_profile(store: StudioStore, data: dict[str, Any] | None) -> None:
     vault.configure((data or {}).get("vault") or None)
     if not data:
         return
+    from . import anna as anna_mod
+    from . import outline as outline_mod
     from . import profile as profile_mod
     from .accounts import AccountError, add_account
 
     current = store.settings()
     patch: dict[str, Any] = {}
     vault_path_cfg = str((data.get("vault") or {}).get("path") or "").strip()
-    if vault_path_cfg and current.get("obsidian_vault") in ("", None, "~/park-hands"):
+    if vault_path_cfg and current.get("obsidian_vault") in ("", None):
         patch["obsidian_vault"] = vault_path_cfg
     root = str(data.get("video_projects_root") or "").strip()
     if root and not current.get("video_projects_root"):
         patch["video_projects_root"] = root
+    # Anna 的角色文件和提纲框架：profile 指到哪就读哪；环境变量已设的不动（那是显式覆盖）。
+    anna_cfg = data.get("anna") or {}
+    if isinstance(anna_cfg, dict):
+        for key, env_name in (("role", anna_mod.ANNA_ROLE_ENV), ("workflows", outline_mod.WORKFLOWS_ENV)):
+            value = str(anna_cfg.get(key) or "").strip()
+            if value and not os.environ.get(env_name):
+                os.environ[env_name] = value
     platforms = (data.get("me") or {}).get("platforms") or {}
     if isinstance(platforms, dict) and not current.get("platform_accounts"):
         patch["platform_accounts"] = {
