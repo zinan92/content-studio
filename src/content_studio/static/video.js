@@ -5,8 +5,8 @@ window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 const VD = { topicId: null, tab: 'outline', outline: null, dirty: false, mode: 'preview', qaOpen: false };
 
-/* 只写开头和结尾，中间是 Park 自己的。规则在 Anna 的工作流文件里，他随时能改。 */
-const BOOKEND_LABEL = '一勾式开头和结尾';
+/* 只给骨架：暴论候选 + 论点证据 + 一句结尾。规则在 Anna 的工作流文件里，他随时能改。 */
+const BOOKEND_LABEL = '一勾式骨架';
 
 async function startOutline(topicId) {
   try {
@@ -18,7 +18,7 @@ async function startOutline(topicId) {
 
 function bindOutlineButtons(root) {
   $$('[data-outline]', root).forEach((b) => (b.onclick = async () => {
-    if (b.textContent.startsWith('重写') && !confirm('重写会覆盖现在的开头和结尾，继续吗？')) return;
+    if (b.textContent.startsWith('重写') && !confirm('重写会覆盖现在的骨架，继续吗？')) return;
     b.disabled = true;
     await startOutline(Number(b.dataset.outline));
   }));
@@ -67,16 +67,16 @@ async function renderQA(topic, box) {
 
 window.VIDEO_TABS.push({
   key: 'outline',
-  label: '开头和结尾',
+  label: '骨架',
   badge: (t) => (t.outline_state === 'running' ? '生成中' : t.outline_path ? '已写' : ''),
   async render(topic, el) {
     if (topic.outline_state === 'running') {
-      el.innerHTML = `<div class="empty"><span class="spin"></span><b>正在写《${esc(topic.title)}》的开头和结尾</b><span>一般 1–2 分钟。</span></div>`;
+      el.innerHTML = `<div class="empty"><span class="spin"></span><b>正在写《${esc(topic.title)}》的骨架</b><span>一般 1–2 分钟。</span></div>`;
       return;
     }
     if (!topic.outline_path) {
-      el.innerHTML = `<div class="empty"><b>还没有开头和结尾</b>${topic.outline_state === 'failed' ? `<span class="bad">${esc(topic.outline_error || '')}</span>` : ''}
-        <span>只写两头：把人留在前一分钟的开头，和让人觉得够得着的结尾。中间是你自己的。</span>
+      el.innerHTML = `<div class="empty"><b>还没有骨架</b>${topic.outline_state === 'failed' ? `<span class="bad">${esc(topic.outline_error || '')}</span>` : ''}
+        <span>给你 5–10 条反常识暴论挑一条当开头，把原文拆成论点 + 证据，最后一句收尾。不写成稿。</span>
         ${topic.memo ? `<pre class="memo">${esc(topic.memo)}</pre>` : ''}
         <div class="track-pick"><button class="btn primary" type="button" data-outline="${topic.id}">${BOOKEND_LABEL}</button></div></div>`;
       bindOutlineButtons(el);
@@ -111,7 +111,7 @@ window.VIDEO_TABS.push({
 });
 
 const TAB_ORDER = ['outline', 'edit', 'article'];
-const WORK_STEPS = [['outline', '两头'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
+const WORK_STEPS = [['outline', '骨架'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
 const WK = { topics: null, at: 0 };
 
 window.invalidateWork = () => { WK.topics = null; const body = $('#videoBody'); if (body) body.dataset.sig = ''; };
