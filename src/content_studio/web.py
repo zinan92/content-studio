@@ -1584,6 +1584,20 @@ def create_app(
         store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》的项目初始化好了，可以按 14 步跑", topic_id)
         return {"presets": data["presets"], "message": "project.json 写好了，现在可以按 14 步跑"}
 
+    @app.post("/api/topics/{topic_id}/video-project/skip-hook")
+    def koubo_skip_hook(topic_id: int) -> dict[str, Any]:
+        """这条不剪 Hook。
+
+        Hook 那四步存在的唯一理由，是补救一个不够抓人的开头。骨架里已经给了暴论候选，
+        录的时候第一句就说它，这四步就没必要了。
+        """
+        from . import koubo
+
+        base = _koubo_dir(topic_id)
+        changed = koubo.skip_hook(base)
+        store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》这条不剪 Hook，直接进正文", topic_id)
+        return {"steps": changed, "message": "记下了：这条不剪 Hook，Step 5/7/8/9 跳过"}
+
     @app.get("/api/topics/{topic_id}/video-project/latest-export")
     def koubo_latest_export(topic_id: int) -> dict[str, Any]:
         """剪映导出里最新的那一条。名字全是日期，所以带上时长和大小给 Park 核对。"""

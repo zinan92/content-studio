@@ -100,6 +100,9 @@ def _step_checks(base: Path, contract: dict[str, Any]) -> dict[int, Callable[[],
     status = contract.get("step_status") or {}
     approvals = contract.get("approvals") or {}
     labelled = lambda n: str(status.get(str(n)) or status.get(n) or "").lower() in DONE_LABELS  # noqa: E731
+    # 跳过也是一种「这步不用做了」。原来只有 Step 11 认 skipped，Hook 那四步（5/7/8/9）
+    # 只看文件在不在——于是真跳过 Hook 的话，进度永远停在 Step 5，后面的动效走不到。
+    skipped = lambda n: str(status.get(str(n)) or status.get(n) or "").lower() == "skipped"  # noqa: E731
     presets = contract.get("presets") or {}
 
     def presets_ok() -> Evidence:
@@ -114,11 +117,11 @@ def _step_checks(base: Path, contract: dict[str, Any]) -> dict[int, Callable[[],
             exists("subtitles/source.srt") and exists("subtitles/transcript.sentences.json") and exists("analysis/worktable.html"),
             "subtitles/source.srt + transcript.sentences.json + analysis/worktable.html",
         ),
-        5: lambda: Evidence(exists("analysis/worktable.json") and bool(approvals.get("hook")), "analysis/worktable.json + Hook 批准记录"),
+        5: lambda: Evidence(skipped(5) or (exists("analysis/worktable.json") and bool(approvals.get("hook"))), "analysis/worktable.json + Hook 批准记录（或记录为不做 Hook）"),
         6: lambda: Evidence(exists("analysis/content-map.md") or exists("analysis/content-map.json"), "analysis/content-map"),
-        7: lambda: Evidence(_nonempty_dir(base / "part-a-hook/individual"), "part-a-hook/individual/ 截好的 Hook 片段"),
-        8: lambda: Evidence(exists("part-a-hook/edit.json") and exists("part-a-hook/subtitles.srt"), "part-a-hook/edit.json + subtitles.srt"),
-        9: lambda: Evidence(exists("part-a-hook/video.mp4") and qa_passed(base / "part-a-hook/qa.json"), "part-a-hook/video.mp4 + QA A 通过"),
+        7: lambda: Evidence(skipped(7) or (_nonempty_dir(base / "part-a-hook/individual")), "part-a-hook/individual/ 截好的 Hook 片段（或记录为不做 Hook）"),
+        8: lambda: Evidence(skipped(8) or (exists("part-a-hook/edit.json") and exists("part-a-hook/subtitles.srt")), "part-a-hook/edit.json + subtitles.srt（或记录为不做 Hook）"),
+        9: lambda: Evidence(skipped(9) or (exists("part-a-hook/video.mp4") and qa_passed(base / "part-a-hook/qa.json")), "part-a-hook/video.mp4 + QA A 通过（或记录为不做 Hook）"),
         10: lambda: Evidence(exists("part-b-body/clean-master.mp4") and exists("part-b-body/edit.json"), "part-b-body/clean-master.mp4 + edit.json"),
         11: lambda: Evidence(
             (exists("part-b-body/visual-plan.json") and bool(approvals.get("visual_spec"))) or str(status.get("11") or "").lower() == "skipped",

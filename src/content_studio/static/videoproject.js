@@ -133,6 +133,9 @@ window.VIDEO_TABS.push({
       ${info.blocked_reason ? `<div class="banner warn"><div><b>卡住了：</b>${esc(info.blocked_reason)}</div></div>` : ''}
       ${info.layout !== 'v2.6' ? `<div class="banner warn"><div><b>还没按 14 步初始化</b><br>补一份 project.json，进度才算得出来，「开始跑」才能用。</div>
         <button class="btn small primary" type="button" id="vpInit">初始化</button></div>` : ''}
+      ${info.layout === 'v2.6' && !info.steps.slice(4, 9).some((x) => x.done) ? `<div class="vp-skip">
+        <span class="muted">开头已经够抓人？那 Hook 那四步（选 / 截取 / 拼接 / 成品 A）就不用做了。</span>
+        <button class="btn small" type="button" id="vpSkipHook">这条不剪 Hook</button></div>` : ''}
       <div id="vpRunner"></div>
       <div id="vpOpening"></div>
       <div class="vp-summary"><span class="pill ${info.delivered ? 'hot' : 'mid'}">${esc(info.summary)}</span>${info.layout !== 'v2.6' ? '<span class="muted">（按旧版目录识别）</span>' : ''}</div>
@@ -149,6 +152,13 @@ window.VIDEO_TABS.push({
       <div class="vp-cmd"><span>在 Claude 或 Codex 里继续：</span><button class="invoke" type="button" id="vpCmd">${esc(info.continue_command)}</button></div>
     </div>`;
     renderMedia(topic, $('#vpMedia', el));
+    const skip = $('#vpSkipHook', el);
+    if (skip) skip.onclick = async () => {
+      if (!confirm('记下「这条不剪 Hook」？Step 5/7/8/9 会标成跳过，直接进正文和动效。')) return;
+      skip.disabled = true;
+      try { toast((await api(`/api/topics/${topic.id}/video-project/skip-hook`, { method: 'POST' })).message); await refreshVideoTab(); }
+      catch (err) { toast(err.message); skip.disabled = false; }
+    };
     const init = $('#vpInit', el);
     if (init) init.onclick = async () => {
       init.disabled = true;

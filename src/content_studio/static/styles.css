@@ -142,6 +142,8 @@ button.chip-state{cursor:pointer}
 .vp-media b{font-weight:600}
 .vp-wt{width:100%;height:70vh;min-height:460px;border:1px solid var(--line);border-radius:8px;margin-top:10px;background:var(--bg)}
 .vp-wt-note{font-size:12px;margin:6px 0 0}
+.vp-skip{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0}
+.vp-skip .muted{font-size:13px}
 /* 发布台：发不了的那些折起来，别再摆成一排让人重新挑一次 */
 .pub-others{margin:8px 0 0}
 .pub-others summary{cursor:pointer;color:var(--ink-3);font-size:12px;padding:4px 2px}
