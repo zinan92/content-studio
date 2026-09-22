@@ -2,7 +2,7 @@
 /* 视频 · 剪辑进度：关联口播 workflow（ask-park-video）项目目录，按产物读出 14 步进度 */
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
-const VP = { cache: {}, list: null, listAt: 0 };
+const VP = { cache: {}, list: null, listAt: 0, media: {}, wt: false };
 
 async function loadProjectList(force) {
   if (!force && VP.list && Date.now() - VP.listAt < 30000) return VP.list;
@@ -12,6 +12,56 @@ async function loadProjectList(force) {
 }
 
 const fileUrl = (name, rel) => `/api/video-projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(rel)}`;
+
+
+/* Step 3–4：成片 → 字幕 → 可以标 Hook 的工作台。以前这三步要开终端，
+   标完还要把导出的 JSON 从下载文件夹拷回项目。 */
+async function renderMedia(topic, box) {
+  if (!box) return;
+  let m;
+  try { m = await api(`/api/topics/${topic.id}/video-project/media`); } catch (err) { box.innerHTML = ''; return; }
+  const busy = (await api(`/api/topics/${topic.id}/video-project/transcribe`).catch(() => ({}))).running;
+  VP.media[topic.id] = m;
+  if (!m.video) {
+    box.innerHTML = '<div class="vp-media"><span class="muted">项目目录里还没有成片。把粗剪放进去，回来刷新。</span></div>';
+    return;
+  }
+  const head = `<span class="pill mid">${esc(m.video.name)} · ${m.video.mb} MB</span>`;
+  if (busy) {
+    box.innerHTML = `<div class="vp-media">${head}<span><span class="spin"></span> 正在本机转写，15 分钟的片子大概 2–3 分钟</span></div>`;
+    setTimeout(() => { if (S.view === 'work' && VD.tab === 'edit') renderMedia(topic, $('#vpMedia')); }, 15000);
+    return;
+  }
+  if (!m.srt) {
+    box.innerHTML = `<div class="vp-media">${head}<span class="muted">没找到字幕</span>
+      <button class="btn small primary" type="button" id="vpTranscribe">用本机 whisper 跑一遍</button></div>`;
+  } else if (!m.worktable) {
+    box.innerHTML = `<div class="vp-media">${head}<span class="pill mid">${esc(m.srt.name)}</span>
+      <button class="btn small primary" type="button" id="vpBuild">生成标 Hook 的工作台</button></div>`;
+  } else {
+    box.innerHTML = `<div class="vp-media">${head}<span class="pill mid">${esc(m.srt.name)}</span>
+        ${m.exported ? '<span class="pill hot">已标完并存回项目</span>' : ''}
+        <button class="btn small ${VP.wt ? '' : 'primary'}" type="button" id="vpToggleWt">${VP.wt ? '收起工作台' : '在这里标 Hook'}</button>
+        <button class="btn small ghost" type="button" id="vpBuild" title="字幕改过之后重建">重建</button></div>
+      ${VP.wt ? `<iframe class="vp-wt" src="/api/topics/${topic.id}/video-project/worktable.html" title="标 Hook 的工作台"></iframe>
+        <p class="muted vp-wt-note">标完点表里的「保存到项目」，直接写回 analysis/worktable.json，不用再下载再拷回来。</p>` : ''}`;
+  }
+  const t = $('#vpTranscribe', box);
+  if (t) t.onclick = async () => {
+    if (!confirm(`项目里没有字幕。现在用本机 whisper 转写《${m.video.name}》？大概要 2–3 分钟，期间机器会比较忙。`)) return;
+    t.disabled = true;
+    try { toast((await api(`/api/topics/${topic.id}/video-project/transcribe`, { method: 'POST' })).message); renderMedia(topic, box); }
+    catch (err) { toast(err.message); t.disabled = false; }
+  };
+  const b = $('#vpBuild', box);
+  if (b) b.onclick = async () => {
+    b.disabled = true;
+    try { toast((await api(`/api/topics/${topic.id}/video-project/build-worktable`, { method: 'POST' })).message); renderMedia(topic, box); }
+    catch (err) { toast(err.message); b.disabled = false; }
+  };
+  const tw = $('#vpToggleWt', box);
+  if (tw) tw.onclick = () => { VP.wt = !VP.wt; renderMedia(topic, box); };
+}
 
 async function refreshVideoTab() {
   VP.cache = {};
@@ -61,6 +111,7 @@ window.VIDEO_TABS.push({
     el.innerHTML = `<div class="vp">
       <div class="vp-head"><div><b>${esc(info.name)}</b><small>${esc(info.path)} · 更新于 ${esc(info.modified_at.replace('T', ' '))}</small></div>
         <div class="acts"><button class="btn small" type="button" id="vpRefresh">刷新</button><button class="btn small ghost" type="button" id="vpUnlink">取消关联</button></div></div>
+      <div id="vpMedia"></div>
       ${info.gate ? `<div class="banner warn vp-gate"><div><b>${esc(info.gate.key)} · ${esc(info.gate.title)}</b><br>${esc(info.gate.action)}
         ${info.gate.key === 'H1' && a['analysis/worktable.html'] && !a['analysis/worktable.json'] ? `<div class="vp-import"><a class="btn small primary" href="${fileUrl(info.name, 'analysis/worktable.html')}" target="_blank" rel="noopener">打开 worktable ↗</a><label class="btn small">选完了：选择导出的 worktable.json<input type="file" accept=".json,application/json" id="wtFile" hidden></label><button class="btn small ghost" type="button" id="wtPaste">粘贴 JSON 导入</button></div>` : ''}</div></div>` : ''}
       ${info.blocked_reason ? `<div class="banner warn"><div><b>卡住了：</b>${esc(info.blocked_reason)}</div></div>` : ''}
@@ -79,6 +130,7 @@ window.VIDEO_TABS.push({
       ${info.log.length ? `<div class="vp-log"><h3>最近的过程记录</h3><ul>${info.log.map((l) => `<li><span class="pill ${['pass', 'approved'].includes(l.status) ? 'hot' : 'low'}">${esc(l.status || '—')}</span>${esc(l.title)}</li>`).join('')}</ul></div>` : ''}
       <div class="vp-cmd"><span>在 Claude 或 Codex 里继续：</span><button class="invoke" type="button" id="vpCmd">${esc(info.continue_command)}</button></div>
     </div>`;
+    renderMedia(topic, $('#vpMedia', el));
     const importWorktable = async (body) => {
       try {
         const r = await api(`/api/topics/${topic.id}/video-project/worktable`, { method: 'POST', body });

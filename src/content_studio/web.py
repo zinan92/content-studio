@@ -10,7 +10,7 @@ import threading
 from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -1552,6 +1552,80 @@ def create_app(
         return video_project.import_worktable(
             video_root(), topic["video_project"], text=body.text, source=(body.filename or "粘贴")[:80], overwrite=body.overwrite
         )
+
+    # -- Step 3–4：成片 → 字幕 → 可以标 Hook 的工作台 ---------------------
+
+    def _koubo_dir(topic_id: int) -> Path:
+        topic = store.topic(topic_id)
+        if not topic.get("video_project"):
+            raise ValueError("这个选题还没有关联视频项目")
+        return video_project.project_dir(video_root(), topic["video_project"])
+
+    @app.get("/api/topics/{topic_id}/video-project/media")
+    def koubo_media(topic_id: int) -> dict[str, Any]:
+        from . import koubo
+
+        return koubo.state(_koubo_dir(topic_id))
+
+    @app.post("/api/topics/{topic_id}/video-project/transcribe")
+    def koubo_transcribe(topic_id: int) -> dict[str, Any]:
+        """本机跑 whisper。前端必须先问过 Park——这要占住机器两三分钟。"""
+        from . import koubo
+
+        base = _koubo_dir(topic_id)
+        video = koubo.find_video(base)
+        if video is None:
+            raise ValueError("项目目录里没找到成片，先把粗剪放进去")
+        with writing_lock:
+            key = 10_000 + topic_id
+            if key in writing:
+                return {"started": False, "message": "正在转写"}
+            writing.add(key)
+
+        def run() -> None:
+            from . import koubo as k
+
+            try:
+                srt = k.transcribe(video, base)
+                k.build_worktable(base, srt=srt)
+                store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》转写完了，工作台可以标 Hook 了", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 结果在 media 状态里看
+                logger.warning("koubo transcribe %s failed: %s", topic_id, exc)
+                store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》转写失败：{str(exc)[:80]}", topic_id)
+            finally:
+                with writing_lock:
+                    writing.discard(10_000 + topic_id)
+
+        threading.Thread(target=run, name=f"koubo-{topic_id}", daemon=True).start()
+        return {"started": True, "message": f"开始转写 {video.name}，15 分钟的片子大概 2–3 分钟"}
+
+    @app.get("/api/topics/{topic_id}/video-project/transcribe")
+    def koubo_transcribe_state(topic_id: int) -> dict[str, Any]:
+        with writing_lock:
+            return {"running": (10_000 + topic_id) in writing}
+
+    @app.post("/api/topics/{topic_id}/video-project/build-worktable")
+    def koubo_build(topic_id: int) -> dict[str, Any]:
+        """已经有 SRT 的时候单独建表，不用重新转写。"""
+        from . import koubo
+
+        base = _koubo_dir(topic_id)
+        srt = koubo.find_srt(base)
+        if srt is None:
+            raise ValueError("项目目录里没有 SRT")
+        koubo.build_worktable(base, srt=srt)
+        return {"ok": True, "message": "工作台建好了"}
+
+    @app.get("/api/topics/{topic_id}/video-project/worktable.html", response_class=HTMLResponse)
+    def koubo_worktable(topic_id: int) -> str:
+        """把 ask-park-video 那张表原样开在工作台里，只多挂一颗「保存到项目」。
+
+        以前这一步是：在别处打开 HTML → 导出 JSON 落进下载文件夹 → 手动拷回
+        analysis/worktable.json。现在点一下就写回去了。
+        """
+        from . import koubo
+
+        return koubo.worktable_html(_koubo_dir(topic_id), save_url=f"/api/topics/{topic_id}/video-project/worktable")
 
     # -- background workflow runs & gate approvals -----------------------
 
