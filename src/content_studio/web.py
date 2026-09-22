@@ -1575,6 +1575,15 @@ def create_app(
 
         return koubo.state(_koubo_dir(topic_id))
 
+    @app.post("/api/topics/{topic_id}/video-project/init")
+    def koubo_init(topic_id: int) -> dict[str, Any]:
+        """补一份 project.json。没有它，14 步进度算不出来，「开始跑」也会被拒。"""
+        from . import koubo
+
+        data = koubo.init_project(_koubo_dir(topic_id))
+        store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》的项目初始化好了，可以按 14 步跑", topic_id)
+        return {"presets": data["presets"], "message": "project.json 写好了，现在可以按 14 步跑"}
+
     @app.get("/api/topics/{topic_id}/video-project/latest-export")
     def koubo_latest_export(topic_id: int) -> dict[str, Any]:
         """剪映导出里最新的那一条。名字全是日期，所以带上时长和大小给 Park 核对。"""

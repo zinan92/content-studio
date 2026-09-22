@@ -131,6 +131,8 @@ window.VIDEO_TABS.push({
       ${info.gate ? `<div class="banner warn vp-gate"><div><b>${esc(info.gate.key)} · ${esc(info.gate.title)}</b><br>${esc(info.gate.action)}
         ${info.gate.key === 'H1' && a['analysis/worktable.html'] && !a['analysis/worktable.json'] ? `<div class="vp-import"><a class="btn small primary" href="${fileUrl(info.name, 'analysis/worktable.html')}" target="_blank" rel="noopener">打开 worktable ↗</a><label class="btn small">选完了：选择导出的 worktable.json<input type="file" accept=".json,application/json" id="wtFile" hidden></label><button class="btn small ghost" type="button" id="wtPaste">粘贴 JSON 导入</button></div>` : ''}</div></div>` : ''}
       ${info.blocked_reason ? `<div class="banner warn"><div><b>卡住了：</b>${esc(info.blocked_reason)}</div></div>` : ''}
+      ${info.layout !== 'v2.6' ? `<div class="banner warn"><div><b>还没按 14 步初始化</b><br>补一份 project.json，进度才算得出来，「开始跑」才能用。</div>
+        <button class="btn small primary" type="button" id="vpInit">初始化</button></div>` : ''}
       <div id="vpRunner"></div>
       <div id="vpOpening"></div>
       <div class="vp-summary"><span class="pill ${info.delivered ? 'hot' : 'mid'}">${esc(info.summary)}</span>${info.layout !== 'v2.6' ? '<span class="muted">（按旧版目录识别）</span>' : ''}</div>
@@ -147,6 +149,12 @@ window.VIDEO_TABS.push({
       <div class="vp-cmd"><span>在 Claude 或 Codex 里继续：</span><button class="invoke" type="button" id="vpCmd">${esc(info.continue_command)}</button></div>
     </div>`;
     renderMedia(topic, $('#vpMedia', el));
+    const init = $('#vpInit', el);
+    if (init) init.onclick = async () => {
+      init.disabled = true;
+      try { toast((await api(`/api/topics/${topic.id}/video-project/init`, { method: 'POST' })).message); await refreshVideoTab(); }
+      catch (err) { toast(err.message); init.disabled = false; }
+    };
     const importWorktable = async (body) => {
       try {
         const r = await api(`/api/topics/${topic.id}/video-project/worktable`, { method: 'POST', body });
