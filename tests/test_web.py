@@ -78,9 +78,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
         anna_fn=_fake_anna,
         qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "大多数人以为是能力问题"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
-        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n\n## 主线\n大多数人以为是能力问题，其实是位置问题。\n\n## 开头\n"
-        + ("他上周还在用它改错别字，别人已经用它改了收入结构。" * 8)
-        + "\n\n## 结尾\n我自己做了一个工作台，天天在用。你手里有人，来找我聊聊。\n<<<END>>>",
+        outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n\n## 主线\n大多数人以为是能力问题，其实是位置问题。\n\n## 开头候选\n"
+        + "\n".join(f"{i}. 「大多数人以为是能力问题，其实是位置问题。」（绝对否定 · 靠素材）" for i in range(1, 7))
+        + "\n\n## 中间骨架\n### 论点 A：他上周还在用它改错别字\n证据：素材里有。\n\n### 论点 B：别人已经用它改了收入结构\n证据：要补 —— 去截一张后台收入图。\n"
+        + "\n## 结尾\n你手里有人，来找我聊聊。\n<<<END>>>",
     )
     app.state.worker.process_fn = process
     # Never let a test reach Park's real vault: the setting defaults to ~/park-hands, and the

@@ -1082,12 +1082,12 @@ def create_app(
                 adjustments=latest_adjustments(), **({"write_fn": outline_fn} if outline_fn else {})
             )
             store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None, manual_stage=None)
-            store.log_event("outline", f"《{store.topic(topic_id)['title'][:30]}》的开头和结尾写好了", topic_id)
+            store.log_event("outline", f"《{store.topic(topic_id)['title'][:30]}》的骨架写好了", topic_id)
             _run_qa(topic_id)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
-            logger.warning("bookend topic %s failed: %s", topic_id, exc)
+            logger.warning("skeleton topic %s failed: %s", topic_id, exc)
             store.update_topic(topic_id, outline_state="failed", outline_error=str(exc)[:300] or type(exc).__name__)
-            store.log_event("outline", f"《{store.topic(topic_id)['title'][:24]}》开头结尾生成失败：{str(exc)[:60]}", topic_id)
+            store.log_event("outline", f"《{store.topic(topic_id)['title'][:24]}》骨架生成失败：{str(exc)[:60]}", topic_id)
         finally:
             with writing_lock:
                 writing.discard(-topic_id)
@@ -1106,7 +1106,7 @@ def create_app(
             writing.add(-topic_id)
         store.update_topic(topic_id, outline_state="running", outline_error=None)
         threading.Thread(target=_outline_topic, args=(topic_id,), name=f"outline-{topic_id}", daemon=True).start()
-        return {"started": True, "message": "开始写开头和结尾，一般 1–2 分钟"}
+        return {"started": True, "message": "开始写骨架，一般 1–2 分钟"}
 
     @app.get("/api/topics/{topic_id}/outline")
     def get_outline(topic_id: int) -> dict[str, Any]:
@@ -1114,7 +1114,7 @@ def create_app(
 
         data = outline.read_outline(store.topic(topic_id))
         if data is None:
-            raise HTTPException(status_code=404, detail="这个选题还没有开头和结尾")
+            raise HTTPException(status_code=404, detail="这个选题还没有骨架")
         return data
 
     @app.put("/api/topics/{topic_id}/outline")

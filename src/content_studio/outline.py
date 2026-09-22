@@ -1,8 +1,9 @@
-"""开头和结尾：把 Park 的原始内容包装成能开口的两头，中间留给他自己。
+"""骨架：暴论候选 + 论点证据 + 一句结尾。不写成稿。
 
-Park 的原话：「我自己本身的内容就是 don't be silent 的内容，我的思考足够深度。」
-所以这里不重构、不写大纲，只写两样最难的——把人留在前一分钟的开头，和让人觉得
-「这件事我够得着」的结尾。
+Park 有完整的原文，中间怎么讲是他自己的事。他要的是三样一个人不好做的：一堆
+反常识暴论候选（他挑一两个当开头）、原文拆成论点 + 证据的骨架、一句结尾。
+
+他对上一版结尾的评价：「其实我觉得这段话里只有最后一句话有用。」所以结尾不再写成段。
 
 规则不在代码里。它在 Anna 的工作流文件里（Obsidian，Park 随时能改），而那份文件的
 每一条都来自一勾工作号真实逐字稿加点赞倍数。文件找不到就直接报错，不偷偷退回旧提示词：
@@ -23,16 +24,18 @@ from .writer import ARTICLE_BLOCK, DEFAULT_DRAFTS_DIR, WriteFn, WriterError, cli
 OUTLINE_COMMAND_ENV = "CONTENT_STUDIO_OUTLINE_CMD"
 WORKFLOWS_ENV = "CONTENT_STUDIO_WORKFLOWS"
 DEFAULT_WORKFLOWS = Path("~/park-hands/001_role/content_editor Anna/workflows")
-FRAMEWORK_FILE = "一勾式开头结尾.md"
-LABEL = "一勾式开头和结尾"
-FILENAME = "bookend.md"
+FRAMEWORK_FILE = "一勾式骨架.md"
+LABEL = "一勾式骨架"
+FILENAME = "skeleton.md"
 DEFAULT_OUTLINE_COMMAND = (
     "claude -p --model opus --output-format text "
     '--disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Skill"'
 )
-# 下游真正会读的三节：opening.thesis_for() 解析「主线」，三点评分把开头当痛点和反差、
-# 把结尾当交付。少一节，后面两个功能就静默降级成拿标题当主线。
-SECTIONS = ("主线", "开头", "结尾")
+# 下游真正会读的四节：opening.thesis_for() 解析「主线」，三点评分把开头候选当反差、
+# 中间骨架当痛点、结尾当交付。少一节，后面两个功能就静默降级成拿标题当主线。
+SECTIONS = ("主线", "开头候选", "中间骨架", "结尾")
+MIN_HOOKS = 5      # Park 要 5–10 条挑
+MIN_POINTS = 2     # 一个论点不叫骨架
 
 
 def workflows_dir() -> Path:
@@ -65,9 +68,9 @@ def build_prompt(
     retry = f"\n\n上一次输出有问题：{error}。请修正后重新输出。" if error else ""
     adjust = "\n".join(f"- {a}" for a in (adjustments or [])[:3])
     adjust_block = f"\n\n## 最近一次每周复盘定下的调整\n这一稿要照着做：\n{adjust}" if adjust else ""
-    return f"""你在帮 Park 准备一条抖音口播视频的**开头和结尾**。他的号是「Park 的 AI 世界」，对着稿子即兴讲。
+    return f"""你在帮 Park 准备一条抖音口播视频的**骨架**。他的号是「Park 的 AI 世界」，对着骨架即兴讲。
 
-**中间不要写。** 中间是 Park 自己的思考，他自己讲。你只写两头。
+**不要写成稿。** 中间怎么讲是 Park 自己的事，你只给骨架。
 
 下面是他和 Anna 定的加工框架，每一条规则都来自一勾工作号真实视频的逐字稿和点赞倍数。
 **严格照着做**，它比你的写作习惯优先：
@@ -89,8 +92,13 @@ def build_prompt(
 
 ## 输出
 按框架的「输出」一节写，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间。
-只要 {'、'.join(SECTIONS)} 三节，不写中间正文，不写编辑说明、评分或占位符。
-不要编造 Park 的经历、数据和收入。{retry}"""
+只要 {'、'.join(SECTIONS)} 四节，不写口播全文，不写编辑说明或评分。
+不要编造 Park 的经历、数据和收入——素材里没有的证据，写成一行具体的待办。{retry}"""
+
+
+def _section(text: str, name: str) -> str:
+    match = re.search(rf"^##\s*{name}\s*\n+(.+?)(?=^##\s|\Z)", text, flags=re.MULTILINE | re.DOTALL)
+    return match.group(1) if match else ""
 
 
 def extract_outline(output: str) -> str:
@@ -101,13 +109,15 @@ def extract_outline(output: str) -> str:
     if not text.startswith("#"):
         raise WriterError("缺少标题")
     for name in SECTIONS:
-        body = re.search(rf"^##\s*{name}\s*\n+(.+?)(?=^##\s|\Z)", text, flags=re.MULTILINE | re.DOTALL)
-        if not body or not body.group(1).strip():
+        if not _section(text, name).strip():
             raise WriterError(f"缺少「{name}」一节")
-    # 开头一分钟大约 250–350 字；太短说明它只给了个提纲，没给能直接念的稿子。
-    opening = re.search(r"^##\s*开头\s*\n+(.+?)(?=^##\s|\Z)", text, flags=re.MULTILINE | re.DOTALL).group(1)
-    if len(re.sub(r"[#\s>*\-|]", "", opening)) < 120:
-        raise WriterError("开头太短，要能直接念的一分钟，不是要点")
+    hooks = _section(text, "开头候选")
+    n = len(re.findall(r"^\s*(?:\d+[.、)]|[-*])\s*\S", hooks, flags=re.MULTILINE))
+    if n < MIN_HOOKS:
+        raise WriterError(f"开头候选要 {MIN_HOOKS}–10 条给 Park 挑，现在只有 {n} 条")
+    points = re.findall(r"^###\s*论点", _section(text, "中间骨架"), flags=re.MULTILINE)
+    if len(points) < MIN_POINTS:
+        raise WriterError(f"中间骨架至少 {MIN_POINTS} 个论点，现在只有 {len(points)} 个")
     return text + "\n"
 
 
@@ -146,12 +156,12 @@ def write_outline(
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"),
         "sources": [{k: s[k] for k in ("path", "title", "url")} for s in sources],
     }
-    (folder / "bookend.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (folder / "skeleton.meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"outline_path": str(path), **meta}
 
 
 def read_outline(topic: dict[str, Any]) -> dict[str, Any] | None:
-    """老选题的 outline.md / outline-*.md 照样读得出来——换写法不该让以前写的消失。"""
+    """以前的 outline.md / bookend.md 照样读得出来——换写法不该让以前写的消失。"""
     if not topic.get("outline_path"):
         return None
     path = Path(topic["outline_path"])
