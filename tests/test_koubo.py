@@ -176,6 +176,49 @@ def test_a_transcript_with_no_punctuation_is_caught_not_shipped(tmp_path: Path) 
     koubo._guard_sentences(missing)  # 读不到就别拦，真正的错误在别处报
 
 
-def test_the_punctuation_prompt_is_actually_punctuated() -> None:
-    """prompt 本身没有标点的话，模型照着学的就是没标点。"""
-    assert sum(koubo.PUNCTUATION_PROMPT.count(c) for c in "。，！？：") >= 4
+def test_srt_text_drops_the_numbers_and_timecodes(tmp_path: Path) -> None:
+    srt = tmp_path / "source.srt"
+    srt.write_text(
+        "1\n00:00:00,720 --> 00:00:03,200\n有幸有一些博主朋友\n\n"
+        "2\n00:00:03,200 --> 00:00:06,120\n不管是卖课还是做咨询\n",
+        encoding="utf-8",
+    )
+    assert koubo.srt_text(srt) == "有幸有一些博主朋友\n不管是卖课还是做咨询"
+
+
+def test_punctuating_may_not_rewrite_a_single_character() -> None:
+    """map 会核对补标点后的文字和 SRT 原文有没有漂移，改了字就出不了活。"""
+    seen = {}
+
+    def fake(prompt):
+        seen["prompt"] = prompt
+        return "有幸有一些博主朋友，不管是卖课还是做咨询。"
+
+    out = koubo.punctuate("有幸有一些博主朋友\n不管是卖课还是做咨询", write_fn=fake)
+    assert out == "有幸有一些博主朋友，不管是卖课还是做咨询。"
+    assert "一个字都不许改" in seen["prompt"] and "不要删语气词和口误" in seen["prompt"]
+    assert "有幸有一些博主朋友" in seen["prompt"]
+    with pytest.raises(koubo.KouboError, match="没有返回内容"):
+        koubo.punctuate("随便", write_fn=lambda p: "  ")
+
+
+def test_a_useless_worktable_is_never_left_on_disk(tmp_path: Path) -> None:
+    """守卫要在出 HTML 之前拦下来——反过来的话，一张没法用的表还是留在盘上。"""
+    base = tmp_path / "项目"
+    (base / "subtitles").mkdir(parents=True)
+    srt = base / "subtitles" / "source.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:11:53,000\n一整坨没有标点的话\n", encoding="utf-8")
+    (base / "subtitles" / "transcript.corrected.txt").write_text("一整坨没有标点的话\n", encoding="utf-8")
+    skill = tmp_path / "skill" / "scripts"
+    skill.mkdir(parents=True)
+    blob = json.dumps({"transcript": [{"id": "s001", "text": "一整坨", "start_hint": 0.0, "end_hint": 713.0}]}, ensure_ascii=False)
+    (skill / "build_worktable.py").write_text(
+        "import sys, pathlib\n"
+        "out = sys.argv[sys.argv.index('-o') + 1]\n"
+        "pathlib.Path(out).parent.mkdir(parents=True, exist_ok=True)\n"
+        f"pathlib.Path(out).write_text({blob!r} if out.endswith('.json') else '<html>x</html>', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(koubo.KouboError, match="断句失败"):
+        koubo.build_worktable(base, srt=srt, skill=tmp_path / "skill")
+    assert not (base / "analysis" / "worktable.html").exists()

@@ -17,16 +17,26 @@ import shutil
 import subprocess
 from typing import Any
 
+from .writer import cli_write
+
 EXPORTS_ENV = "CONTENT_STUDIO_JIANYING_EXPORTS"
 EXPORTS_DIRNAME = "剪映导出"
 SKILL_ENV = "CONTENT_STUDIO_KOUBO_SKILL"
 DEFAULT_SKILL = Path("~/.agents/skills/ask-park-video")
 WHISPER_MODEL_ENV = "CONTENT_STUDIO_WHISPER_MODEL"
 DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
-# whisper 转中文默认不给标点，706 条字幕一个标点都没有。而 build_worktable 是靠标点断句的——
-# 没标点整篇 12 分钟会变成「一个句子」，那张表就成了一整坨，没法标 Hook 也没法挂视觉标注。
-# 给一段带标点的示例当 initial_prompt，它就会照着断。
-PUNCTUATION_PROMPT = "以下是普通话的口播内容，请使用正确的标点符号断句。比如：这件事我是刚想明白的，我也不是非常确定。"
+# whisper 转中文默认不给标点，而 build_worktable 是靠标点断句的——没标点整篇 12 分钟
+# 会变成「一个句子」，那张表就成了一整坨。
+#
+# 试过给 initial_prompt 让它自己断：标点是出来了，但转写质量塌了——706 条字幕变成 34 条，
+# 还出了乱码。所以改走 skill 本来就留好的那条路：转写不加 prompt（时间轴准），标点用本机
+# 模型单独补一遍，再用 `map --srt ... --text ...` 把两边对齐。map 自带漂移守卫，
+# 补标点时顺手改了字它会拒绝出活。
+PUNCTUATE_COMMAND_ENV = "CONTENT_STUDIO_PUNCTUATE_CMD"
+DEFAULT_PUNCTUATE_COMMAND = (
+    "claude -p --model sonnet --output-format text "
+    '--disallowedTools "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Skill"'
+)
 # 一句话平均超过这么多秒，基本可以断定标点没出来。
 MAX_SECONDS_PER_SENTENCE = 25
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
@@ -91,7 +101,7 @@ def transcribe(video: Path, base: Path, *, model: str | None = None) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     result = mlx_whisper.transcribe(
         str(video), path_or_hf_repo=model or os.environ.get(WHISPER_MODEL_ENV) or DEFAULT_WHISPER_MODEL,
-        language="zh", verbose=None, initial_prompt=PUNCTUATION_PROMPT,
+        language="zh", verbose=None,
     )
     # writer 的第二个参数是**文件名**，不是路径：它做的是 Path(output_dir) / output_name。
     # 传绝对路径的话绝对路径会直接盖掉 output_dir，字幕就落到视频旁边去了。
@@ -102,7 +112,33 @@ def transcribe(video: Path, base: Path, *, model: str | None = None) -> Path:
     return target
 
 
-def build_worktable(base: Path, *, srt: Path, skill: Path | None = None, python: str | None = None) -> Path:
+def srt_text(srt: Path) -> str:
+    """把 SRT 拆成纯文本，一条一行。给补标点用。"""
+    lines = []
+    for block in re.split(r"\n\s*\n", srt.read_text(encoding="utf-8").strip()):
+        rows = [r for r in block.splitlines() if r.strip()]
+        body = [r for r in rows if not r.strip().isdigit() and "-->" not in r]
+        if body:
+            lines.append("".join(body).strip())
+    return "\n".join(lines)
+
+
+def punctuate(text: str, *, write_fn: Any = None) -> str:
+    """只加标点，一个字都不许改——map 的漂移守卫会核对，改了就出不了活。"""
+    prompt = (
+        "下面是一段中文口播的转写，whisper 没给标点。请只做一件事：加上标点符号和分段。\n\n"
+        "**一个字都不许改**：不要改错别字，不要删语气词和口误，不要合并或拆开句子的内容，"
+        "不要加任何原文没有的字。只在字与字之间插入 。，？！、 和换行。\n"
+        "直接输出加好标点的正文，不要任何说明。\n\n---\n\n" + text
+    )
+    fn = write_fn or (lambda p: cli_write(p, command=os.environ.get(PUNCTUATE_COMMAND_ENV) or DEFAULT_PUNCTUATE_COMMAND, timeout=900))
+    out = (fn(prompt) or "").strip()
+    if not out:
+        raise KouboError("补标点没有返回内容")
+    return out
+
+
+def build_worktable(base: Path, *, srt: Path, skill: Path | None = None, python: str | None = None, write_fn: Any = None) -> Path:
     """跑 ask-park-video 自己的脚本。工作台不重写这张表——重写就和 14 步对不上了。"""
     script = (skill or skill_dir()) / "scripts" / "build_worktable.py"
     if not script.is_file():
@@ -111,15 +147,22 @@ def build_worktable(base: Path, *, srt: Path, skill: Path | None = None, python:
     sentences = base / "subtitles" / "transcript.sentences.json"
     out = base / "analysis" / "worktable.html"
     out.parent.mkdir(parents=True, exist_ok=True)
-    for args in (
-        [exe, str(script), "map", "--srt", str(srt), "-o", str(sentences)],
-        [exe, str(script), "html", str(sentences), "-o", str(out)],
-    ):
-        done = subprocess.run(args, capture_output=True, text=True, timeout=300)
-        if done.returncode != 0:
-            raise KouboError(f"生成工作台失败：{(done.stderr or done.stdout).strip()[:300]}")
+
+    corrected = base / "subtitles" / "transcript.corrected.txt"
+    if not corrected.is_file():
+        corrected.write_text(punctuate(srt_text(srt), write_fn=write_fn) + "\n", encoding="utf-8")
+    mapped = [exe, str(script), "map", "--srt", str(srt), "--text", str(corrected), "-o", str(sentences)]
+    _run(mapped)
+    # 先验断句，再出 HTML——反过来的话守卫拦下了，一张没法用的表还是留在了盘上。
     _guard_sentences(sentences)
+    _run([exe, str(script), "html", str(sentences), "-o", str(out)])
     return out
+
+
+def _run(args: list[str]) -> None:
+    done = subprocess.run(args, capture_output=True, text=True, timeout=600)
+    if done.returncode != 0:
+        raise KouboError(f"生成工作台失败：{(done.stderr or done.stdout).strip()[:300]}")
 
 
 def _guard_sentences(path: Path) -> None:
