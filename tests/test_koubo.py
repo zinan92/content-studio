@@ -69,16 +69,20 @@ def test_build_worktable_runs_the_skills_own_script(tmp_path: Path) -> None:
     srt.write_text("1\n00:00:00,000 --> 00:00:02,000\n你好世界。\n", encoding="utf-8")
     skill = tmp_path / "skill" / "scripts"
     skill.mkdir(parents=True)
+    fake_rows = json.dumps({"transcript": [
+        {"id": f"s{i:03d}", "text": "一句话。", "start_hint": i * 4.0, "end_hint": i * 4.0 + 3.5} for i in range(1, 20)
+    ]}, ensure_ascii=False)
     (skill / "build_worktable.py").write_text(
         "import sys, pathlib\n"
         "out = sys.argv[sys.argv.index('-o') + 1]\n"
         "pathlib.Path(out).parent.mkdir(parents=True, exist_ok=True)\n"
-        "pathlib.Path(out).write_text('{}' if out.endswith('.json') else '<html>x</html>', encoding='utf-8')\n",
+        f"pathlib.Path(out).write_text({fake_rows!r} if out.endswith('.json') else '<html>x</html>', encoding='utf-8')\n",
         encoding="utf-8",
     )
     out = koubo.build_worktable(base, srt=srt, skill=tmp_path / "skill")
     assert out == base / "analysis" / "worktable.html" and out.is_file()
-    assert json.loads((base / "subtitles" / "transcript.sentences.json").read_text(encoding="utf-8")) == {}
+    rows = json.loads((base / "subtitles" / "transcript.sentences.json").read_text(encoding="utf-8"))["transcript"]
+    assert len(rows) == 19
 
 
 def test_the_save_button_is_appended_not_woven_in(tmp_path: Path) -> None:
@@ -141,3 +145,37 @@ def test_adopting_keeps_the_date_so_it_stays_traceable(tmp_path: Path) -> None:
 
     with pytest.raises(koubo.KouboError, match="找不到这个文件"):
         koubo.adopt(root / "不存在.mp4", base)
+
+
+def _sentences(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"transcript": rows}, ensure_ascii=False), encoding="utf-8")
+
+
+def test_a_transcript_with_no_punctuation_is_caught_not_shipped(tmp_path: Path) -> None:
+    """真发生过：whisper 转中文不给标点，12 分钟被切成 1 句。
+
+    build_worktable 靠标点断句，所以那张表看起来生成成功了，打开才发现是一整坨，
+    没法标 Hook 也没法挂视觉标注。宁可当场报错。
+    """
+    bad = tmp_path / "bad.json"
+    _sentences(bad, [{"id": "s001", "text": "有幸有一些博主朋友" * 60, "start_hint": 0.7, "end_hint": 713.0}])
+    with pytest.raises(koubo.KouboError, match="断句失败"):
+        koubo._guard_sentences(bad)
+
+    good = tmp_path / "good.json"
+    _sentences(good, [{"id": f"s{i:03d}", "text": "一句话。", "start_hint": i * 4.0, "end_hint": i * 4.0 + 3.5} for i in range(1, 180)])
+    koubo._guard_sentences(good)  # 不该抛
+
+    empty = tmp_path / "empty.json"
+    _sentences(empty, [])
+    with pytest.raises(koubo.KouboError, match="断句结果是空的"):
+        koubo._guard_sentences(empty)
+
+    missing = tmp_path / "没有这个.json"
+    koubo._guard_sentences(missing)  # 读不到就别拦，真正的错误在别处报
+
+
+def test_the_punctuation_prompt_is_actually_punctuated() -> None:
+    """prompt 本身没有标点的话，模型照着学的就是没标点。"""
+    assert sum(koubo.PUNCTUATION_PROMPT.count(c) for c in "。，！？：") >= 4

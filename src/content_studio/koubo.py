@@ -23,6 +23,12 @@ SKILL_ENV = "CONTENT_STUDIO_KOUBO_SKILL"
 DEFAULT_SKILL = Path("~/.agents/skills/ask-park-video")
 WHISPER_MODEL_ENV = "CONTENT_STUDIO_WHISPER_MODEL"
 DEFAULT_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
+# whisper 转中文默认不给标点，706 条字幕一个标点都没有。而 build_worktable 是靠标点断句的——
+# 没标点整篇 12 分钟会变成「一个句子」，那张表就成了一整坨，没法标 Hook 也没法挂视觉标注。
+# 给一段带标点的示例当 initial_prompt，它就会照着断。
+PUNCTUATION_PROMPT = "以下是普通话的口播内容，请使用正确的标点符号断句。比如：这件事我是刚想明白的，我也不是非常确定。"
+# 一句话平均超过这么多秒，基本可以断定标点没出来。
+MAX_SECONDS_PER_SENTENCE = 25
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
 # 成片和它的只读备份放一起时，优先挑大的：粗剪通常比备份长、比备份大。
 SKIP_DIRS = {"part-a-hook", "part-b-body", "final", "renders", "tmp", "node_modules", "subtitles"}
@@ -84,13 +90,15 @@ def transcribe(video: Path, base: Path, *, model: str | None = None) -> Path:
     out = base / "subtitles"
     out.mkdir(parents=True, exist_ok=True)
     result = mlx_whisper.transcribe(
-        str(video), path_or_hf_repo=model or os.environ.get(WHISPER_MODEL_ENV) or DEFAULT_WHISPER_MODEL, language="zh", verbose=None
+        str(video), path_or_hf_repo=model or os.environ.get(WHISPER_MODEL_ENV) or DEFAULT_WHISPER_MODEL,
+        language="zh", verbose=None, initial_prompt=PUNCTUATION_PROMPT,
     )
-    get_writer("srt", str(out))(result, str(video), {"max_line_width": None, "max_line_count": None, "highlight_words": False})
-    written = out / f"{video.stem}.srt"
+    # writer 的第二个参数是**文件名**，不是路径：它做的是 Path(output_dir) / output_name。
+    # 传绝对路径的话绝对路径会直接盖掉 output_dir，字幕就落到视频旁边去了。
+    get_writer("srt", str(out))(result, "source", {"max_line_width": None, "max_line_count": None, "highlight_words": False})
     target = out / "source.srt"
-    if written != target:
-        written.replace(target)
+    if not target.is_file():
+        raise KouboError(f"转写跑完了但没找到字幕文件：{target}")
     return target
 
 
@@ -110,7 +118,30 @@ def build_worktable(base: Path, *, srt: Path, skill: Path | None = None, python:
         done = subprocess.run(args, capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
             raise KouboError(f"生成工作台失败：{(done.stderr or done.stdout).strip()[:300]}")
+    _guard_sentences(sentences)
     return out
+
+
+def _guard_sentences(path: Path) -> None:
+    """断句失败要当场说出来，不能交一张一整坨的表出去。
+
+    这是真发生过的：whisper 不给标点，12 分钟切成 1 个句子，表看起来生成成功了，
+    打开才发现没法标。
+    """
+    import json
+
+    try:
+        rows = (json.loads(path.read_text(encoding="utf-8")).get("transcript")) or []
+    except (OSError, ValueError):
+        return
+    if not rows:
+        raise KouboError("断句结果是空的，字幕可能有问题")
+    span = max((r.get("end_hint") or 0) for r in rows)
+    if span and span / len(rows) > MAX_SECONDS_PER_SENTENCE:
+        raise KouboError(
+            f"断句失败：{span / 60:.0f} 分钟只切出 {len(rows)} 句，字幕多半没有标点。"
+            "删掉 subtitles/source.srt 重新转写，或者自己放一份带标点的 SRT 进去。"
+        )
 
 
 # 把「保存到项目」挂到那张表上。只依赖模板里的全局 payload()——它变了就退回原来的
