@@ -93,3 +93,51 @@ def test_the_save_button_is_appended_not_woven_in(tmp_path: Path) -> None:
     assert "X-Content-Studio" in html
     with pytest.raises(koubo.KouboError, match="还没有生成工作台"):
         koubo.worktable_html(tmp_path / "别的", save_url="/x")
+
+
+def test_latest_export_is_the_newest_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """剪映不往项目目录里导，文件名还全是日期。Park：「就拿最新的就好了，命名用来校对。」"""
+    import os
+
+    root = tmp_path / "剪映导出"
+    root.mkdir()
+    for name, age in (("9月7日.mp4", 300), ("9月22日.mp4", 10), ("9月17日(2).mp4", 100)):
+        f = root / name
+        f.write_bytes(b"x" * 1_048_576)
+        os.utime(f, (0, 1_700_000_000 - age))
+    # 带字幕导出时剪映建一个同名文件夹，mp4 和 srt 放在里面。
+    folder = root / "8月19日"
+    folder.mkdir()
+    (folder / "8月19日.mp4").write_bytes(b"x" * 2_097_152)
+    (folder / "8月19日.srt").write_text("1\n", encoding="utf-8")
+    os.utime(folder / "8月19日.mp4", (0, 1_700_000_000 - 500))
+
+    latest = koubo.latest_export(root)
+    assert latest["name"] == "9月22日.mp4" and latest["mb"] == 1.0 and latest["srt"] is None
+    assert koubo.latest_export(tmp_path / "没有这个目录") is None
+
+    rows = koubo.recent_exports(root, durations=False)
+    assert [r["name"] for r in rows] == ["9月22日.mp4", "9月17日(2).mp4", "9月7日.mp4", "8月19日.mp4"]
+    assert rows[-1]["srt"] == "8月19日.srt" and rows[-1]["folder"] == "8月19日"
+
+
+def test_adopting_keeps_the_date_so_it_stays_traceable(tmp_path: Path) -> None:
+    """项目里躺一个叫「粗剪.mp4」的东西，回头对不上是哪一次导的。"""
+    root = tmp_path / "剪映导出"
+    folder = root / "9月22日"
+    folder.mkdir(parents=True)
+    video = folder / "9月22日.mp4"
+    video.write_bytes(b"x" * 1024)
+    srt = folder / "9月22日.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n你好。\n", encoding="utf-8")
+
+    base = tmp_path / "项目"
+    out = koubo.adopt(video, base, srt=srt)
+    assert out == {"video": "粗剪-9月22日.mp4", "srt": "subtitles/source.srt"}
+    assert (base / "粗剪-9月22日.mp4").read_bytes() == b"x" * 1024
+    assert (base / "subtitles" / "source.srt").is_file()
+    assert koubo.find_video(base).name == "粗剪-9月22日.mp4"
+    assert koubo.find_srt(base) == base / "subtitles" / "source.srt"
+
+    with pytest.raises(koubo.KouboError, match="找不到这个文件"):
+        koubo.adopt(root / "不存在.mp4", base)
