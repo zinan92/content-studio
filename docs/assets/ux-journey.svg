@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" font-family="-apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a8f98"/></marker>
+    <marker id="arrLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f8a5b"/></marker>
+  </defs>
+  <rect width="1280" height="560" fill="#f7f7f5"/>
+  <text x="40" y="44" font-size="22" font-weight="700" fill="#161616">一个人的一天 · 内容工作台 UX Journey</text>
+  <text x="40" y="70" font-size="13" fill="#6b7078">四段一条线。每一段只回答一个问题；Anna 贯穿全程，只动嘴不动手；已发出的结论回流到下一条的骨架。</text>
+
+  <!-- 01 进项 -->
+  <g transform="translate(40,110)">
+    <rect width="270" height="250" rx="14" fill="#fff" stroke="#e3e5e8"/>
+    <rect x="0" y="0" width="270" height="6" rx="3" fill="#3b5bdb"/>
+    <text x="20" y="40" font-size="12" font-weight="700" fill="#3b5bdb" letter-spacing="1">01 · 进项</text>
+    <text x="20" y="66" font-size="18" font-weight="700" fill="#161616">进来了什么？</text>
+    <text x="20" y="96" font-size="12.5" fill="#3a3f47">Obsidian 只读：日报 · 剪藏 · 收藏 · 我写的</text>
+    <text x="20" y="118" font-size="12.5" fill="#3a3f47">对标爆款按倍数排在最前</text>
+    <text x="20" y="150" font-size="12" fill="#6b7078">你做的事</text>
+    <text x="20" y="172" font-size="13" fill="#161616">拿来做 / 拍过了 / 忽略</text>
+    <text x="20" y="206" font-size="12" fill="#6b7078">机器做的事</text>
+    <text x="20" y="228" font-size="13" fill="#161616">标出已做成视频的笔记；不自动入池</text>
+  </g>
+
+  <!-- 02 加工中 -->
+  <g transform="translate(350,110)">
+    <rect width="270" height="250" rx="14" fill="#fff" stroke="#e3e5e8"/>
+    <rect x="0" y="0" width="270" height="6" rx="3" fill="#d9480f"/>
+    <text x="20" y="40" font-size="12" font-weight="700" fill="#d9480f" letter-spacing="1">02 · 加工中</text>
+    <text x="20" y="66" font-size="18" font-weight="700" fill="#161616">今天做哪一条？</text>
+    <text x="20" y="96" font-size="12.5" fill="#3a3f47">任何时候只做一条：选题 → 骨架 → 录制</text>
+    <text x="20" y="118" font-size="12.5" fill="#3a3f47">→ 剪辑（14 步，3 个审批门）→ 待发</text>
+    <text x="20" y="150" font-size="12" fill="#6b7078">你做的事</text>
+    <text x="20" y="172" font-size="13" fill="#161616">挑开头、录、批准 H1/H2/H3</text>
+    <text x="20" y="206" font-size="12" fill="#6b7078">机器做的事</text>
+    <text x="20" y="228" font-size="13" fill="#161616">写骨架、三点评分、代跑剪辑到下一门</text>
+  </g>
+
+  <!-- 03 发布 -->
+  <g transform="translate(660,110)">
+    <rect width="270" height="250" rx="14" fill="#fff" stroke="#e3e5e8"/>
+    <rect x="0" y="0" width="270" height="6" rx="3" fill="#6741d9"/>
+    <text x="20" y="40" font-size="12" font-weight="700" fill="#6741d9" letter-spacing="1">03 · 发布</text>
+    <text x="20" y="66" font-size="18" font-weight="700" fill="#161616">这一条发到哪？</text>
+    <text x="20" y="96" font-size="12.5" fill="#3a3f47">9 个平台各一张上传页的缩影</text>
+    <text x="20" y="118" font-size="12.5" fill="#3a3f47">灰 = 没发，彩 = 发了，闪 = 正在发</text>
+    <text x="20" y="150" font-size="12" fill="#6b7078">你做的事</text>
+    <text x="20" y="172" font-size="13" fill="#161616">复制去粘贴 / 确认机器代发 / 记一笔</text>
+    <text x="20" y="206" font-size="12" fill="#6b7078">机器做的事</text>
+    <text x="20" y="228" font-size="13" fill="#161616">裁各平台文案；真探测通道状态</text>
+  </g>
+
+  <!-- 04 已发出 -->
+  <g transform="translate(970,110)">
+    <rect width="270" height="250" rx="14" fill="#fff" stroke="#e3e5e8"/>
+    <rect x="0" y="0" width="270" height="6" rx="3" fill="#1f8a5b"/>
+    <text x="20" y="40" font-size="12" font-weight="700" fill="#1f8a5b" letter-spacing="1">04 · 已发出</text>
+    <text x="20" y="66" font-size="18" font-weight="700" fill="#161616">这一周怎么样？</text>
+    <text x="20" y="96" font-size="12.5" fill="#3a3f47">触达是第一个数；倍数 = 点赞 ÷ 自己中位数</text>
+    <text x="20" y="118" font-size="12.5" fill="#3a3f47">对标雷达 · 拆解报告 · 每周复盘</text>
+    <text x="20" y="150" font-size="12" fill="#6b7078">你做的事</text>
+    <text x="20" y="172" font-size="13" fill="#161616">读报告，定下周只改的一件事</text>
+    <text x="20" y="206" font-size="12" fill="#6b7078">机器做的事</text>
+    <text x="20" y="228" font-size="13" fill="#161616">每天同步、爆款自动拆解、算全部数字</text>
+  </g>
+
+  <!-- arrows between stages -->
+  <line x1="312" y1="235" x2="346" y2="235" stroke="#8a8f98" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="622" y1="235" x2="656" y2="235" stroke="#8a8f98" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="932" y1="235" x2="966" y2="235" stroke="#8a8f98" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- feedback loop -->
+  <path d="M1105,362 C1105,420 640,420 485,420 C400,420 400,392 485,362" fill="none" stroke="#1f8a5b" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrLoop)"/>
+  <rect x="560" y="404" width="300" height="30" rx="15" fill="#e6f4ec" stroke="#1f8a5b"/>
+  <text x="710" y="424" font-size="12.5" text-anchor="middle" fill="#1f5a3d">复盘的「下周只改一件事」直接写进下一条的骨架</text>
+
+  <!-- Anna spine -->
+  <rect x="40" y="470" width="1200" height="60" rx="14" fill="#161616"/>
+  <circle cx="72" cy="500" r="6" fill="#4ade80"/>
+  <text x="90" y="495" font-size="14" font-weight="700" fill="#fff">Anna · 内容主编（悬浮窗，跟着你在哪一页）</text>
+  <text x="90" y="516" font-size="12" fill="#c3c7cf">她看得见当前页的素材、评分、进度和数据；角色和原则是你笔记库里的 Markdown。她只动嘴：建议变成按钮，你点了才执行。</text>
+</svg>
