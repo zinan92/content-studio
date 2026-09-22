@@ -115,6 +115,30 @@ python3 -m content_studio serve
 - 抖音功能需要浏览器登录抖音网页版与创作者中心后，把 cookies 导出到 `~/.config/content-studio/douyin-cookies.json`（权限 `600`）。
 - 拆解和写文章调用本机已登录的 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI；写文章需要安装 [khazix-writer](https://github.com/KKKKhazix/khazix-skills) skill。
 
+## 拿去用
+
+这个仓库是 Park 自己在用的，main 分支随时在变。想用它，**fork 到你自己的账号**，在 fork 里改：
+
+```bash
+gh repo fork zinan92/content-studio --clone      # 或在网页上点 Fork 再 clone
+cd content-studio
+python3 -m pip install -e .
+cp profile.example.yaml profile.yaml             # 按 [必填] / [可选] 填成你的
+python3 -m content_studio check
+python3 -m content_studio serve
+```
+
+装完先做这三件事，不然它还是照 Park 的习惯在判断：
+
+1. `profile.yaml` 里 `me` / `vault` / `benchmarks` 换成你的
+2. 把 `src/content_studio/examples/anna/` 里的两个文件复制到你的笔记库，按你的账号改，`anna.role` / `anna.workflows` 指过去
+3. 设置页里改爆款门槛（默认 5×，按你账号的点赞中位数调）
+
+想要后续更新：fork 里 `git pull https://github.com/zinan92/content-studio.git main`。
+改出了通用的东西想合回来：开 PR。直接给这个仓库推代码是不行的，也不需要——你的 fork 就是你的。
+
+给 Agent 的一句话：`fork zinan92/content-studio，clone 到本地，读 README「拿去用」和「适合谁」，按 profile.example.yaml 让我填必填项，然后 check → serve。不要往 zinan92 的仓库推。`
+
 ## 功能一览
 
 | 功能 | 说明 | 状态 |
