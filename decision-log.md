@@ -696,3 +696,4 @@
 - **为什么**：一个 Agent 照 README 装，会依次卡在 license、私有手册、空 Anna 三处，每处都是一行改动但都是死路。
 - **怎么验证**：`tests/test_productize.py` 7 条；在临时 venv + 空 `CONTENT_STUDIO_HOME` 下 clone 分支跑 `check` / `serve` / `/api/state`，看不到 Park 的任何数据。
 - **踩了什么坑**：冒烟测试时在临时目录 `pip install -e .`，把全局的 editable 安装指到了临时副本，之后跑的测试其实测的是旧代码。以后冒烟一律用 venv。
+  合并后 Park 的实例起不来：`web.py` 用了 `os` 没 import，256 个测试没一个给过带 `anna:` 的 profile，冒烟用的空模板又把那个分支短路了。补了 `test_profile_anna_paths_reach_the_env`。教训：新加的配置项，测试至少要给一次**填了值**的。

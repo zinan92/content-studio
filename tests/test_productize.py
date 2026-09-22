@@ -63,3 +63,17 @@ def test_profile_check_knows_anna_keys(tmp_path):
 def test_example_profile_lists_anna_section():
     text = profile.EXAMPLE_PATH.read_text(encoding="utf-8")
     assert "anna:" in text and "  role:" in text and "  workflows:" in text
+
+
+def test_profile_anna_paths_reach_the_env(monkeypatch, tmp_path):
+    """2026-09-22：上线后 serve 直接崩——web.py 用了 os 没 import，而测试里从没给过带 anna 的 profile。"""
+    from content_studio.web import _apply_profile
+    from content_studio.store import StudioStore
+
+    monkeypatch.delenv(anna.ANNA_ROLE_ENV, raising=False)
+    monkeypatch.delenv(outline.WORKFLOWS_ENV, raising=False)
+    role = tmp_path / "Anna.md"
+    role.write_text("# Anna", encoding="utf-8")
+    _apply_profile(StudioStore(tmp_path / "s.sqlite3"), {"anna": {"role": str(role), "workflows": str(tmp_path)}})
+    assert __import__("os").environ[anna.ANNA_ROLE_ENV] == str(role)
+    assert __import__("os").environ[outline.WORKFLOWS_ENV] == str(tmp_path)
