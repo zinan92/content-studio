@@ -648,3 +648,13 @@
 - **守卫的顺序也错了:** 原来是先出 HTML 再验断句，守卫拦下来的时候，一张没法用的表已经在盘上了。改成 map → 验 → 出 HTML。
 - **Evidence:** 240 个测试通过（新增 3 个：SRT 拆文本、补标点不许改字、没法用的表不许留在盘上）。
 - **Gotchas:** 给转写模型加 prompt 去解决下游的格式问题，是在错误的地方使劲。**转写只负责转对，格式化是下一道工序**——而且这条流水线原本就为这道工序留了入口，我一开始没看见。
+
+## 2026-09-22 — 补 project.json：标完 Hook 之后原来没有路通向动效
+
+- **Context:** Park 在工作台里标完（其实是跳过）Hook、存回项目，然后问：「我怎么开始让它做动效呢？就没有 button 能让我走到下一步吧。」确实没有。
+- **查下来不是缺按钮，是缺一个文件。** 「开始跑」那颗按钮一直都在（`workflow_runner`，后台跑 14 步、停在审批门），但 `start_run` 会拒：`这是旧版目录，没有 project.json，不能按 14 步继续`。工作台建项目时只写了 README 和拍摄提纲，没写 `project.json`——于是 `inspect()` 判成 legacy，进度算不出来，run 也起不来。
+- **没有自己去生成 visual-plan.json:** 想过在工作台里直接做动效规格，看了合同就放弃了——每个镜头要 gallery 卡片哈希、demo 源码哈希、provenance、cue points、数值语义契约，还有 `workflow_guard check --gate visual-spec` 机器校验。**自己拼一份大概率过不了那道闸，而且是静默过不了。** 正确做法是把门打开，让本来就懂这套合同的 agent 去做。
+- **四个 preset 的 id 从 skill 目录里读，不写死。** `caption_style` 和 `caption_layout` 同在 `presets/captions/` 下，靠文件名里有没有 `layout` 区分。
+- **已经有 project.json 就不覆盖**——里面可能已经记了审批和证据。
+- **Evidence:** 241 个测试通过（新增 1 个：preset 解析、写出来的结构、重复初始化要拒绝、缺 preset 要指名道姓）。
+- **没解决的:** 「跳过 Hook」在 14 步合同里**没法表达**。Step 5/7/8/9 的判据全是文件存在性（`part-a-hook/individual/`、`edit.json`、`video.mp4`），不看 `step_status` 里的 `skipped`；只有 Step 11 认 skipped。所以真跳过 Hook 的话，进度会一直停在 Step 5。这是 skill 那边的合同，不在工作台这边改。

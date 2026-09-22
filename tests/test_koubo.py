@@ -222,3 +222,36 @@ def test_a_useless_worktable_is_never_left_on_disk(tmp_path: Path) -> None:
     with pytest.raises(koubo.KouboError, match="断句失败"):
         koubo.build_worktable(base, srt=srt, skill=tmp_path / "skill")
     assert not (base / "analysis" / "worktable.html").exists()
+
+
+def test_project_json_unblocks_the_fourteen_steps(tmp_path: Path) -> None:
+    """没有 project.json，工作台按「旧版目录」识别：进度算不出来，「开始跑」被拒，
+    于是标完 Hook 之后没有任何一条路通向动效。"""
+    skill = tmp_path / "skill"
+    for folder, names in (("media", ["park-talking-head-4x3-v1"]), ("audio", ["park-voice-v1"]),
+                          ("captions", ["park-caption-4x3-v1", "park-caption-layout-v1"])):
+        (skill / "presets" / folder).mkdir(parents=True)
+        for n in names:
+            (skill / "presets" / folder / f"{n}.json").write_text("{}", encoding="utf-8")
+
+    # caption_style 和 caption_layout 同在 captions/ 下，靠名字里的 layout 区分。
+    assert koubo.default_presets(skill) == {
+        "media": "park-talking-head-4x3-v1", "audio": "park-voice-v1",
+        "caption_style": "park-caption-4x3-v1", "caption_layout": "park-caption-layout-v1",
+    }
+
+    base = tmp_path / "项目"
+    base.mkdir()
+    data = koubo.init_project(base, skill=skill)
+    written = json.loads((base / "project.json").read_text(encoding="utf-8"))
+    assert written == data and written["current_step"] == 1
+    assert written["approvals"] == {"hook": None, "visual_spec": None, "final": None}
+    assert written["presets"]["caption_layout"] == "park-caption-layout-v1"
+
+    # 已经有了就不动——里面可能已经记了审批和证据。
+    with pytest.raises(koubo.KouboError, match="不覆盖"):
+        koubo.init_project(base, skill=skill)
+
+    (skill / "presets" / "audio" / "park-voice-v1.json").unlink()
+    with pytest.raises(koubo.KouboError, match="没有可用的 audio preset"):
+        koubo.default_presets(skill)

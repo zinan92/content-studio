@@ -321,3 +321,46 @@ def _clone(src: Path, dst: Path) -> None:
     if done.returncode != 0:
         # 不同卷、或者不是 APFS：clone 不成就老老实实拷。
         shutil.copy2(src, dst)
+
+
+# -- Step 1：project.json ---------------------------------------------------
+# 没有它，工作台按「旧版目录」识别：14 步进度算不出来，「开始跑」也会被拒，
+# 于是标完 Hook 之后没有任何一条路通向动效。四个 preset 的 id 从 skill 目录里读，
+# 不写死——skill 换了默认值，这里跟着变。
+
+PRESET_KINDS = (("media", "media"), ("audio", "audio"), ("caption_style", "captions"), ("caption_layout", "captions"))
+
+
+def default_presets(skill: Path | None = None) -> dict[str, str]:
+    root = (skill or skill_dir()) / "presets"
+    out: dict[str, str] = {}
+    for key, folder in PRESET_KINDS:
+        files = sorted((root / folder).glob("*.json")) if (root / folder).is_dir() else []
+        # caption_style 和 caption_layout 同在 captions/ 下，靠名字里的 layout 区分。
+        wanted = [f for f in files if ("layout" in f.stem) == (key == "caption_layout")] if folder == "captions" else files
+        if not wanted:
+            raise KouboError(f"skill 的 presets/{folder} 里没有可用的 {key} preset")
+        out[key] = wanted[0].stem
+    return out
+
+
+def init_project(base: Path, *, skill: Path | None = None) -> dict[str, Any]:
+    """写一份 project.json，让这个目录能按 14 步跑。已经有了就不动它。"""
+    import json
+
+    path = base / "project.json"
+    if path.is_file():
+        raise KouboError("project.json 已经有了，不覆盖")
+    data = {
+        "schema_version": "ask-park-video/project/v1",
+        "workflow": "ask-park-video/v1",
+        "current_step": 1,
+        "current_gate": None,
+        "presets": default_presets(skill),
+        "step_status": {},
+        "approvals": {"hook": None, "visual_spec": None, "final": None},
+        "evidence": {},
+        "blocked_reason": None,
+    }
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return data
