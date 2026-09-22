@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,8 @@ import shutil
 import subprocess
 from typing import Any
 
+EXPORTS_ENV = "CONTENT_STUDIO_JIANYING_EXPORTS"
+EXPORTS_DIRNAME = "剪映导出"
 SKILL_ENV = "CONTENT_STUDIO_KOUBO_SKILL"
 DEFAULT_SKILL = Path("~/.agents/skills/ask-park-video")
 WHISPER_MODEL_ENV = "CONTENT_STUDIO_WHISPER_MODEL"
@@ -151,3 +154,96 @@ def worktable_html(base: Path, *, save_url: str) -> str:
     import json
 
     return path.read_text(encoding="utf-8") + SAVE_SCRIPT % {"url": json.dumps(save_url)}
+
+
+# -- 剪映导出 ---------------------------------------------------------------
+# 剪映不往项目目录里导，它导到自己那个文件夹，而且文件名全是日期（「9月22日.mp4」、
+# 「9月17日(2).mp4」）。所以不能靠名字认，得把时长和大小摆出来让人挑。
+# 带字幕导出时它会建一个同名文件夹，mp4 和 srt 放在里面。
+
+
+def exports_root(video_root: Path) -> Path:
+    """默认是项目目录的兄弟：视频/exports 旁边的 视频/剪映导出。"""
+    raw = os.environ.get(EXPORTS_ENV)
+    return Path(raw).expanduser() if raw else video_root.parent / EXPORTS_DIRNAME
+
+
+def _duration(path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        done = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=20,
+        )
+        return round(float(done.stdout.strip()), 1) if done.returncode == 0 and done.stdout.strip() else None
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return None
+
+
+def latest_export(root: Path) -> dict[str, Any] | None:
+    """剪映导出里最新的那一条。
+
+    Park：「就拿最新的就好了，命名用来校对。」——文件名全是日期（9月22日.mp4），
+    认不出内容，所以名字和时长是给他核对用的，不是给他挑的。
+    """
+    rows = recent_exports(root, limit=1)
+    return rows[0] if rows else None
+
+
+def recent_exports(root: Path, *, limit: int = 8, durations: bool = True) -> list[dict[str, Any]]:
+    """剪映导出里最近的几条，新的在前。带字幕的会标出来。"""
+    if not root.is_dir():
+        return []
+    found: list[tuple[Path, Path | None]] = []
+    for item in root.iterdir():
+        if item.name.startswith("."):
+            continue
+        if item.is_file() and item.suffix.lower() in VIDEO_SUFFIXES:
+            found.append((item, None))
+        elif item.is_dir():
+            videos = [p for p in item.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES]
+            srts = [p for p in item.iterdir() if p.is_file() and p.suffix.lower() == ".srt"]
+            if videos:
+                found.append((max(videos, key=lambda p: p.stat().st_size), srts[0] if srts else None))
+    found.sort(key=lambda pair: pair[0].stat().st_mtime, reverse=True)
+    rows = []
+    for video, srt in found[:limit]:
+        stat = video.stat()
+        rows.append({
+            "path": str(video),
+            "name": video.name,
+            "folder": video.parent.name if video.parent != root else None,
+            "mb": round(stat.st_size / 1_048_576, 1),
+            "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(timespec="minutes"),
+            "seconds": _duration(video) if durations else None,
+            "srt": srt.name if srt else None,
+        })
+    return rows
+
+
+def adopt(video: Path, base: Path, *, srt: Path | None = None) -> dict[str, Any]:
+    """把选中的导出拷进项目目录。
+
+    同一块 APFS 盘上 `cp -c` 是 clone，秒级、不占额外空间。保留日期后缀，
+    否则项目里躺着一个叫「粗剪.mp4」的东西，回头对不上是哪一次导的。
+    """
+    if not video.is_file():
+        raise KouboError(f"找不到这个文件：{video}")
+    base.mkdir(parents=True, exist_ok=True)
+    target = base / f"粗剪-{video.stem}{video.suffix}"
+    _clone(video, target)
+    out: dict[str, Any] = {"video": target.name}
+    if srt and srt.is_file():
+        (base / "subtitles").mkdir(exist_ok=True)
+        _clone(srt, base / "subtitles" / "source.srt")
+        out["srt"] = "subtitles/source.srt"
+    return out
+
+
+def _clone(src: Path, dst: Path) -> None:
+    done = subprocess.run(["cp", "-c", str(src), str(dst)], capture_output=True, text=True, timeout=600)
+    if done.returncode != 0:
+        # 不同卷、或者不是 APFS：clone 不成就老老实实拷。
+        shutil.copy2(src, dst)
