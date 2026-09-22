@@ -41,8 +41,12 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 |---|---|
 | ![进项](docs/screenshots/01-input.jpg) | ![进项 · Anna 在旁边](docs/screenshots/01-input-anna.jpg) |
 | 左边是最近进来的笔记，对标爆款带倍数排最前；右边直接读原文。值得做的点「入选题池」。 | 问 Anna「今天有什么值得拿来做的」，她按三点判断给结论，建议变成按钮。 |
-| ![进项 · 深色](docs/screenshots/01-input-dark.jpg) | ![进项 · 整页](docs/screenshots/01-input-full.jpg) |
-| 深色。 | 按来源分页签：AI 日报 / 财经日报 / K 线日报 / 对标 / 我写的 / 我收藏的 / Clippings。 |
+| ![进项 · 深色](docs/screenshots/01-input-dark.jpg) | |
+| 深色。 | |
+
+<details><summary>整页：按来源分页签（AI 日报 / 财经日报 / K 线日报 / 对标 / 我写的 / 我收藏的 / Clippings）</summary>
+<p align="center"><img src="docs/screenshots/01-input-full.jpg" width="900"></p>
+</details>
 
 ### 02 · 加工中——今天做哪一条
 
@@ -58,15 +62,25 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 | 口播 workflow 14 步 / 5 阶段 / 3 个审批门，按项目目录里的产物判断走到哪；「让机器跑到下一个审批门」在这台 Mac 后台代跑。 | 视频录完，同一条素材可选做成文章：交给 khazix-writer，作者是你。 |
 | ![Anna 看着这条视频](docs/screenshots/02-video-anna.jpg) | ![加工中 · 深色](docs/screenshots/02-video-dark.jpg) |
 | 「我录完了，下一步该做什么」——Anna 看得见这条的骨架、评分和剪辑进度，回答是具体的下一步。 | 深色。 |
+| ![加工中 · Anna](docs/screenshots/02-board-anna.jpg) | |
+| 在看板上问「整体什么情况，一句话」。 | |
+
+<details><summary>整页：一份完整的一勾式骨架（8 条开头候选 · 5 个论点带证据 · 一句结尾）</summary>
+<p align="center"><img src="docs/screenshots/02-video-outline-full.jpg" width="900"></p>
+</details>
 
 ### 03 · 发布——这一条发到哪
 
 | | |
 |---|---|
-| ![发布台](docs/screenshots/03-publish.jpg) | ![发布台 · 整页](docs/screenshots/03-publish-full.jpg) |
-| 9 个平台各一张它自己上传页的缩影：灰的没发，彩的发了。手动的复制文案去粘贴，能机器发的扫码后代发，公众号交给既有管线。 | 平台状态五种而不是两种：「平台限制了」≠「没连上」，「凭据就绪」≠「通道已连」。一个永远亮不起来的灯就是骗人。 |
-| ![还没有能发的成片](docs/screenshots/03-publish-empty.jpg) | ![发布台 · 深色](docs/screenshots/03-publish-dark.jpg) |
-| 成片没出来时它告诉你在等什么，而不是给你一排灰按钮。 | 深色。 |
+| ![发布台](docs/screenshots/03-publish.jpg) | ![还没有能发的成片](docs/screenshots/03-publish-empty.jpg) |
+| 9 个平台各一张它自己上传页的缩影：灰的没发，彩的发了。手动的复制文案去粘贴，能机器发的扫码后代发，公众号交给既有管线。 | 成片没出来时它告诉你在等什么，而不是给你一排灰按钮。 |
+| ![发布台 · 深色](docs/screenshots/03-publish-dark.jpg) | |
+| 平台状态五种而不是两种：「平台限制了」≠「没连上」，「凭据就绪」≠「通道已连」。一个永远亮不起来的灯就是骗人。 | |
+
+<details><summary>整页：九个平台</summary>
+<p align="center"><img src="docs/screenshots/03-publish-full.jpg" width="900"></p>
+</details>
 
 ### 04 · 已发出——这一周怎么样
 
@@ -76,10 +90,21 @@ fail 模型输出不合格          → 带错误重试，仍失败则保留原�
 | 触达是第一个数。每个数字旁边的「?」说明它怎么算的；倍数图用账号自己的中位数做基准。 | 2 秒跳出、平均观看秒数、每条涨粉、收藏/赞——然后「复盘这一周」：定下周只改的一件事。 |
 | ![全部作品](docs/screenshots/04-mine.jpg) | ![对标雷达](docs/screenshots/04-radar.jpg) |
 | 时长 × 播放散点，金色 = 超过自己中位数 3 倍；下面是每条的完播、跳出、均看、倍数。 | 每个对标账号一张卡：作品折线 + 爆款打点，各用它自己的中位数。门槛拖一下，全页跟着变。 |
-| ![拆解报告](docs/screenshots/04-report.jpg) | ![拆解报告 · 整页](docs/screenshots/04-report-full.jpg) |
-| 一条爆款为什么爆：模型通读转写判断主线 / 分段 / 跑题，代码算数字，每个结论回查原文时间点。 | 主线结构时间轴（钩子 / 承诺 / 案例 / 论点 / 引导，斜纹 = 不服务主线）、为什么爆、为什么散、语速节奏。底部一行提醒：这些是待验证假设，不是爆款判定规则。 |
+| ![拆解报告](docs/screenshots/04-report.jpg) | ![Anna 看着数据](docs/screenshots/04-output-anna.jpg) |
+| 一条爆款为什么爆：模型通读转写判断主线 / 分段 / 跑题，代码算数字，每个结论回查原文时间点。 | Anna 在「已发出」看得见近 90 天数据和复盘。 |
 | ![概览 · 深色](docs/screenshots/04-output-dark.jpg) | ![拆解报告 · 深色](docs/screenshots/04-report-dark.jpg) |
 | 深色。 | 深色。 |
+
+<details><summary>整页：一份完整的拆解报告（主线结构时间轴 · 为什么爆 · 为什么散 · 语速节奏）</summary>
+<p align="center"><img src="docs/screenshots/04-report-full.jpg" width="900"></p>
+<p align="center"><sub>钩子 / 承诺 / 案例 / 论点 / 引导，斜纹 = 不服务主线。底部一行提醒：这些是待验证假设，不是爆款判定规则。</sub></p>
+</details>
+
+<details><summary>整页：概览 · 全部作品 · 对标雷达</summary>
+<p align="center"><img src="docs/screenshots/04-output-full.jpg" width="900"></p>
+<p align="center"><img src="docs/screenshots/04-mine-full.jpg" width="900"></p>
+<p align="center"><img src="docs/screenshots/04-radar-full.jpg" width="900"></p>
+</details>
 
 全部截图（含更多整页与深色版本）在 [`docs/screenshots/`](docs/screenshots/)。
 
