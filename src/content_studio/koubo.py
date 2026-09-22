@@ -364,3 +364,26 @@ def init_project(base: Path, *, skill: Path | None = None) -> dict[str, Any]:
     }
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return data
+
+
+HOOK_STEPS = (5, 7, 8, 9)
+
+
+def skip_hook(base: Path) -> list[int]:
+    """把 Hook 那四步记成 skipped。
+
+    Hook 存在的唯一理由是补救一个不够抓人的开头。骨架已经给了暴论候选，录的时候
+    第一句就说它，这四步就不必做——但合同里得写下来，否则进度永远停在 Step 5。
+    """
+    import json
+
+    path = base / "project.json"
+    if not path.is_file():
+        raise KouboError("还没初始化，先写 project.json")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    status = data.setdefault("step_status", {})
+    for n in HOOK_STEPS:
+        status[str(n)] = "skipped"
+    data.setdefault("approvals", {})["hook"] = "skipped"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return list(HOOK_STEPS)

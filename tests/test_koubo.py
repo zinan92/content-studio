@@ -255,3 +255,20 @@ def test_project_json_unblocks_the_fourteen_steps(tmp_path: Path) -> None:
     (skill / "presets" / "audio" / "park-voice-v1.json").unlink()
     with pytest.raises(koubo.KouboError, match="没有可用的 audio preset"):
         koubo.default_presets(skill)
+
+
+def test_skipping_hook_is_written_into_the_contract(tmp_path: Path) -> None:
+    """Hook 那四步的判据全是文件存在性，不写进 step_status 的话进度永远停在 Step 5。"""
+    base = tmp_path / "项目"
+    base.mkdir()
+    with pytest.raises(koubo.KouboError, match="还没初始化"):
+        koubo.skip_hook(base)
+
+    (base / "project.json").write_text(json.dumps({
+        "presets": {"media": "m"}, "step_status": {"2": "pass"}, "approvals": {"hook": None, "final": None},
+    }, ensure_ascii=False), encoding="utf-8")
+    assert koubo.skip_hook(base) == [5, 7, 8, 9]
+    data = json.loads((base / "project.json").read_text(encoding="utf-8"))
+    assert data["step_status"] == {"2": "pass", "5": "skipped", "7": "skipped", "8": "skipped", "9": "skipped"}
+    assert data["approvals"]["hook"] == "skipped" and data["approvals"]["final"] is None
+    assert data["presets"] == {"media": "m"}  # 别的字段一个不动

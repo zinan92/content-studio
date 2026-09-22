@@ -658,3 +658,12 @@
 - **已经有 project.json 就不覆盖**——里面可能已经记了审批和证据。
 - **Evidence:** 241 个测试通过（新增 1 个：preset 解析、写出来的结构、重复初始化要拒绝、缺 preset 要指名道姓）。
 - **没解决的:** 「跳过 Hook」在 14 步合同里**没法表达**。Step 5/7/8/9 的判据全是文件存在性（`part-a-hook/individual/`、`edit.json`、`video.mp4`），不看 `step_status` 里的 `skipped`；只有 Step 11 认 skipped。所以真跳过 Hook 的话，进度会一直停在 Step 5。这是 skill 那边的合同，不在工作台这边改。
+
+## 2026-09-22 — Hook 那四步可以跳过了
+
+- **Context:** Park 在工作台里跳过了 Hook（worktable 的 Hook 槽留空），然后进度卡死在 Step 5。他问 5/7/8/9 是什么——我一直拿编号跟他说话，是我的问题。那四步是：选 Hook / 精确截取 / 拼接加字幕 / 成品 A 加 QA。
+- **根因:** `_step_checks` 里 5/7/8/9 的判据**全是文件存在性**（`analysis/worktable.json` + hook 批准、`part-a-hook/individual/`、`edit.json`、`video.mp4`），只有 Step 11 认 `step_status` 里的 `skipped`。所以「不做 Hook」这件事在合同里根本表达不了，进度只能停在 5。
+- **Decision:** 5/7/8/9 也认 `skipped`，和 Step 11 一致。加一颗「这条不剪 Hook」的按钮，写进 `project.json` 的 `step_status` 和 `approvals.hook`。
+- **为什么这是对的而不是放水:** **Hook 存在的唯一理由，是补救一个不够抓人的开头。** 骨架现在会给 5–10 条反常识暴论候选，录的时候第一句就说它，这四步就没有存在意义了。一勾那条 6.2× 的也没剪 Hook——她是开口就说。
+- **Evidence:** 243 个测试通过（新增 2 个：跳过后进度走到 Step 6、没记跳过时仍然停在 5、证据文案带上「或记录为不做 Hook」）。
+- **Gotchas:** 断言「跳过后 7/8/9 显示为 done」是错的——`steps` 的 `done` 是 `evidence.ok and number < current`，排在当前阻塞点之后的步骤一律不标 done。**验进度推进要看 `current_step`，不是看 done 的集合。**

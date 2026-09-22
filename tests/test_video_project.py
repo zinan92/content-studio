@@ -143,3 +143,42 @@ def test_only_date_named_folders_count_as_projects(tmp_path: Path) -> None:
     assert [p["name"] for p in vp.list_projects(root)] == ["2026-09-20_一条视频"]
     assert vp.is_project_name("2026-09-05_赚不到钱_final") is True
     assert vp.is_project_name("rtmp") is False
+
+
+def test_hook_steps_can_be_skipped(tmp_path: Path) -> None:
+    """Park 跳过 Hook 之后，进度要能走到正文和动效，不能永远停在 Step 5。
+
+    原来 5/7/8/9 只看文件在不在（part-a-hook/…），只有 Step 11 认 skipped。
+    """
+    import json
+
+    from content_studio import video_project
+
+    root = tmp_path / "exports"
+    base = root / "2026-09-22_测试"
+    base.mkdir(parents=True)
+    (base / "project.json").write_text(json.dumps({
+        "schema_version": "ask-park-video/project/v1",
+        "presets": {"media": "m", "audio": "a", "caption_style": "c", "caption_layout": "l"},
+        "step_status": {"2": "pass", "3": "pass", "5": "skipped", "7": "skipped", "8": "skipped", "9": "skipped"},
+        "approvals": {"hook": "skipped"},
+    }, ensure_ascii=False), encoding="utf-8")
+    for rel in ("subtitles/source.srt", "subtitles/transcript.sentences.json", "analysis/worktable.html"):
+        (base / rel).parent.mkdir(parents=True, exist_ok=True)
+        (base / rel).write_text("x", encoding="utf-8")
+
+    info = video_project.inspect(root, base.name)
+    # 这就是修的那个 bug：以前 Step 5 只看 worktable.json + hook 批准，跳过也过不去，
+    # 进度永远停在 5，后面的正文和动效走不到。
+    assert info["current_step"] == 6
+    done = {s["step"]: s["done"] for s in info["steps"]}
+    assert all(done[n] for n in (1, 2, 3, 4, 5)), done
+    # 7/8/9 排在当前阻塞点之后，按原有显示逻辑不标 done——但它们的证据是通过的。
+    assert not any(done[n] for n in (6, 7, 8, 9))
+    assert "或记录为不做 Hook" in next(s["evidence"] for s in info["steps"] if s["step"] == 5)
+
+    # 反过来：没记跳过的话，还是停在 Step 5。
+    raw = json.loads((base / "project.json").read_text(encoding="utf-8"))
+    raw["step_status"] = {"2": "pass", "3": "pass"}
+    (base / "project.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    assert video_project.inspect(root, base.name)["current_step"] == 5
