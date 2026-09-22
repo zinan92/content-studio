@@ -95,6 +95,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--data-dir", type=Path, default=DEFAULT_REPORTS_DIR)
     serve.add_argument("--downloads-dir", type=Path, default=DEFAULT_DOWNLOADS_DIR)
 
+    check_plan = commands.add_parser("check-visual-plan", help="视觉规格的算术检查（在叫评审之前跑）")
+    check_plan.add_argument("project", type=Path, help="口播项目目录")
+    check_plan.add_argument("--shots", type=Path, default=Path("~/.agents/skills/video-shotcraft/references/shots"))
+
     plist = commands.add_parser(
         "write-schedule", help="write (but do not load) a launchd plist for a daily sync"
     )
@@ -324,6 +328,20 @@ def run_pipeline_command(args: argparse.Namespace) -> int:
     return 0 if receipt["status"] == "ok" else 1
 
 
+def run_check_visual_plan(args: argparse.Namespace) -> int:
+    """视觉规格的算术检查。在叫独立评审之前跑——评审只该看判断题。"""
+    from . import visual_check
+
+    base = args.project.expanduser()
+    result = visual_check.run(
+        base / "part-b-body" / "visual-plan.json",
+        shots_root=args.shots.expanduser(),
+        words_path=base / "subtitles" / "words.json",
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["status"] == "pass" else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -339,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             "serve": run_serve,
             "check": run_check,
             "write-schedule": run_write_schedule,
+            "check-visual-plan": run_check_visual_plan,
         }
         if args.command in handlers:
             return handlers[args.command](args)

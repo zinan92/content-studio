@@ -29,6 +29,12 @@ def build_prompt(project_path: Path) -> str:
 
 规则：
 - 按 skill 的 14 步和完成证据，从最早没完成的一步继续，连续执行，直到遇到人工审批门（H1 Hook、H2 视觉规格、H3 终审）、真实阻塞或全部完成就停下。
+- 写完 part-b-body/visual-plan.json 之后，**先跑算术检查再叫独立评审**：
+  `python3 -m content_studio check-visual-plan <项目目录>`（在 ~/work/content-studio 下跑）。
+  它查的是机器能判的：引用的卡片存不存在、镜头钉的那句话真实时间对不对得上
+  （读 subtitles/words.json 的词级时间，不要用 start_hint 插值）、动画时长放不放得下、
+  定量镜头有没有写「渲染后怎么验」。有 findings 就先改完再叫评审——
+  评审只该看判断题（比如这个图会不会被人读成反义）。
 - 这是后台运行，没有人能即时回答问题：需要 Park 决定的事情，把审查产物准备好、写进 process-log.md，然后停下，不要自己替 Park 批准。
 - 不删除、不覆盖原始素材和剪映粗剪；所有新产物只写在这个项目目录里。
 - 结束时用中文输出四行：当前 Step、当前审批门（没有写「无」）、这次完成了什么、下一步需要 Park 做什么。"""
