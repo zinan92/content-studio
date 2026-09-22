@@ -23,21 +23,23 @@ async function renderMedia(topic, box) {
   const busy = (await api(`/api/topics/${topic.id}/video-project/transcribe`).catch(() => ({}))).running;
   VP.media[topic.id] = m;
   if (!m.video) {
-    let ex = { exports: [] };
-    try { ex = await api(`/api/topics/${topic.id}/video-project/exports`); } catch (err) { /* 目录不在就当没有 */ }
-    const mmss = (s) => (s ? `${Math.floor(s / 60)} 分 ${String(Math.round(s % 60)).padStart(2, '0')} 秒` : '—');
-    box.innerHTML = `<div class="vp-media"><span class="muted">项目目录里还没有成片。</span></div>
-      ${ex.exports.length ? `<div class="vp-picks"><small>从剪映导出里挑一条（文件名都是日期，看时长和大小）</small>
-        ${ex.exports.map((e) => `<button class="vp-pick" type="button" data-adopt="${esc(e.path)}">
+    let ex = {};
+    try { ex = await api(`/api/topics/${topic.id}/video-project/latest-export`); } catch (err) { /* 目录不在就当没有 */ }
+    const e = ex.latest;
+    const mmss = (n) => (n ? `${Math.floor(n / 60)} 分 ${String(Math.round(n % 60)).padStart(2, '0')} 秒` : '—');
+    box.innerHTML = e
+      // 名字全是日期，认不出内容，所以摆出时长和大小给他核对一眼。
+      ? `<div class="vp-media"><span class="muted">剪映最新导出的是</span>
           <b>${esc(e.name)}</b><span class="num">${mmss(e.seconds)}</span><span class="num">${e.mb} MB</span>
-          <small>${day(e.modified_at)}</small>${e.srt ? '<span class="pill hot">带字幕</span>' : ''}</button>`).join('')}
-        </div><p class="muted vp-wt-note">选中的会拷进项目目录（同一块盘是秒级，不占额外空间）。</p>`
-        : `<p class="muted vp-wt-note">${esc(ex.root || '剪映导出目录')} 里没找到导出的视频。也可以直接把粗剪放进项目文件夹。</p>`}`;
-    $$('[data-adopt]', box).forEach((b) => (b.onclick = async () => {
+          <small class="muted">${day(e.modified_at)}</small>${e.srt ? '<span class="pill hot">带字幕</span>' : ''}
+          <button class="btn small primary" type="button" data-adopt="${esc(e.path)}">就是它，放进项目</button></div>`
+      : `<div class="vp-media"><span class="muted">项目目录里还没有成片，${esc(ex.root || '剪映导出目录')} 里也没找到。把粗剪放进项目文件夹，回来刷新。</span></div>`;
+    const b = $('[data-adopt]', box);
+    if (b) b.onclick = async () => {
       b.disabled = true;
       try { toast((await api(`/api/topics/${topic.id}/video-project/adopt`, { method: 'POST', body: { path: b.dataset.adopt } })).message); renderMedia(topic, box); }
       catch (err) { toast(err.message); b.disabled = false; }
-    }));
+    };
     return;
   }
   const head = `<span class="pill mid">${esc(m.video.name)} · ${m.video.mb} MB</span>`;

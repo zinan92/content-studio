@@ -1575,28 +1575,6 @@ def create_app(
 
         return koubo.state(_koubo_dir(topic_id))
 
-    @app.get("/api/topics/{topic_id}/video-project/exports")
-    def koubo_exports(topic_id: int) -> dict[str, Any]:
-        """剪映导出里最近的几条。文件名全是日期，所以得把时长和大小摆出来才挑得动。"""
-        from . import koubo
-
-        root = koubo.exports_root(video_root())
-        return {"root": str(root), "exports": koubo.recent_exports(root)}
-
-    @app.post("/api/topics/{topic_id}/video-project/adopt")
-    def koubo_adopt(topic_id: int, body: AdoptBody) -> dict[str, Any]:
-        from . import koubo
-
-        root = koubo.exports_root(video_root()).resolve()
-        chosen = Path(body.path).expanduser().resolve()
-        # 路径是前端传来的，必须确认它真的在剪映导出目录里，别让人拷任意文件进项目。
-        if not chosen.is_relative_to(root):
-            raise ValueError("只能从剪映导出目录里选")
-        srts = [p for p in chosen.parent.iterdir() if p.is_file() and p.suffix.lower() == ".srt"] if chosen.parent != root else []
-        result = koubo.adopt(chosen, _koubo_dir(topic_id), srt=srts[0] if srts else None)
-        store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》放进了粗剪 {chosen.name}", topic_id)
-        return {**result, "message": f"{chosen.name} 已经放进项目目录"}
-
     @app.get("/api/topics/{topic_id}/video-project/latest-export")
     def koubo_latest_export(topic_id: int) -> dict[str, Any]:
         """剪映导出里最新的那一条。名字全是日期，所以带上时长和大小给 Park 核对。"""
