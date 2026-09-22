@@ -143,6 +143,35 @@ button.chip-state{cursor:pointer}
 .vp-wt{width:100%;height:70vh;min-height:460px;border:1px solid var(--line);border-radius:8px;margin-top:10px;background:var(--bg)}
 .vp-wt-note{font-size:12px;margin:6px 0 0}
 .vp-skip{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0}
+/* 剪辑进度：一屏只回答「现在轮到谁」，其余折叠 */
+.vp-now{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.vp-now.busy{border-color:var(--accent)}
+.vp-now.gate,.vp-now.todo:has(.chip.warn){border-width:2px;border-color:var(--hot)}
+.vp-now.ok{border-color:var(--save)}
+.vp-now-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.vp-now-h b{font-size:15px}
+.vp-now .chip{display:inline-flex;gap:5px;align-items:center;font-size:12px;padding:3px 9px;border-radius:999px;
+  background:var(--accent-soft);color:var(--accent)}
+.vp-now .chip.warn{background:var(--hot-soft);color:var(--hot)}
+.vp-now .chip.ok{background:var(--save-soft,var(--accent-soft));color:var(--save)}
+.vp-now-say{color:var(--ink-2);font-size:13px;margin:8px 0 0}
+.vp-now-need{color:var(--ink-3);font-size:12px;margin:4px 0 0}
+.vp-bar{display:flex;gap:2px;margin-top:10px}
+.vp-bar i,.vp-bar b{height:5px;border-radius:3px}
+.vp-bar i{background:var(--accent)}
+.vp-bar b{background:var(--line)}
+.vp-fold{border-top:1px solid var(--line-soft)}
+.vp-fold>summary{display:flex;gap:8px;align-items:center;cursor:pointer;padding:11px 2px;font-size:14px}
+.vp-fold>summary small{color:var(--ink-3);font-size:12px}
+.vp-fold>summary:hover{color:var(--accent)}
+.vp-fold>div{padding:0 2px 12px}
+.vp-steps-list{margin:0;padding-left:20px}
+.vp-steps-list li{margin:3px 0;font-size:13px;color:var(--ink-3)}
+.vp-steps-list li.done{color:var(--ink-2)}
+.vp-steps-list li.now{color:var(--accent)}
+.vp-steps-list li b{font-weight:600;margin-right:6px}
+.vp-log-list{margin:10px 0 0;padding-left:0;list-style:none;font-size:13px}
+.vp-log-list li{display:flex;gap:8px;align-items:center;margin:3px 0}
 .vp-skip .muted{font-size:13px}
 /* 发布台：发不了的那些折起来，别再摆成一排让人重新挑一次 */
 .pub-others{margin:8px 0 0}
