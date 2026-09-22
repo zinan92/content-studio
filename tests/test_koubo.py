@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from content_studio import koubo
+
+
+def _project(tmp_path: Path) -> Path:
+    base = tmp_path / "2026-09-22_测试"
+    (base / "subtitles").mkdir(parents=True)
+    return base
+
+
+def test_finds_the_biggest_video_and_ignores_intermediates(tmp_path: Path) -> None:
+    """成片和只读备份常常并排放着；中间产物目录里也全是 mp4，不能当成片。"""
+    base = _project(tmp_path)
+    (base / "备份.mov").write_bytes(b"x" * 500)
+    (base / "粗剪.mp4").write_bytes(b"x" * 9000)
+    for skipped in ("part-a-hook", "final", "renders"):
+        (base / skipped).mkdir()
+        (base / skipped / "video.mp4").write_bytes(b"x" * 99999)
+    assert koubo.find_video(base).name == "粗剪.mp4"
+    (base / "说明.txt").write_bytes(b"x" * 99999)  # 不是视频，再大也不算
+    assert koubo.find_video(base).name == "粗剪.mp4"
+    empty = tmp_path / "空项目"
+    empty.mkdir()
+    assert koubo.find_video(empty) is None
+
+
+def test_srt_at_the_fixed_path_wins_over_a_loose_one(tmp_path: Path) -> None:
+    """剪映导出的 SRT 通常和视频并排；约定位置有了就用约定位置。"""
+    base = _project(tmp_path)
+    assert koubo.find_srt(base) is None
+    (base / "剪映导出.srt").write_text("1\n", encoding="utf-8")
+    loose = koubo.find_srt(base)
+    assert loose.name == "剪映导出.srt"
+    (base / "subtitles" / "source.srt").write_text("1\n", encoding="utf-8")
+    assert koubo.find_srt(base) == base / "subtitles" / "source.srt"
+
+
+def test_state_tells_the_frontend_which_button_to_show(tmp_path: Path) -> None:
+    base = _project(tmp_path)
+    assert koubo.state(base) == {"video": None, "srt": None, "sentences": False, "worktable": False, "exported": False}
+    (base / "粗剪.mp4").write_bytes(b"x" * 2_097_152)
+    s = koubo.state(base)
+    assert s["video"] == {"name": "粗剪.mp4", "mb": 2.0} and s["srt"] is None
+    (base / "subtitles" / "source.srt").write_text("1\n", encoding="utf-8")
+    assert koubo.state(base)["srt"]["at_fixed_path"] is True
+    (base / "analysis").mkdir()
+    (base / "analysis" / "worktable.html").write_text("<html></html>", encoding="utf-8")
+    assert koubo.state(base)["worktable"] is True and koubo.state(base)["exported"] is False
+
+
+def test_build_worktable_says_which_script_is_missing(tmp_path: Path) -> None:
+    base = _project(tmp_path)
+    srt = base / "subtitles" / "source.srt"
+    srt.write_text("1\n", encoding="utf-8")
+    with pytest.raises(koubo.KouboError, match="找不到 ask-park-video"):
+        koubo.build_worktable(base, srt=srt, skill=tmp_path / "没装")
+
+
+def test_build_worktable_runs_the_skills_own_script(tmp_path: Path) -> None:
+    """工作台不重写那张表——重写就和后面 14 步的格式对不上了。"""
+    base = _project(tmp_path)
+    srt = base / "subtitles" / "source.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:02,000\n你好世界。\n", encoding="utf-8")
+    skill = tmp_path / "skill" / "scripts"
+    skill.mkdir(parents=True)
+    (skill / "build_worktable.py").write_text(
+        "import sys, pathlib\n"
+        "out = sys.argv[sys.argv.index('-o') + 1]\n"
+        "pathlib.Path(out).parent.mkdir(parents=True, exist_ok=True)\n"
+        "pathlib.Path(out).write_text('{}' if out.endswith('.json') else '<html>x</html>', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    out = koubo.build_worktable(base, srt=srt, skill=tmp_path / "skill")
+    assert out == base / "analysis" / "worktable.html" and out.is_file()
+    assert json.loads((base / "subtitles" / "transcript.sentences.json").read_text(encoding="utf-8")) == {}
+
+
+def test_the_save_button_is_appended_not_woven_in(tmp_path: Path) -> None:
+    """只依赖模板里的全局 payload()。它没了就退回原来的导出按钮，不把表搞坏。"""
+    base = _project(tmp_path)
+    (base / "analysis").mkdir()
+    (base / "analysis" / "worktable.html").write_text("<html><body>原表</body></html>", encoding="utf-8")
+    html = koubo.worktable_html(base, save_url="/api/topics/7/video-project/worktable")
+    assert html.startswith("<html><body>原表</body></html>")
+    assert "typeof payload !== 'function'" in html
+    assert '"/api/topics/7/video-project/worktable"' in html
+    assert "X-Content-Studio" in html
+    with pytest.raises(koubo.KouboError, match="还没有生成工作台"):
+        koubo.worktable_html(tmp_path / "别的", save_url="/x")
