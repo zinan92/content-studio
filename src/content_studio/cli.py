@@ -100,6 +100,10 @@ def build_parser() -> argparse.ArgumentParser:
     check_plan.add_argument("project", type=Path, help="口播项目目录")
     check_plan.add_argument("--shots", type=Path, default=Path("~/.agents/skills/video-shotcraft/references/shots"))
 
+    phone = commands.add_parser("phone-preview", help="成片压成 540p、切成每段不超过 28 MB 的手机预览")
+    phone.add_argument("project", type=Path, help="口播项目目录，或配置根目录下的项目名")
+    phone.add_argument("--out", type=Path, default=None, help="输出到别的目录（默认 项目/final/手机预览）")
+
     plist = commands.add_parser(
         "write-schedule", help="write (but do not load) a launchd plist for a daily sync"
     )
@@ -343,6 +347,24 @@ def run_check_visual_plan(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "pass" else 1
 
 
+def run_phone_preview(args: argparse.Namespace) -> int:
+    from . import phone, profile, release
+
+    base = args.project.expanduser()
+    if not base.is_dir():
+        root = (profile.load(profile.find_profile()) if profile.find_profile() else {}).get("video_projects_root")
+        base = Path(str(root or "")).expanduser() / str(args.project)
+    if not base.is_dir():
+        raise ValueError(f"找不到项目：{args.project}")
+    found = release.find_video(base)
+    if not found:
+        raise ValueError(f"{base.name} 里还没有成片")
+    parts = phone.make_preview(base, base / found, out=args.out.expanduser() if args.out else None)
+    for part in parts:
+        print(f"{part['name']}  {part['mb']} MB")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -359,10 +381,11 @@ def main(argv: list[str] | None = None) -> int:
             "check": run_check,
             "write-schedule": run_write_schedule,
             "check-visual-plan": run_check_visual_plan,
+            "phone-preview": run_phone_preview,
         }
         if args.command in handlers:
             return handlers[args.command](args)
-    except (CreatorMetricsError, PipelineError, ReportError, AccountError, StoreError, OSError, ValueError) as exc:
+    except (CreatorMetricsError, PipelineError, ReportError, AccountError, StoreError, OSError, ValueError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"unknown command: {args.command}")

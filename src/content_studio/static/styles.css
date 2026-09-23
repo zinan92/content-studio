@@ -1176,3 +1176,12 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .tc-pat{font-size:11px;color:var(--ink-2);background:var(--sunk);border-radius:4px;padding:1px 6px;align-self:start;white-space:nowrap}
 .tc-pat.borrow{color:var(--accent);font-weight:600}
 .tc-over{font-style:normal;font-size:11px;font-weight:600;color:var(--bad, #c2410c);margin-left:4px}
+
+/* 手机预览：剪辑进度里一小条，文件名本身带时间范围 */
+.vp-phone{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.vp-phone-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.vp-phone-h small{color:var(--ink-3)}
+.vp-phone-list{display:flex;flex-wrap:wrap;gap:6px}
+.vp-phone-part{font-family:var(--mono);font-size:12px;padding:4px 9px;border:1px solid var(--line);border-radius:6px;color:var(--ink);text-decoration:none}
+.vp-phone-part:hover{border-color:var(--accent)}
+.vp-phone-part small{color:var(--ink-3)}

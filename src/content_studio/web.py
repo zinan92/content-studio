@@ -1918,6 +1918,60 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from None
         return {"project": topic["video_project"], "covers": made}
 
+    phone_errors: dict[int, str] = {}
+
+    def _phone_state(topic_id: int) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        from . import phone
+
+        topic = store.topic(topic_id)
+        with writing_lock:
+            running = 40_000 + topic_id in writing
+        parts = []
+        if topic.get("video_project"):
+            try:
+                base = video_project.project_dir(video_root(), topic["video_project"])
+                prefix = f"/api/video-projects/{quote(topic['video_project'])}/raw/"
+                parts = [{**p, "url": prefix + quote(p["path"])} for p in phone.existing(base)]
+            except VideoProjectError:
+                parts = []
+        return {"running": running, "error": phone_errors.get(topic_id), "parts": parts, "cap_mb": phone.CAP_MB}
+
+    @app.get("/api/topics/{topic_id}/phone-preview")
+    def phone_preview_state(topic_id: int) -> dict[str, Any]:
+        return _phone_state(topic_id)
+
+    @app.post("/api/topics/{topic_id}/phone-preview")
+    def start_phone_preview(topic_id: int) -> dict[str, Any]:
+        """成片压成手机能看的大小，只在本机出文件，不上传。"""
+        from . import phone
+
+        topic = store.topic(topic_id)
+        video = final_video_path(topic)
+        if video is None:
+            raise ValueError("这一条还没有成片")
+        base = video_project.project_dir(video_root(), topic["video_project"])
+        with writing_lock:
+            if 40_000 + topic_id in writing:
+                return {"started": False, "message": "正在压"}
+            writing.add(40_000 + topic_id)
+        phone_errors.pop(topic_id, None)
+
+        def run() -> None:
+            try:
+                parts = phone.make_preview(base, video)
+                store.log_event("edit", f"《{topic['title'][:24]}》的手机预览好了：{len(parts)} 个文件", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 进度页上显示
+                logger.warning("phone preview %s failed: %s", topic_id, exc)
+                phone_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+            finally:
+                with writing_lock:
+                    writing.discard(40_000 + topic_id)
+
+        threading.Thread(target=run, name=f"phone-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始压手机预览，12 分钟的片子大约半分钟"}
+
     @app.get("/api/topics/{topic_id}/publish-jobs")
     def list_publish_jobs(topic_id: int) -> dict[str, Any]:
         from . import copypack, publisher

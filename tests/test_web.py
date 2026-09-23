@@ -1131,3 +1131,35 @@ def test_titles_endpoint_runs_in_background_and_reads_the_srt(client: TestClient
         time.sleep(0.05)
     assert state["error"] is None and len(state["result"]["candidates"]) == 6
     assert "我看了dontbesilent开源dbskill" in seen[0] and state["result"]["had_transcript"] is True
+
+
+def test_phone_preview_endpoint(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """手机预览在后台压，结果从 final/手机预览/ 读出来，地址能直接播。"""
+    from content_studio import phone
+
+    root = tmp_path / "videos"
+    base = root / "2026-09-22_9月22日"
+    (base / "final").mkdir(parents=True)
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "预览", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": base.name})
+    assert client.post(f"/api/topics/{topic['id']}/phone-preview").status_code == 400  # 没有成片
+
+    (base / "final" / "9月22日-抖音上传版.mp4").write_bytes(b"0" * 64)
+
+    def fake(b: Path, video: Path, **kw) -> list:
+        folder = b / "final" / phone.FOLDER
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "01_00-00至12-06.mp4").write_bytes(b"1" * 2048)
+        return phone.existing(b)
+
+    monkeypatch.setattr(phone, "make_preview", fake)
+    assert client.post(f"/api/topics/{topic['id']}/phone-preview").json()["started"] is True
+    for _ in range(50):
+        state = client.get(f"/api/topics/{topic['id']}/phone-preview").json()
+        if not state["running"]:
+            break
+        time.sleep(0.05)
+    assert state["error"] is None and [p["name"] for p in state["parts"]] == ["01_00-00至12-06.mp4"]
+    clip = client.get(state["parts"][0]["url"], headers={"Range": "bytes=0-99"})
+    assert clip.status_code == 206 and len(clip.content) == 100
