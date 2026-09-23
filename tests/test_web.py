@@ -1055,6 +1055,8 @@ def test_the_h2_page_is_served_with_its_assets(client: TestClient, tmp_path: Pat
     page = client.get(prefix + "analysis/h2-visual-review-final.html")
     assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
     assert f'src="{prefix}analysis/h2.assets/V01.mp4"' in page.text
+    assert page.headers["content-security-policy"].startswith("sandbox")
+    assert page.headers["x-content-type-options"] == "nosniff"
 
     clip = client.get(prefix + "analysis/h2.assets/V01.mp4", headers={"Range": "bytes=0-99"})
     assert clip.status_code == 206 and len(clip.content) == 100

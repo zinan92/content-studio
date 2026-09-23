@@ -1891,12 +1891,16 @@ def create_app(
         except VideoProjectError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         kind = video_project.RAW_TYPES[path.suffix.lower()]
+        headers = {"X-Content-Type-Options": "nosniff"}
+        if path.suffix.lower() in {".html", ".svg"}:
+            # 能跑脚本的文件一律放进隔离的源：就算在新标签页直接打开，也碰不到工作台的接口。
+            headers["Content-Security-Policy"] = "sandbox allow-scripts allow-popups"
         if path.suffix.lower() == ".html":
             base = video_project.project_dir(video_root(), name)
             prefix = f"/api/video-projects/{quote(name)}/raw/"
             html = video_project.rewrite_local_urls(path.read_text(encoding="utf-8", errors="replace"), base, prefix)
-            return Response(content=html, media_type=kind)
-        return FileResponse(path, media_type=kind)
+            return Response(content=html, media_type=kind, headers=headers)
+        return FileResponse(path, media_type=kind, headers=headers)
 
     @app.get("/api/video-projects/{name}/file")
     def video_project_file(name: str, path: str) -> Response:
