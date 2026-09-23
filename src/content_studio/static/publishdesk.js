@@ -270,6 +270,7 @@ window.VIEWS.publish = {
       <span>文案 ${d.has_copy ? '<b>✓</b>' : '<span class="bad">还没写</span>'}</span>
       <button class="linklike" type="button" id="pdEditCopy">${d.has_copy ? '改文案' : '去写文案'} →</button>
       ${d.release && d.release.copy ? `<button class="linklike" type="button" id="pdFillRelease" title="${esc(d.release.copy.title || '')}">用发布文案填 →</button>` : ''}
+      ${d.video ? `<button class="linklike" type="button" id="pdCover">${d.release && d.release.covers && (d.release.covers.landscape || d.release.covers.portrait) ? '重做封面' : '做封面'} →</button>` : ''}
     </div>${releaseStrip(d.release)}` : '';
     const chip = (c, cur) => `<button class="pub-topic ${c.id === cur ? 'on' : ''}" type="button" data-pd-topic="${c.id}"><span class="ms-chip s-${c.stage}" title="${esc(c.stage_label || '')}"><i aria-hidden="true">${typeof MS_ICON !== 'undefined' ? (MS_ICON[c.stage] || '') : ''}</i>${esc(c.stage_label || '')}</span><b>${esc(c.title)}</b>${c.shipped_count === undefined ? '' : `<span class="num">${c.shipped_count}/${on}</span>`}</button>`;
     // 发不了的时候，说清最近那条卡在哪，别只说「没有」。
@@ -298,6 +299,8 @@ window.VIEWS.publish = {
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
     const edit = $('#pdEditCopy');
     if (edit) edit.onclick = () => openCopy(d.topic);
+    const coverBtn = $('#pdCover');
+    if (coverBtn) coverBtn.onclick = () => openCover(d.topic.id);
     const fill = $('#pdFillRelease');
     if (fill) fill.onclick = async () => {
       const c = d.release.copy;
@@ -438,6 +441,54 @@ function openCopy(topic) {
   $('#cpClose', dlg).onclick = () => { dlg.close(); PD.data = null; $('#publishBody').dataset.sig = ''; renderView(); };
   if (!dlg.open) dlg.showModal();
   if (window.renderCopyBox) window.renderCopyBox(topic, $('#copyBox', dlg));
+}
+
+/* ================= 弹窗：做封面 =================
+   bold-orange 预设：标题原字 + 换行 + 一行强调 + 成片里的一帧。只接这四样。 */
+async function openCover(topicId) {
+  const dlg = $('#coverDlg');
+  dlg.innerHTML = '<div class="pdl-h"><b>做封面</b><span class="spacer"></span><button class="pdl-x" type="button" data-cv-x aria-label="关闭">×</button></div><div class="cv-body"><p class="pdl-note">正在从成片里取几帧…</p></div>';
+  if (!dlg.open) dlg.showModal();
+  dlg.onclick = (e) => { if (e.target === dlg || e.target.closest('[data-cv-x]')) dlg.close(); };
+  let o;
+  try { o = await api(`/api/topics/${topicId}/cover`); } catch (err) { $('.cv-body', dlg).innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
+  const st = { lines: o.lines, emphasis: o.emphasis, at: o.frames.length ? o.frames[Math.floor(o.frames.length / 2)].at : 0 };
+  const emphasisChips = () => st.lines.map((l) => `<button type="button" class="cv-em ${l === st.emphasis ? 'on' : ''}" data-cv-em="${esc(l)}">${esc(l)}</button>`).join('');
+  $('.cv-body', dlg).innerHTML = `
+    <div class="cv-col">
+      <label class="cv-l" for="cvLines">封面上的字<small>一行就是封面上的一行</small></label>
+      <textarea id="cvLines" rows="5">${esc(st.lines.join('\n'))}</textarea>
+      <div class="cv-l">哪一行用橙色<small>放大、加下划线</small></div>
+      <div class="cv-ems" id="cvEms">${emphasisChips()}</div>
+    </div>
+    <div class="cv-col">
+      <div class="cv-l">用哪一帧的人<small>挑表情好、眼睛睁着的</small></div>
+      <div class="cv-frames">${o.frames.map((f) => `<button type="button" class="cv-frame ${f.at === st.at ? 'on' : ''}" data-cv-at="${f.at}"><img src="${f.url}" alt="第 ${Math.round(f.at)} 秒"><small>${Math.floor(f.at / 60)}:${String(Math.round(f.at % 60)).padStart(2, '0')}</small></button>`).join('')}</div>
+    </div>
+    <div class="cv-foot"><button class="btn" type="button" id="cvGo">出横竖两张</button><span class="pdl-note" id="cvMsg">抠人像要十几秒。</span></div>
+    <div class="cv-out" id="cvOut"></div>`;
+  const ta = $('#cvLines', dlg);
+  const bindEm = () => $$('[data-cv-em]', dlg).forEach((b) => (b.onclick = () => { st.emphasis = b.dataset.cvEm; $('#cvEms', dlg).innerHTML = emphasisChips(); bindEm(); }));
+  bindEm();
+  ta.oninput = () => {
+    st.lines = ta.value.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!st.lines.includes(st.emphasis)) st.emphasis = st.lines[st.lines.length - 1] || '';
+    $('#cvEms', dlg).innerHTML = emphasisChips(); bindEm();
+  };
+  $$('[data-cv-at]', dlg).forEach((b) => (b.onclick = () => { st.at = Number(b.dataset.cvAt); $$('[data-cv-at]', dlg).forEach((x) => x.classList.toggle('on', x === b)); }));
+  $('#cvGo', dlg).onclick = async () => {
+    const go = $('#cvGo', dlg);
+    go.disabled = true; $('#cvMsg', dlg).textContent = '正在抠人像、排字…';
+    try {
+      const r = await api(`/api/topics/${topicId}/cover`, { method: 'POST', body: st });
+      const name = encodeURIComponent(r.project);
+      const stamp = Date.now();
+      $('#cvOut', dlg).innerHTML = Object.entries(r.covers).map(([k, path]) => `<img class="cv-shot ${k === '横' ? 'landscape' : 'portrait'}" src="/api/video-projects/${name}/file?path=${encodeURIComponent(path)}&t=${stamp}" alt="${k}版封面">`).join('');
+      $('#cvMsg', dlg).textContent = '好了，已经放进交付包。不满意就换一帧或改字再出一次。';
+      PD.data = null; $('#publishBody').dataset.sig = ''; renderView();
+    } catch (err) { $('#cvMsg', dlg).textContent = err.message; }
+    finally { go.disabled = false; }
+  };
 }
 
 /* 交付包里的封面：项目 final/ 下现成的横版和竖版。 */
