@@ -92,6 +92,12 @@ def transcribe(video: Path, base: Path, *, model: str | None = None) -> Path:
     没有字幕时才跑，而且要 Park 先点确认——15 分钟的片子要跑两三分钟，
     不该在他不知情的时候占住机器。
     """
+    from . import icloud
+
+    try:
+        icloud.ensure_local(video)
+    except icloud.NotLocalError as exc:
+        raise KouboError(str(exc)) from None
     try:
         import mlx_whisper
         from mlx_whisper.writers import get_writer
@@ -177,6 +183,12 @@ def build_worktable(base: Path, *, srt: Path, skill: Path | None = None, python:
     script = (skill or skill_dir()) / "scripts" / "build_worktable.py"
     if not script.is_file():
         raise KouboError(f"找不到 ask-park-video 的 build_worktable.py：{script}")
+    from . import icloud
+
+    try:
+        icloud.ensure_local(srt)
+    except icloud.NotLocalError as exc:
+        raise KouboError(str(exc)) from None
     exe = python or shutil.which("python3") or "python3"
     sentences = base / "subtitles" / "transcript.sentences.json"
     out = base / "analysis" / "worktable.html"

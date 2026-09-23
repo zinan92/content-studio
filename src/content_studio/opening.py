@@ -133,6 +133,12 @@ def score_opening(
     if found is None:
         raise OpeningError("项目里还没有字幕文件：录完把粗剪和字幕放进项目文件夹，或者先跑到 Step 4")
     path, label = found
+    from . import icloud
+
+    try:
+        icloud.ensure_local(path)
+    except icloud.NotLocalError as exc:
+        raise OpeningError(str(exc)) from None
     cues = [c for c in parse_srt(path.read_text(encoding="utf-8", errors="replace")) if c["start"] < WINDOW_SECONDS]
     if not cues:
         raise OpeningError(f"{path.name} 里读不到前 {WINDOW_SECONDS} 秒的字幕")
