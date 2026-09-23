@@ -1616,6 +1616,20 @@ def create_app(
         store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》这条不剪 Hook，直接进正文", topic_id)
         return {"steps": changed, "message": "记下了：这条不剪 Hook，Step 5/7/8/9 跳过"}
 
+    @app.get("/api/topics/{topic_id}/video-project/activity")
+    def koubo_activity(topic_id: int) -> dict[str, Any]:
+        """谁在这个项目里干活、最后写了什么、这一步做了多久。不管是工作台、Codex 还是 Claude 在跑。"""
+        from . import activity
+
+        _topic, path, info = linked_project(topic_id)
+        contract_path = path / "project.json"
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8")) if contract_path.is_file() else {}
+        except (OSError, ValueError):
+            contract = {}
+        return activity.activity(path, contract=contract, current=info.get("current_step"),
+                                 gate=info.get("gate"), delivered=bool(info.get("delivered")))
+
     @app.get("/api/topics/{topic_id}/video-project/latest-export")
     def koubo_latest_export(topic_id: int) -> dict[str, Any]:
         """剪映导出里最新的那一条。名字全是日期，所以带上时长和大小给 Park 核对。"""
