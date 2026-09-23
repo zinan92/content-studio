@@ -269,7 +269,8 @@ window.VIEWS.publish = {
       <span>成片 ${d.video ? `<b>${d.video.mb}</b> MB` : '<span class="bad">还没有</span>'}</span>
       <span>文案 ${d.has_copy ? '<b>✓</b>' : '<span class="bad">还没写</span>'}</span>
       <button class="linklike" type="button" id="pdEditCopy">${d.has_copy ? '改文案' : '去写文案'} →</button>
-    </div>` : '';
+      ${d.release && d.release.copy ? `<button class="linklike" type="button" id="pdFillRelease" title="${esc(d.release.copy.title || '')}">用发布文案填 →</button>` : ''}
+    </div>${releaseStrip(d.release)}` : '';
     const chip = (c, cur) => `<button class="pub-topic ${c.id === cur ? 'on' : ''}" type="button" data-pd-topic="${c.id}"><span class="ms-chip s-${c.stage}" title="${esc(c.stage_label || '')}"><i aria-hidden="true">${typeof MS_ICON !== 'undefined' ? (MS_ICON[c.stage] || '') : ''}</i>${esc(c.stage_label || '')}</span><b>${esc(c.title)}</b>${c.shipped_count === undefined ? '' : `<span class="num">${c.shipped_count}/${on}</span>`}</button>`;
     // 发不了的时候，说清最近那条卡在哪，别只说「没有」。
     const others = (d.others || []).length
@@ -297,6 +298,15 @@ window.VIEWS.publish = {
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
     const edit = $('#pdEditCopy');
     if (edit) edit.onclick = () => openCopy(d.topic);
+    const fill = $('#pdFillRelease');
+    if (fill) fill.onclick = async () => {
+      const c = d.release.copy;
+      if (d.has_copy && !confirm(`用发布文案覆盖现在的标题和简介？\n\n标题：${c.title}`)) return;
+      const entry = { title: c.title || '', body: c.body || '', tags: c.tags || [] };
+      const platforms = Object.fromEntries(['douyin', 'channels', 'bilibili', 'youtube'].map((k) => [k, entry]));
+      try { await api(`/api/topics/${d.topic.id}/copy`, { method: 'PUT', body: { platforms } }); toast('已用发布文案填好'); PD.data = null; $('#publishBody').dataset.sig = ''; renderView(); }
+      catch (err) { toast(err.message); }
+    };
     if (d.platforms.some((p) => p.job && p.job.state === 'running')) setTimeout(() => { if (S.view === 'publish') { PD.data = null; renderView(); } }, 8000);
     if (PD.open) renderDialog();
   },
@@ -428,6 +438,17 @@ function openCopy(topic) {
   $('#cpClose', dlg).onclick = () => { dlg.close(); PD.data = null; $('#publishBody').dataset.sig = ''; renderView(); };
   if (!dlg.open) dlg.showModal();
   if (window.renderCopyBox) window.renderCopyBox(topic, $('#copyBox', dlg));
+}
+
+/* 交付包里的封面：项目 final/ 下现成的横版和竖版。 */
+function releaseStrip(rel) {
+  if (!rel || !rel.covers) return '';
+  const shots = [['landscape', '横版'], ['portrait', '竖版']].filter(([k]) => rel.covers[k]);
+  if (!shots.length) return '';
+  return `<div class="pub-covers">${shots.map(([k, label]) => {
+    const url = `/api/video-projects/${encodeURIComponent(rel.project)}/file?path=${encodeURIComponent(rel.covers[k])}`;
+    return `<a class="pub-cover ${k}" href="${url}" target="_blank" rel="noopener" title="${esc(rel.covers[k])}"><img src="${url}" alt="${label}封面" loading="lazy"><small>${label}封面</small></a>`;
+  }).join('')}</div>`;
 }
 
 function renderDialog() {
