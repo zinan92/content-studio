@@ -1820,6 +1820,50 @@ def create_app(
             return None
         return video_project.safe_file(root, topic["video_project"], info["final_video"])
 
+    def _cover_target(topic_id: int) -> tuple[dict[str, Any], Path, Path]:
+        topic = store.topic(topic_id)
+        video = final_video_path(topic)
+        if video is None:
+            raise HTTPException(status_code=400, detail="这一条还没有成片，封面要从成片里取人像")
+        return topic, video_project.project_dir(video_root(), topic["video_project"]), video
+
+    @app.get("/api/topics/{topic_id}/cover")
+    def cover_options(topic_id: int) -> dict[str, Any]:
+        """做封面弹窗要的：默认标题（发布文案 > 平台文案 > 选题名）、自动换行、几帧候选。"""
+        from urllib.parse import quote
+
+        from . import copypack, cover, release
+
+        topic, base, video = _cover_target(topic_id)
+        rel = release.find_release(base).get("copy") or {}
+        platforms = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms") or {}
+        title = rel.get("title") or (platforms.get("douyin") or {}).get("title") or topic["title"]
+        lines = cover.split_title(title)
+        try:
+            frames = cover.candidate_frames(video, base / "analysis" / "cover-frames")
+        except cover.CoverError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        name = quote(topic["video_project"])
+        return {
+            "title": title, "lines": lines, "emphasis": lines[-1],
+            "frames": [{"at": f["at"], "url": f"/api/video-projects/{name}/raw/{quote(str(f['path'].relative_to(base)))}"}
+                       for f in frames],
+        }
+
+    @app.post("/api/topics/{topic_id}/cover")
+    def make_cover(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """出横竖两张封面到 final/covers/，发布台的交付包会自己认到。"""
+        from . import cover
+
+        topic, base, video = _cover_target(topic_id)
+        lines = [str(l) for l in payload.get("lines") or []]
+        try:
+            made = cover.make_covers(base, video, lines=lines, emphasis=str(payload.get("emphasis") or ""),
+                                     at=float(payload.get("at") or 0))
+        except (cover.CoverError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return {"project": topic["video_project"], "covers": made}
+
     @app.get("/api/topics/{topic_id}/publish-jobs")
     def list_publish_jobs(topic_id: int) -> dict[str, Any]:
         from . import copypack, publisher

@@ -1062,3 +1062,45 @@ def test_the_h2_page_is_served_with_its_assets(client: TestClient, tmp_path: Pat
     assert clip.status_code == 206 and len(clip.content) == 100
 
     assert client.get(prefix + "analysis/../../x.mp4").status_code == 404
+
+
+def test_cover_dialog_defaults_and_make(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """封面弹窗：默认用发布文案的标题，给候选帧；出图写进 final/covers/。"""
+    from content_studio import cover
+
+    root = tmp_path / "videos"
+    base = root / "2026-09-22_9月22日"
+    (base / "final").mkdir(parents=True)
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "选题名", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": base.name})
+    assert client.get(f"/api/topics/{topic['id']}/cover").status_code == 400  # 没有成片
+
+    (base / "final" / "9月22日-上传版.mp4").write_bytes(b"0" * 64)
+    (base / "final" / "发布文案.md").write_text("## 推荐标题\n我终于理解了dbskill！\n", encoding="utf-8")
+
+    def frames(video: Path, out: Path, count: int = 6) -> list[dict]:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "frame-0012.jpg").write_bytes(b"\xff\xd8")
+        return [{"at": 12.0, "path": out / "frame-0012.jpg"}]
+
+    seen = {}
+
+    def make(b: Path, video: Path, **kw) -> dict:
+        seen.update(kw, base=b, video=video.name)
+        return {"横": "final/covers/9月22日-横封面.jpg", "竖": "final/covers/9月22日-竖封面.jpg"}
+
+    monkeypatch.setattr(cover, "candidate_frames", frames)
+    monkeypatch.setattr(cover, "make_covers", make)
+    opts = client.get(f"/api/topics/{topic['id']}/cover").json()
+    assert opts["title"] == "我终于理解了dbskill！" and "".join(opts["lines"]) == opts["title"]
+    assert opts["emphasis"] == opts["lines"][-1]
+    assert client.get(opts["frames"][0]["url"]).status_code == 200
+
+    made = client.post(f"/api/topics/{topic['id']}/cover", json={"lines": ["我终于理解了", "dbskill！"], "emphasis": "dbskill！", "at": 12})
+    assert made.json() == {"project": base.name, "covers": {"横": "final/covers/9月22日-横封面.jpg", "竖": "final/covers/9月22日-竖封面.jpg"}}
+    assert seen["base"] == base and seen["video"] == "9月22日-上传版.mp4" and seen["at"] == 12.0
+
+    monkeypatch.setattr(cover, "make_covers", lambda *a, **k: (_ for _ in ()).throw(cover.CoverError("强调短语必须是其中一整行")))
+    bad = client.post(f"/api/topics/{topic['id']}/cover", json={"lines": ["a"], "emphasis": "b", "at": 1})
+    assert bad.status_code == 400 and "一整行" in bad.json()["detail"]

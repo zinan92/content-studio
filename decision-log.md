@@ -738,3 +738,9 @@
 - 决定：原样路由返回的 HTML/SVG 带 `Content-Security-Policy: sandbox allow-scripts allow-popups`，全部响应带 nosniff。
 - 为什么：iframe 的 sandbox 只管嵌在工作台里的那一份；有人在新标签页直接打开同一地址时，页面脚本会以工作台的源运行。放在响应头里，任何打开方式都隔离。
 - Gotcha：SVG 也能带脚本，和 HTML 一样处理。
+
+## #149 封面生成器（2026-09-23）
+- 决定：把 skill 里一直没人用的 `park-douyin-bold-orange-v1` 预设落成 `cover.py`：SVG 模板 + rsvg-convert 出图，人像用 macOS Vision 的人像分割（`native/segment_person.swift`）从成片里抠。发布台加「做封面」：改换行、选强调行、挑一帧，出横竖两张到 `final/covers/`，交付包自动认到。
+- 为什么：9/23 Codex 翻了旧项目找格式，Park 自己也找了一遍；预设在那却没人用。只接预设规定的四样输入（原字、换行、一行强调、一帧），圆角照片卡、「AI时代」徽章这类 avoid 项在模板里根本没有。
+- Gotcha：抠像必须 `-trim` 再按底边摆，否则头顶那截背景让人沉下去；人像高度按「头约 500 像素、脸露全」对过，太大就只剩一张脸。人像框只有 ~400px 宽，先 Lanczos 放大再抠，比让 rsvg 拉伸干净。
+- Gotcha：发布台在测试里用临时实例（`CONTENT_STUDIO_HOME` 指 scratch + `--port`）验，Codex 正在用的 iCloud 项目不碰。
