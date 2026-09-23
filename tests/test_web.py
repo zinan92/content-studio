@@ -1104,3 +1104,30 @@ def test_cover_dialog_defaults_and_make(client: TestClient, tmp_path: Path, monk
     monkeypatch.setattr(cover, "make_covers", lambda *a, **k: (_ for _ in ()).throw(cover.CoverError("强调短语必须是其中一整行")))
     bad = client.post(f"/api/topics/{topic['id']}/cover", json={"lines": ["a"], "emphasis": "b", "at": 1})
     assert bad.status_code == 400 and "一整行" in bad.json()["detail"]
+
+
+def test_titles_endpoint_runs_in_background_and_reads_the_srt(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from content_studio import titles
+
+    (tmp_path / "workflows" / titles.FRAMEWORK_FILE).write_text("# 标题\n暴论。", encoding="utf-8")
+    root = tmp_path / "videos"
+    base = root / "2026-09-22_9月22日"
+    (base / "subtitles").mkdir(parents=True)
+    (base / "subtitles" / "source.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\n我看了dontbesilent开源dbskill\n", encoding="utf-8")
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "dbskill", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": base.name})
+    assert client.get(f"/api/topics/{topic['id']}/titles").json() == {"running": False, "error": None, "result": None}
+
+    seen: list[str] = []
+    rows = ["我终于理解了dontbesilent为什么开源dbskill！｜借力点名｜依据：「开源dbskill」"] + [f"标题{'一二三四五六'[i]}｜悖论｜依据：「……」" for i in range(5)]
+    reply = "<<<ARTICLE>>>\n## 点名的人\ndontbesilent\n\n## 候选\n" + "\n".join(f"{i}. {r}" for i, r in enumerate(rows, 1)) + "\n<<<END>>>"
+    monkeypatch.setattr(titles, "cli_write", lambda prompt, **kw: seen.append(prompt) or reply)
+    assert client.post(f"/api/topics/{topic['id']}/titles").json()["started"] is True
+    for _ in range(50):
+        state = client.get(f"/api/topics/{topic['id']}/titles").json()
+        if not state["running"]:
+            break
+        time.sleep(0.05)
+    assert state["error"] is None and len(state["result"]["candidates"]) == 6
+    assert "我看了dontbesilent开源dbskill" in seen[0] and state["result"]["had_transcript"] is True

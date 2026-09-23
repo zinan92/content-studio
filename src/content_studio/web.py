@@ -1134,6 +1134,60 @@ def create_app(
         threading.Thread(target=_outline_topic, args=(topic_id,), name=f"outline-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始写骨架，一般 1–2 分钟"}
 
+    title_errors: dict[int, str] = {}
+
+    def _title_material(topic: dict[str, Any]) -> tuple[str, str]:
+        """转写（视频项目里的 SRT）和骨架。都没有也能出，只是依据少。"""
+        from . import koubo, outline, titles
+
+        transcript = ""
+        if topic.get("video_project"):
+            try:
+                srt = koubo.find_srt(video_project.project_dir(video_root(), topic["video_project"]))
+                transcript = titles.srt_text(srt) if srt else ""
+            except (VideoProjectError, OSError):
+                transcript = ""
+        skeleton = (outline.read_outline(topic) or {}).get("markdown", "")
+        return transcript, skeleton
+
+    def _title_topic(topic_id: int) -> None:
+        from . import titles
+
+        try:
+            topic = store.topic(topic_id)
+            transcript, skeleton = _title_material(topic)
+            titles.write_titles(topic, transcript=transcript, skeleton=skeleton, drafts_dir=drafts_root)
+            store.log_event("copy", f"《{topic['title'][:24]}》的标题候选出好了", topic_id)
+        except Exception as exc:  # noqa: BLE001 - 弹窗里显示
+            logger.warning("titles topic %s failed: %s", topic_id, exc)
+            title_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+        finally:
+            with writing_lock:
+                writing.discard(30_000 + topic_id)
+
+    @app.post("/api/topics/{topic_id}/titles")
+    def start_titles(topic_id: int) -> dict[str, Any]:
+        from . import titles
+
+        store.topic(topic_id)
+        titles.load_framework()  # 工作流文件缺了当场说，别让他等一分钟才看到
+        with writing_lock:
+            if 30_000 + topic_id in writing:
+                return {"started": False, "message": "正在出"}
+            writing.add(30_000 + topic_id)
+        title_errors.pop(topic_id, None)
+        threading.Thread(target=_title_topic, args=(topic_id,), name=f"titles-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始出标题，一般半分钟到一分钟"}
+
+    @app.get("/api/topics/{topic_id}/titles")
+    def get_titles(topic_id: int) -> dict[str, Any]:
+        from . import titles
+
+        store.topic(topic_id)
+        with writing_lock:
+            running = 30_000 + topic_id in writing
+        return {"running": running, "error": title_errors.get(topic_id), "result": titles.read_titles(drafts_root, topic_id)}
+
     @app.get("/api/topics/{topic_id}/outline")
     def get_outline(topic_id: int) -> dict[str, Any]:
         from . import outline
