@@ -2037,7 +2037,12 @@ def create_app(
         if video is None and not text_only:
             raise publisher.PublishError("这个选题还没有成片：先关联视频项目并完成剪辑")
         copy = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms")
-        payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs())
+        article = Path(topic["article_path"]) if topic.get("article_path") else None
+        release_info = _release_for(topic) or {}
+        landscape = (release_info.get("covers") or {}).get("landscape")
+        cover = video_project.project_dir(video_root(), topic["video_project"]) / landscape if landscape else None
+        payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs(),
+                                          article=article, cover=cover)
         return {"job": store.create_publish_job(topic_id, payload)}
 
     def _run_publish(job_id: int) -> None:
