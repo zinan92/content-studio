@@ -251,6 +251,7 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         # 只用于显示和发布：认 final/ 下真实交付的那一个。Step 14 的判据不变，仍看 final/video.mp4。
         "final_video": release.find_video(base),
         "release": release.find_release(base),
+        "h2_review": find_h2_review(base),
         "summary": "已交付" if delivered else (f"Step {current}：{STEP_NAMES[current]}" + (f" · {gate['title']}" if gate else "")),
         "steps": steps,
         "stages": stages,
@@ -339,3 +340,55 @@ def import_worktable(root: Path, name: str, *, text: str, source: str = "粘贴"
     target.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     flagged = [h for h in hooks if h.get("anchor_status") != "ok"] + [n for n in notes if n.get("anchor_status") != "ok"]
     return {"source": source, "hooks": len(hooks), "visual_notes": len(notes), "needs_review": len(flagged), "path": str(target)}
+
+
+# -- H2 审批页 ----------------------------------------------------------------
+# 审批页引用了一大堆素材（Codex 那版 58 MB：18 个样片、36 张对照图）。按路径服务，
+# 页面里的相对地址才解析得开；绝对的 file:// 地址在网页里会被浏览器拦掉，服务时改写。
+
+RAW_TYPES = {
+    ".html": "text/html; charset=utf-8", ".json": "application/json", ".md": "text/plain; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8", ".srt": "text/plain; charset=utf-8", ".vtt": "text/vtt",
+    ".ts": "text/plain; charset=utf-8", ".tsx": "text/plain; charset=utf-8", ".css": "text/css", ".js": "text/javascript",
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".m4a": "audio/mp4", ".mp3": "audio/mpeg",
+    ".wav": "audio/wav", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+    ".gif": "image/gif", ".svg": "image/svg+xml", ".woff": "font/woff", ".woff2": "font/woff2",
+}
+
+
+def raw_file(root: Path, name: str, relative: str) -> Path:
+    """项目目录里的一个文件，给按路径的只读路由用。越界、隐藏目录、占位文件都拒。"""
+    base = project_dir(root, name)
+    parts = [p for p in relative.split("/") if p]
+    if not parts or any(p in ("..", ".") or p.startswith(".") for p in parts) or "\x00" in relative:
+        raise VideoProjectError("文件路径无效")
+    path = (base / "/".join(parts)).resolve()
+    # resolve 之后再比：符号链接指到项目外面也算越界。
+    if base not in path.parents or not path.is_file() or path.suffix.lower() not in RAW_TYPES:
+        raise VideoProjectError("文件不存在")
+    from . import icloud
+
+    try:
+        return icloud.ensure_local(path)
+    except icloud.NotLocalError as exc:
+        raise VideoProjectError(str(exc)) from None
+
+
+def find_h2_review(base: Path) -> str | None:
+    """H2 审批页：优先 skill 的标准产物，其次 Codex 那种 h2-visual-review*.html，取最新。"""
+    analysis = base / "analysis"
+    standard = sorted((analysis / "visual-preview").glob("**/review*.html")) if (analysis / "visual-preview").is_dir() else []
+    loose = sorted(analysis.glob("h2-visual-review*.html")) if analysis.is_dir() else []
+    for group in (standard, loose):
+        if group:
+            return str(max(group, key=lambda p: p.stat().st_mtime).relative_to(base))
+    return None
+
+
+def rewrite_local_urls(html: str, base: Path, prefix: str) -> str:
+    """把指向项目目录的 file:// 地址改成工作台路由。编码和未编码两种写法都有。"""
+    from urllib.parse import quote
+
+    for local in (quote(str(base)), str(base)):
+        html = html.replace(f"file://{local}/", prefix)
+    return html

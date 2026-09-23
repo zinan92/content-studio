@@ -142,6 +142,7 @@ button.chip-state{cursor:pointer}
 .vp-media b{font-weight:600}
 .vp-wt{width:100%;height:70vh;min-height:460px;border:1px solid var(--line);border-radius:8px;margin-top:10px;background:var(--bg)}
 .vp-wt-note{font-size:12px;margin:6px 0 0}
+.vp-h2{width:100%;height:78vh;min-height:520px;border:1px solid var(--line);border-radius:8px;margin-top:10px;background:#fff}
 .vp-skip{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0}
 /* 剪辑进度：一屏只回答「现在轮到谁」，其余折叠 */
 .vp-now{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
