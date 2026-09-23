@@ -45,7 +45,7 @@ async function renderMedia(topic, box) {
   const head = `<span class="pill mid">${esc(m.video.name)} · ${m.video.mb} MB</span>`;
   if (busy) {
     box.innerHTML = `<div class="vp-media">${head}<span><span class="spin"></span> 正在本机转写，15 分钟的片子大概 2–3 分钟</span></div>`;
-    setTimeout(() => { if (S.view === 'work' && VD.tab === 'edit') renderMedia(topic, $('#vpMedia')); }, 15000);
+    setTimeout(() => { if (S.view === 'work' && VD.tab === 'edit' && document.body.contains(box)) renderMedia(topic, box); }, 15000);
     return;
   }
   if (!m.srt) {
@@ -151,10 +151,11 @@ window.VIDEO_TABS.push({
       ${fold('vpOptions', '其他', '不剪 Hook · 终端命令', `
         ${info.layout === 'v2.6' && !info.steps.slice(4, 9).some((x) => x.done) ? `<div class="vp-skip"><span class="muted">开头已经够抓人？Hook 那四步（选 / 截取 / 拼接 / 成品 A）就不用做了。</span>
           <button class="btn small" type="button" id="vpSkipHook">这条不剪 Hook</button></div>` : ''}
+        ${info.delivered ? '' : `<div class="vp-skip"><span class="muted">整条已经在外面（剪映、Codex）做完了？成片放进项目，直接去发。</span>
+          <button class="btn small" type="button" id="vpExtAll">整条在外面做完了</button></div>`}
         <div class="vp-cmd"><span>在 Claude 或 Codex 里继续：</span><button class="invoke" type="button" id="vpCmd">${esc(info.continue_command)}</button></div>`)}
     </div>`;
     renderNow(topic, info);
-    renderMedia(topic, $('#vpMedia', el));
     renderOpening(topic);
     const skip = $('#vpSkipHook', el);
     if (skip) skip.onclick = async () => {
@@ -163,6 +164,8 @@ window.VIDEO_TABS.push({
       try { toast((await api(`/api/topics/${topic.id}/video-project/skip-hook`, { method: 'POST' })).message); await refreshVideoTab(); }
       catch (err) { toast(err.message); skip.disabled = false; }
     };
+    const extAll = $('#vpExtAll', el);
+    if (extAll) extAll.onclick = () => markExternal(topic, info, 'all');
     $('#vpRefresh').onclick = async () => { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); };
     $('#vpUnlink').onclick = async () => { try { await api(`/api/topics/${topic.id}/video-project`, { method: 'PUT', body: { name: null } }); toast('已取消关联'); await refreshVideoTab(); } catch (err) { toast(err.message); } };
     $('#vpCmd').onclick = () => navigator.clipboard.writeText(info.continue_command).then(() => toast('已复制，贴到 Claude 或 Codex'), () => toast(info.continue_command));
@@ -205,19 +208,33 @@ async function renderNow(topic, info) {
         <span class="spacer"></span><button class="btn small primary" type="button" onclick="go('publish')">去发布台 →</button></div>${bar}</div>${last}`;
   } else {
     const step = info.steps[(info.current_step || 1) - 1] || {};
+    const early = (info.current_step || 1) <= 4;
+    const pct = info.visual_target === null || info.visual_target === undefined ? 30 : Math.round(info.visual_target * 100);
     box.innerHTML = `<div class="vp-now todo"><div class="vp-now-h"><span class="chip busy">该跑了</span>
         <b>Step ${info.current_step} · ${esc(step.name || '')}</b><span class="spacer"></span>
+        ${(info.current_step || 1) <= 11 ? `<label class="vp-vis" title="正文里有动效的时长占比。只给这个数，挑哪几处由机器定">动效占正文 <input id="vpVis" type="number" min="0" max="100" step="5" value="${pct}"> %</label>` : ''}
         ${data.busy_elsewhere ? '<span class="muted">另一个项目正在跑</span>' : '<button class="btn small primary" type="button" id="runStart">让机器跑到下一个审批门</button>'}</div>
-      ${bar}<p class="vp-now-say">在这台 Mac 上后台跑 ask-park-video，遇到要你拍板的地方、阻塞或全部完成就停。随时能中止。</p>
-      <p class="vp-now-need">这一步在等：${esc(step.evidence || '')}</p></div>${last}`;
+      ${bar}<p class="vp-now-say">${early ? '先确认下面的粗剪就是这一条，再让机器跑：它会清点素材、查规格、对字幕、做好标 Hook 的表，然后停下等你标 Hook。' : '在这台 Mac 上后台跑 ask-park-video，遇到要你拍板的地方、阻塞或全部完成就停。随时能中止。'}</p>
+      ${early ? '<div id="vpNowMedia"></div>' : `<p class="vp-now-need">这一步在等：${esc(step.evidence || '')}</p>`}</div>${last}`;
   }
 
+  const upTop = $('#vpNowMedia');
+  const fold = $('#vpMedia');
+  if (upTop) { if (fold) fold.innerHTML = '<p class="muted">在最上面那张卡片里。</p>'; renderMedia(topic, upTop); }
+  else if (fold && !(info.gate && info.gate.key === 'H1' && !running)) renderMedia(topic, fold);  // H1 时由审批卡片放上面
+  const vis = $('#vpVis');
+  const saveVis = async () => {
+    if (!vis) return;
+    try { await api(`/api/topics/${topic.id}/video-project/visual-target`, { method: 'PUT', body: { percent: Number(vis.value) } }); } catch (err) { toast(err.message); throw err; }
+  };
+  if (vis) vis.onchange = () => saveVis().then(() => { toast(`记下了：动效占正文 ${vis.value}%`); delete VP.cache[topic.id]; }).catch(() => {});
   box.insertAdjacentHTML('beforeend', '<div class="vp-act" id="vpAct"></div>');
   renderActivity(topic);
   if (info.final_video) { box.insertAdjacentHTML('beforeend', '<div class="vp-phone" id="vpPhone"></div>'); renderPhone(topic); }
   const start = $('#runStart');
   if (start) start.onclick = async () => {
     if (!confirm('让机器在后台继续跑这个口播项目？它会处理视频文件，停在下一个审批门。')) return;
+    try { await saveVis(); } catch (err) { return; }
     try { const r = await api(`/api/topics/${topic.id}/video-project/run`, { method: 'POST' }); toast(r.message); delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }
   };
   const cancel = $('#runCancel');
@@ -233,6 +250,22 @@ async function renderNow(topic, info) {
   };
   const gateBox = $('#gateBox');
   if (gateBox) renderGate(topic, info, gateBox);
+}
+
+/* 在外面做完的：Hook 给出剪好的视频；整条要 final/ 里有成片（没有就给路径拷进来）。 */
+async function markExternal(topic, info, what) {
+  let path = '';
+  if (what === 'hook' || !info.final_video) {
+    let hint = '';
+    try { hint = ((await api(`/api/topics/${topic.id}/video-project/latest-export`)).latest || {}).path || ''; } catch (err) { /* 没有就空着 */ }
+    const ask = what === 'hook' ? '剪好的 Hook 视频在哪？（完整路径，默认是剪映最新导出的那条）' : '成片在哪？（完整路径，会拷进项目的 final/）';
+    const typed = prompt(ask, hint);
+    if (typed === null) return;
+    path = typed.trim();
+    if (!path) { toast('没给路径'); return; }
+  } else if (!confirm(`记下「整条在外面做完了」？\n成片用 ${info.final_video}，14 步都记成在外面做完，这一条进待发。`)) return;
+  try { toast((await api(`/api/topics/${topic.id}/video-project/external`, { method: 'POST', body: { what, path: path || null } })).message); await refreshVideoTab(); }
+  catch (err) { toast(err.message); }
 }
 
 /* 手机预览：成片一百多 MB 发不到手机上。压成 540p，放得下就一个文件，放不下再切。
@@ -283,8 +316,10 @@ async function renderGate(topic, info, el) {
   const url = (rel) => fileUrl(info.name, rel);
   let body = '';
   if (r.gate === 'H1') {
-    body = r.hooks.length ? `<ol class="gate-hooks">${r.hooks.map((h) => `<li>${esc(h.text || '')}${h.status && h.status !== 'ok' ? ` <span class="bad">（${esc(h.status)}，需要核对）</span>` : ''}</li>`).join('')}</ol><small class="muted">来自 ${esc(r.from)}</small>`
-      : '<p class="muted">还没有 Hook。先在 worktable 里选好并导入。</p>';
+    body = (r.hooks.length ? `<ol class="gate-hooks">${r.hooks.map((h) => `<li>${esc(h.text || '')}${h.status && h.status !== 'ok' ? ` <span class="bad">（${esc(h.status)}，需要核对）</span>` : ''}</li>`).join('')}</ol><small class="muted">来自 ${esc(r.from)}</small>`
+      : '<p class="muted">还没有 Hook。在下面的表里选句子（可以几段拼一条），点「保存到项目」。</p>')
+      + `<div id="vpNowMedia"></div>
+      <div class="acts vp-hook-alt"><span class="muted">或者：</span><button class="btn small" type="button" id="gateSkipHook">这条不剪 Hook</button><button class="btn small" type="button" id="gateExtHook">Hook 在外面剪好了</button></div>`;
   } else if (r.gate === 'H2' && info.h2_review) {
     // 审批页原样嵌进来：原画面 / 合成画面并排，样片能播。沙箱不给 same-origin，
     // 页面里的脚本碰不到工作台的接口；批准按钮在沙箱外面。
@@ -315,6 +350,15 @@ async function renderGate(topic, info, el) {
   if (wtf) wtf.onchange = async () => { const f = wtf.files && wtf.files[0]; if (f) importWorktable({ text: await f.text(), filename: f.name }); };
   const wtp = $('#wtPaste', el);
   if (wtp) wtp.onclick = () => { const t = prompt('在 worktable 里点「复制 JSON」，粘贴到这里'); if (t && t.trim()) importWorktable({ text: t }); };
+  const gm = $('#vpNowMedia', el);
+  if (gm) { VP.wt = VP.wt || !r.hooks.length; renderMedia(topic, gm); const fold = $('#vpMedia'); if (fold) fold.innerHTML = '<p class="muted">在最上面那张卡片里。</p>'; }
+  const gs = $('#gateSkipHook', el);
+  if (gs) gs.onclick = async () => {
+    if (!confirm('记下「这条不剪 Hook」？Step 5/7/8/9 会标成跳过，直接进正文和动效。')) return;
+    try { toast((await api(`/api/topics/${topic.id}/video-project/skip-hook`, { method: 'POST' })).message); await refreshVideoTab(); } catch (err) { toast(err.message); }
+  };
+  const ge = $('#gateExtHook', el);
+  if (ge) ge.onclick = () => markExternal(topic, info, 'hook');
   const approveBtn = $('#gateApprove');
   if (approveBtn) approveBtn.onclick = async () => {
     if (!confirm(`确认批准 ${data.gate.key}？会写进项目的 project.json 和过程日志。`)) return;

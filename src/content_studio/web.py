@@ -1670,6 +1670,32 @@ def create_app(
         store.log_event("edit", f"《{store.topic(topic_id)['title'][:24]}》这条不剪 Hook，直接进正文", topic_id)
         return {"steps": changed, "message": "记下了：这条不剪 Hook，Step 5/7/8/9 跳过"}
 
+    @app.post("/api/topics/{topic_id}/video-project/external")
+    def koubo_external(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """在外面做完的：Hook（给出剪好的 Hook 视频）或整条（成片已在 final/ 或给出路径）。"""
+        from . import koubo
+
+        what = str(payload.get("what") or "")
+        raw = str(payload.get("path") or "").strip()
+        base = _koubo_dir(topic_id)
+        try:
+            result = koubo.mark_external(base, what, source=Path(raw) if raw else None)
+        except koubo.KouboError as exc:
+            raise ValueError(str(exc)) from None
+        title = store.topic(topic_id)["title"][:24]
+        store.log_event("edit", f"《{title}》{'Hook' if what == 'hook' else '整条'}在外面做完了，已记下", topic_id)
+        return {**result, "message": "记下了：Hook 在外面剪好了" if what == "hook" else "记下了：整条在外面做完了，可以去发布台"}
+
+    @app.put("/api/topics/{topic_id}/video-project/visual-target")
+    def koubo_visual_target(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        from . import koubo
+
+        try:
+            value = koubo.set_visual_target(_koubo_dir(topic_id), float(payload.get("percent")))
+        except (koubo.KouboError, TypeError, ValueError) as exc:
+            raise ValueError(str(exc) or "比例要是一个数") from None
+        return {"visual_target": value, "message": f"记下了：动效占正文 {round(value * 100)}%"}
+
     @app.get("/api/topics/{topic_id}/video-project/activity")
     def koubo_activity(topic_id: int) -> dict[str, Any]:
         """谁在这个项目里干活、最后写了什么、这一步做了多久。不管是工作台、Codex 还是 Claude 在跑。"""

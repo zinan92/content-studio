@@ -369,6 +369,81 @@ def _clone(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
+VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v"}
+
+
+def _contract(base: Path) -> tuple[Path, dict[str, Any]]:
+    import json
+
+    path = base / "project.json"
+    if not path.is_file():
+        raise KouboError("还没初始化，先写 project.json")
+    return path, json.loads(path.read_text(encoding="utf-8"))
+
+
+def _save_contract(path: Path, data: dict[str, Any]) -> None:
+    import json
+
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _take_video(source: Path | None, target: Path) -> None:
+    if source is None:
+        return
+    from . import icloud
+
+    source = source.expanduser()
+    if not source.is_file() or source.suffix.lower() not in VIDEO_SUFFIXES:
+        raise KouboError(f"不是视频文件：{source}")
+    icloud.ensure_local(source)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _clone(source, target)
+
+
+def mark_external(base: Path, what: str, *, source: Path | None = None) -> dict[str, Any]:
+    """记下「这部分在外面做完了」：Hook（5/7/8/9）或整条（1–14）。
+
+    9/22 那条 Hook 是 Codex 剪的、成片也在 Codex 目录里，工作台却一直停在 Step 2。
+    步骤标 external（不是 pass），看得出不是这里的机器做的。
+    """
+    from . import release
+
+    path, data = _contract(base)
+    status = data.setdefault("step_status", {})
+    approvals = data.setdefault("approvals", {})
+    if what == "hook":
+        target = base / "part-a-hook" / "video.mp4"
+        _take_video(source, target)
+        if not target.is_file():
+            raise KouboError("先告诉我剪好的 Hook 在哪（一个视频文件）")
+        steps = list(HOOK_STEPS)
+        approvals["hook"] = "external"
+    elif what == "all":
+        if source is not None:
+            _take_video(source, base / "final" / source.expanduser().name)
+        if not release.find_video(base):
+            raise KouboError("final/ 里还没有成片：先告诉我成片在哪")
+        steps = list(range(1, 15))
+        approvals.setdefault("final", "external")
+    else:
+        raise KouboError("只能记 Hook 或整条")
+    for n in steps:
+        if str(status.get(str(n)) or "").lower() not in ("pass", "approved"):
+            status[str(n)] = "external"
+    _save_contract(path, data)
+    return {"steps": steps}
+
+
+def set_visual_target(base: Path, percent: float) -> float:
+    """动效占正文的比例。Park 只给一个数，其余机器定。"""
+    if not 0 <= percent <= 100:
+        raise KouboError("比例要在 0 到 100 之间")
+    path, data = _contract(base)
+    data["visual_coverage_target"] = round(percent / 100, 3)
+    _save_contract(path, data)
+    return data["visual_coverage_target"]
+
+
 # -- Step 1：project.json ---------------------------------------------------
 # 没有它，工作台按「旧版目录」识别：14 步进度算不出来，「开始跑」也会被拒，
 # 于是标完 Hook 之后没有任何一条路通向动效。四个 preset 的 id 从 skill 目录里读，
