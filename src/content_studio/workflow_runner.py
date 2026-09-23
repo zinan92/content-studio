@@ -26,10 +26,22 @@ DEFAULT_RUNS_DIR = config_dir() / "runs"
 GATE_APPROVAL_KEYS = {"H1": "hook", "H2": "visual_spec", "H3": "final"}
 
 
+def _visual_rule(project_path: Path) -> str:
+    try:
+        target = json.loads((project_path / "project.json").read_text(encoding="utf-8")).get("visual_coverage_target")
+    except (OSError, ValueError, AttributeError):
+        target = None
+    if not isinstance(target, (int, float)):
+        return ""
+    pct = round(target * 100)
+    extra = "" if 30 <= pct <= 40 else f"这个比例不在 30–40%，在 visual-plan.json 里写 coverage_exception：「Park 指定 {pct}%」。"
+    return f"\n- 动效占正文的比例 Park 定为 {pct}%（按时长算）。按这个数挑点，不要自己改。{extra}"
+
+
 def build_prompt(project_path: Path) -> str:
     return f"""用 ask-park-video skill 继续这个口播项目：{project_path}
 
-规则：
+规则：{_visual_rule(project_path)}
 - 按 skill 的 14 步和完成证据，从最早没完成的一步继续，连续执行，直到遇到人工审批门（H1 Hook、H2 视觉规格、H3 终审）、真实阻塞或全部完成就停下。
 - 写完 part-b-body/visual-plan.json 之后，**先跑算术检查再叫独立评审**：
   `python3 -m content_studio check-visual-plan <项目目录>`（在 ~/work/content-studio 下跑）。

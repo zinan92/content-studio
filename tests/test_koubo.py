@@ -273,3 +273,67 @@ def test_skipping_hook_is_written_into_the_contract(tmp_path: Path) -> None:
     assert data["step_status"] == {"2": "pass", "5": "skipped", "7": "skipped", "8": "skipped", "9": "skipped"}
     assert data["approvals"]["hook"] == "skipped" and data["approvals"]["final"] is None
     assert data["presets"] == {"media": "m"}  # 别的字段一个不动
+
+
+def _contract_project(tmp_path: Path) -> Path:
+    base = tmp_path / "项目"
+    base.mkdir()
+    (base / "project.json").write_text(json.dumps({
+        "presets": {"media": "m", "audio": "a", "caption_style": "c", "caption_layout": "l"},
+        "step_status": {"2": "pass"}, "approvals": {"hook": None, "visual_spec": None, "final": None}}), encoding="utf-8")
+    return base
+
+
+def test_hook_made_elsewhere_counts_as_done(tmp_path: Path) -> None:
+    """9/22 的 Hook 是 Codex 剪的：给出视频，5/7/8/9 记成 external，进度往后走。"""
+    from content_studio import video_project
+
+    base = _contract_project(tmp_path)
+    with pytest.raises(koubo.KouboError, match="Hook 在哪"):
+        koubo.mark_external(base, "hook")
+    with pytest.raises(koubo.KouboError, match="不是视频"):
+        koubo.mark_external(base, "hook", source=tmp_path / "nope.txt")
+    clip = tmp_path / "hook.mp4"
+    clip.write_bytes(b"0" * 32)
+    koubo.mark_external(base, "hook", source=clip)
+    data = json.loads((base / "project.json").read_text(encoding="utf-8"))
+    assert (base / "part-a-hook" / "video.mp4").is_file()
+    assert [data["step_status"][str(n)] for n in (5, 7, 8, 9)] == ["external"] * 4
+    assert data["step_status"]["2"] == "pass" and data["approvals"]["hook"] == "external"
+    (base / "subtitles").mkdir()
+    for rel in ("subtitles/source.srt", "subtitles/transcript.sentences.json", "analysis/worktable.html"):
+        (base / rel).parent.mkdir(exist_ok=True)
+        (base / rel).write_text("x", encoding="utf-8")
+    data["step_status"]["3"] = "pass"
+    (base / "project.json").write_text(json.dumps(data), encoding="utf-8")
+    info = video_project.inspect(tmp_path, "项目")
+    assert info["current_step"] == 6  # Hook 这一段过了，停在内容地图
+    assert "在外面做完了" in info["steps"][4]["evidence"]
+
+
+def test_whole_video_made_elsewhere_goes_to_publish(tmp_path: Path) -> None:
+    from content_studio import video_project
+
+    base = _contract_project(tmp_path)
+    with pytest.raises(koubo.KouboError, match="final/"):
+        koubo.mark_external(base, "all")
+    (base / "final").mkdir()
+    (base / "final" / "9月22日-抖音上传版.mp4").write_bytes(b"0" * 32)
+    koubo.mark_external(base, "all")
+    info = video_project.inspect(tmp_path, "项目")
+    assert info["delivered"] is True and info["current_step"] is None
+    assert json.loads((base / "project.json").read_text(encoding="utf-8"))["step_status"]["2"] == "pass"  # 机器做过的不改写
+
+
+def test_visual_target_reaches_the_runner_prompt(tmp_path: Path) -> None:
+    from content_studio import workflow_runner
+
+    base = _contract_project(tmp_path)
+    assert "动效占正文" not in workflow_runner.build_prompt(base)
+    assert koubo.set_visual_target(base, 30) == 0.3
+    prompt = workflow_runner.build_prompt(base)
+    assert "Park 定为 30%" in prompt and "coverage_exception" not in prompt
+    koubo.set_visual_target(base, 50)
+    assert "coverage_exception：「Park 指定 50%」" in workflow_runner.build_prompt(base)
+    with pytest.raises(koubo.KouboError):
+        koubo.set_visual_target(base, 120)

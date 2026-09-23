@@ -223,6 +223,11 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
             "blocked_reason": None,
         }
     checks = _step_checks(base, contract)
+    # 在外面（剪映、Codex、手工）做完的步骤：Park 说了算，不再要求本目录里有机器产物。
+    status = contract.get("step_status") or {}
+    for n in list(checks):
+        if str(status.get(str(n)) or "").lower() == "external":
+            checks[n] = lambda: Evidence(True, "在外面做完了（记录在 project.json）")
     steps = []
     current = None
     for number in range(1, 15):
@@ -252,6 +257,7 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         "final_video": release.find_video(base),
         "release": release.find_release(base),
         "h2_review": find_h2_review(base),
+        "visual_target": contract.get("visual_coverage_target"),
         "summary": "已交付" if delivered else (f"Step {current}：{STEP_NAMES[current]}" + (f" · {gate['title']}" if gate else "")),
         "steps": steps,
         "stages": stages,
