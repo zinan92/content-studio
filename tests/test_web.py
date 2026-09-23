@@ -382,8 +382,10 @@ def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: 
     handed = client.post(f"/api/topics/{topic['id']}/handoff").json()
     assert handed["topic"]["status"] == "ready" and handed["admin_url"] == "https://admin.example.com"
 
+    # 只做视频的选题点「写文章」：不再挡，改成文章 + 视频接着写。
     video_only = client.post("/api/topics", json={"title": "只拍视频", "formats": "video"}).json()
-    assert client.post(f"/api/topics/{video_only['id']}/write").status_code == 400
+    assert client.post(f"/api/topics/{video_only['id']}/write").json()["started"] is True
+    assert _wait_topic(client, video_only["id"])["formats"] == "both"
     broken = client.post("/api/topics", json={"title": "炸掉", "formats": "article"}).json()
     client.post(f"/api/topics/{broken['id']}/write")
     failed = _wait_topic(client, broken["id"])

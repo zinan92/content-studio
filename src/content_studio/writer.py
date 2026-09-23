@@ -53,7 +53,14 @@ def gather_sources(vault_raw: str, note_paths: list[str]) -> list[dict[str, Any]
     return sources
 
 
+TRANSCRIPT_TITLE = "视频原话（转写）"
+VIDEO_RULE = """
+- 这篇是 Park 那条视频的文字版。**观点、例子和先后顺序以「视频原话」为准**：把口语整理成书面语，
+  删掉口头禅和重复，但不要加视频里没说的观点、经历和数字；笔记只用来核对和补细节。"""
+
+
 def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None) -> str:
+    from_video = any(s["title"] == TRANSCRIPT_TITLE for s in sources)
     material = "\n\n".join(
         f"### 素材 {i + 1}：{s['title']}\n来源：{s['url'] or s['path']}\n\n{s['body']}" for i, s in enumerate(sources)
     ) or "（没有附带素材，只根据选题和备注写。）"
@@ -64,7 +71,7 @@ def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: st
 重要：khazix-writer 只提供写法。文章作者是 Park，不是卡兹克。
 - 不要出现卡兹克的署名、邮箱、投稿方式、「以上，既然看到这里了……三连」这类他的固定结尾。
 - 用第一人称「我」写 Park 的观点；素材里别人的观点要说明是谁说的，不要据为己有。
-- 素材里没有的事实、数字、人名不要编。
+- 素材里没有的事实、数字、人名不要编。{VIDEO_RULE if from_video else ""}
 
 ## 选题
 {topic['title']}
@@ -115,8 +122,12 @@ def write_article(
     write_fn: WriteFn = cli_write,
     attempts: int = 2,
     now: datetime | None = None,
+    transcript: str = "",
 ) -> dict[str, Any]:
     sources = gather_sources(vault_raw, topic.get("note_paths") or [])
+    if transcript.strip():
+        # 视频拍完了：原话排第一，不占笔记的字数额度。
+        sources = [{"path": "视频项目", "title": TRANSCRIPT_TITLE, "url": None, "body": transcript.strip()[:MAX_SOURCE_CHARS]}, *sources]
     error: str | None = None
     for _ in range(attempts):
         try:

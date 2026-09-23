@@ -1069,6 +1069,7 @@ def create_app(
                 topic,
                 vault_raw=vault_path(),
                 drafts_dir=drafts_root,
+                transcript=_video_transcript(topic),
                 **({"write_fn": write_fn} if write_fn else {}),
             )
             current = store.topic(topic_id)
@@ -1090,7 +1091,9 @@ def create_app(
     def start_write(topic_id: int) -> dict[str, Any]:
         topic = store.topic(topic_id)
         if topic["formats"] == "video":
-            raise ValueError("这个选题只做视频；先把形式改成「文章」或「文章 + 视频」")
+            # 视频拍完了，文字版也能发（研习室、X）。点了写文章就是要写，不再挡他。
+            store.update_topic(topic_id, formats="both")
+            store.log_event("stage", f"《{topic['title'][:24]}》加了文章版", topic_id)
         with writing_lock:
             if topic_id in writing:
                 return {"started": False, "message": "这篇正在写"}
@@ -1136,17 +1139,29 @@ def create_app(
 
     title_errors: dict[int, str] = {}
 
+    def _video_transcript(topic: dict[str, Any]) -> str:
+        """视频项目里的原话：优先校对过标点的句子表，没有再用 SRT。"""
+        from . import koubo, titles
+
+        if not topic.get("video_project"):
+            return ""
+        try:
+            base = video_project.project_dir(video_root(), topic["video_project"])
+            sentences = base / "subtitles" / "transcript.sentences.json"
+            if sentences.is_file():
+                data = json.loads(sentences.read_text(encoding="utf-8"))
+                rows = data.get("transcript") if isinstance(data, dict) else data
+                return "".join(str(r.get("text") or "") for r in rows or [] if isinstance(r, dict))
+            srt = koubo.find_srt(base)
+            return titles.srt_text(srt) if srt else ""
+        except (VideoProjectError, OSError, ValueError):
+            return ""
+
     def _title_material(topic: dict[str, Any]) -> tuple[str, str]:
         """转写（视频项目里的 SRT）和骨架。都没有也能出，只是依据少。"""
         from . import koubo, outline, titles
 
-        transcript = ""
-        if topic.get("video_project"):
-            try:
-                srt = koubo.find_srt(video_project.project_dir(video_root(), topic["video_project"]))
-                transcript = titles.srt_text(srt) if srt else ""
-            except (VideoProjectError, OSError):
-                transcript = ""
+        transcript = _video_transcript(topic)
         skeleton = (outline.read_outline(topic) or {}).get("markdown", "")
         return transcript, skeleton
 

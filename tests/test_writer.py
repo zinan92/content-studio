@@ -75,3 +75,19 @@ def test_interrupted_writes_are_recovered(tmp_path: Path) -> None:
     assert store.recover_interrupted_writes() == 1
     assert store.topic(topic["id"])["write_state"] == "failed"
     store.close()
+
+
+def test_video_transcript_leads_the_material(tmp_path: Path) -> None:
+    """视频拍完的选题：原话排第一，提示词说以原话为准。"""
+    prompts = []
+
+    def fake(prompt):
+        prompts.append(prompt)
+        return f"<<<ARTICLE>>>\n{BODY}\n<<<END>>>"
+
+    result = writer.write_article(_topic(), vault_raw=str(tmp_path), drafts_dir=tmp_path / "d", write_fn=fake,
+                                  transcript="我今天才想明白他为什么开源这个skill。")
+    assert "### 素材 1：视频原话（转写）" in prompts[0] and "以「视频原话」为准" in prompts[0]
+    assert result["sources"][0]["title"] == writer.TRANSCRIPT_TITLE
+    writer.write_article(_topic(), vault_raw=str(tmp_path), drafts_dir=tmp_path / "d", write_fn=fake)
+    assert "视频原话" not in prompts[1]
