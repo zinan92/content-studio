@@ -715,3 +715,12 @@
 - **不做的:** 不重启 bird / fileproviderd，不删占位文件，不自动移动已有项目。Codex 此刻还在那个目录里做封面和上传，挪它会打断它。
 - **Evidence:** 267 个测试通过（新增 5 个）。在真实路径上跑过：Codex 的工作目录判为 iCloud（`~/Documents`），SSD 和 `~/work` 不在。
 - **Gotchas:** Python 在 macOS 上没有 `os.getxattr`，用 ctypes 调 libc 的 `getxattr`（macOS 的签名多一个 position 和 options 参数，比 Linux 多两个）。
+
+## 2026-09-23 — 剪辑进度显示任何 agent 在这个项目上的实时动静（#147）
+
+- **Context:** 9/22 那条视频，Park 在两个 agent 那里前后问了大约 14 次「怎么样了」。工作台只看得到自己启动的任务；Codex 或 Claude App 里跑的，它完全看不见。
+- **Decision:** 不管是谁在跑，只看项目目录本身。三个信号：`project.json` 说到了哪一步、上一步什么时候完成（→ 这一步做了多久）；文件系统说最后写了什么、多久以前；进程表里谁的命令行带着这个目录。五种状态：在干活 / 等你拍板 / 可能卡住了（没进程且 15 分钟无写入）/ 刚停 / 已交付。**停在审批门不算卡住，是在等人。**
+- **Evidence:** 273 个测试通过（新增 6 个）。在真实项目上跑，当场抓到 Codex 正在做封面：进程里有它调的 ffmpeg，最后写入是 2 分钟前的 `final/covers/subject-cutout.png`。
+- **Gotchas（两条）:**
+  1. **`ps` 默认 locale 下会把中文路径转义**：`2026-09-22_9月22日` 变成 `2026-09-22_9M-fM^\M^H…`，拿路径去匹配永远对不上。必须带 `LC_ALL=en_US.UTF-8` 调。launchd 起的服务环境里没有 LANG，所以是在子进程 env 里显式塞，不靠继承。
+  2. **分类不能按整行找关键词**：项目在 `.../Codex/Workspaces/...` 下，一个普通的 `rg` 也会被标成 codex。改成只看命令本身的词，路径只取文件名。

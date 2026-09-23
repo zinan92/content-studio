@@ -212,6 +212,8 @@ async function renderNow(topic, info) {
       <p class="vp-now-need">这一步在等：${esc(step.evidence || '')}</p></div>${last}`;
   }
 
+  box.insertAdjacentHTML('beforeend', '<div class="vp-act" id="vpAct"></div>');
+  renderActivity(topic);
   const start = $('#runStart');
   if (start) start.onclick = async () => {
     if (!confirm('让机器在后台继续跑这个口播项目？它会处理视频文件，停在下一个审批门。')) return;
@@ -230,6 +232,26 @@ async function renderNow(topic, info) {
   };
   const gateBox = $('#gateBox');
   if (gateBox) renderGate(topic, info, gateBox);
+}
+
+/* 实时动静：不管是工作台、Codex 还是 Claude 在跑，只看项目目录本身。
+   9/22 那条视频前后被问了大约 14 次「怎么样了」——答案应该一直摆在这里。 */
+const agoText = (s) => (s < 60 ? '刚刚' : s < 3600 ? `${Math.floor(s / 60)} 分钟前` : `${Math.floor(s / 3600)} 小时 ${Math.floor((s % 3600) / 60)} 分钟前`);
+const spanText = (m) => (m < 60 ? `${m} 分钟` : `${Math.floor(m / 60)} 小时 ${m % 60} 分钟`);
+
+async function renderActivity(topic) {
+  const el = $('#vpAct');
+  if (!el) return;
+  let a;
+  try { a = await api(`/api/topics/${topic.id}/video-project/activity`); } catch (err) { el.innerHTML = ''; return; }
+  const bits = [];
+  if (a.step && a.step_minutes !== null) bits.push(`Step ${a.step} 已进行 ${spanText(a.step_minutes)}`);
+  if (a.last_write) bits.push(`最后写入 ${agoText(a.last_write.seconds_ago)}：<code>${esc(a.last_write.path)}</code>`);
+  el.innerHTML = `<div class="vp-act-h"><i class="dot ${a.state}"></i><b>${esc(a.say)}</b></div>
+    ${bits.length ? `<p>${bits.join(' · ')}</p>` : ''}
+    ${a.workers.length ? `<details><summary>${a.workers.length} 个进程</summary><ul>${a.workers.map((w) => `<li><span class="pill mid">${esc(w.kind)}</span> 已跑 ${esc(w.elapsed)} <code>${esc(w.command)}</code></li>`).join('')}</ul></details>` : ''}`;
+  clearTimeout(VP.actPoll);
+  VP.actPoll = setTimeout(() => { if (S.view === 'work' && VD.tab === 'edit' && VD.topicId === topic.id) renderActivity(topic); }, 15000);
 }
 
 async function renderGate(topic, info, el) {

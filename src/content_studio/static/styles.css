@@ -160,6 +160,22 @@ button.chip-state{cursor:pointer}
 .vp-bar i,.vp-bar b{height:5px;border-radius:3px}
 .vp-bar i{background:var(--accent)}
 .vp-bar b{background:var(--line)}
+/* 实时动静：谁在干活、最后写了什么 */
+.vp-act{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line-soft);font-size:13px;color:var(--ink-2)}
+.vp-act-h{display:flex;gap:8px;align-items:center}
+.vp-act-h b{font-weight:600}
+.vp-act p{margin:4px 0 0 16px;color:var(--ink-3)}
+.vp-act code{font-size:12px;word-break:break-all}
+.vp-act details{margin:6px 0 0 16px}
+.vp-act ul{margin:4px 0 0;padding-left:16px}
+.vp-act li{margin:3px 0}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:var(--ink-3)}
+.dot.working{background:var(--accent);animation:vpPulse 1.4s ease-in-out infinite}
+.dot.waiting{background:var(--hot)}
+.dot.stalled{background:var(--warn)}
+.dot.done{background:var(--save)}
+@keyframes vpPulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dot.working{animation:none}}
 .vp-fold{border-top:1px solid var(--line-soft)}
 .vp-fold>summary{display:flex;gap:8px;align-items:center;cursor:pointer;padding:11px 2px;font-size:14px}
 .vp-fold>summary small{color:var(--ink-3);font-size:12px}
