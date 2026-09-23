@@ -375,7 +375,7 @@ function sideFor(p, d) {
       ${mark}${history}${fields}`;
   }
   if (p.treatment === 'scan' || p.treatment === 'auto') {
-    const ready = p.can_auto && (d.video || p.no_video) && d.has_copy;
+    const ready = p.can_auto && (d.video || p.no_video) && (p.needs_article ? d.has_article : d.has_copy);
     let block;
     if (p.state === 'blocked') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b>。通道留着，先按手动的方式发。</p>${manual}`;
@@ -383,12 +383,14 @@ function sideFor(p, d) {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>在电脑上运行下面这条重新扫码，回来这里就能机器发：</p><p class="pdl-note"><code>${esc(p.login_hint)}</code></p>${manual}`;
     } else if (p.state === 'setup') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>${esc(p.login_hint)}</p>${manual}`;
-    } else if (!d.has_copy) {
+    } else if (p.needs_article && !d.has_article) {
+      block = '<p class="pdl-note">X 发的是图文文章：先在「研习室文章」写好（视频拍完的会以视频原话为准），横版封面会放在最前面。</p>';
+    } else if (!p.needs_article && !d.has_copy) {
       block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
-      block = `<p class="pdl-note">${esc(p.note)}${p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）`}。</p>
+      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? '。发的是研习室那篇文章，横版封面放最前面；需要 X Premium' : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
         <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
     } else {

@@ -90,6 +90,7 @@ def rows(platform_rows: list[dict[str, Any]], *, specs: dict[str, dict[str, Any]
             "job": _job_view(job) if job else None,
             "modes": channel.get("modes") or {},
             "no_video": bool(channel.get("no_video")),
+            "needs_article": bool(channel.get("needs_article")),
             "can_auto": can_auto,
             "handoff_done": handoff_done if how == "handoff" else None,
         })

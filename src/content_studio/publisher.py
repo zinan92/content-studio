@@ -55,8 +55,11 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "needs_keys": ("x", ("api_key", "api_secret", "access_token", "access_secret")),
         "login_hint": "在 developer.x.com 建应用（权限选 Read and Write），把四个密钥写进 ~/.config/park/secrets.yaml 的 x: 段",
         "no_video": True,
+        # 9/23 Park：X 一定要是图文文章。发的是研习室文章 + 横版封面，不是文案框里那几行。
+        "needs_article": True,
         "modes": {
-            "post": {"label": "发一条推文（纯文字）", "argv": ["python3", "-m", "content_studio.x_post", "--text", "{body}"]},
+            "article_draft": {"label": "存为 X 图文文章草稿", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}"]},
+            "article_publish": {"label": "直接发布图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}", "--publish"]},
         },
     },
     "youtube": {
@@ -90,7 +93,7 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
             # A platform-side block: the credential may be perfectly fine and re-scanning a QR
             # code fixes nothing. Saying 「要重新登录」 here would send Park off on a dead errand.
             result[key] = {"label": spec["label"], "credential": True, "age_days": None, "likely_expired": True,
-                           "blocked": True, "note": spec["blocked"], "login_hint": "", "no_video": bool(spec.get("no_video")),
+                           "blocked": True, "note": spec["blocked"], "login_hint": "", "no_video": bool(spec.get("no_video")), "needs_article": bool(spec.get("needs_article")),
                            "modes": {m: v["label"] for m, v in spec["modes"].items()}}
             continue
         path = Path(spec["credential"])
@@ -108,7 +111,7 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
                 missing = list(section[1])
             if missing:
                 result[key] = {"label": spec["label"], "credential": False, "age_days": None, "likely_expired": True,
-                               "setup": True, "note": f"还缺 {', '.join(missing)}", "login_hint": spec["login_hint"], "no_video": bool(spec.get("no_video")),
+                               "setup": True, "note": f"还缺 {', '.join(missing)}", "login_hint": spec["login_hint"], "no_video": bool(spec.get("no_video")), "needs_article": bool(spec.get("needs_article")),
                                "modes": {m: v["label"] for m, v in spec["modes"].items()}}
                 continue
         if path.is_file():
@@ -127,19 +130,27 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
                 expired = age > 30
                 note = f"登录信息更新于 {stamp}" + ("，已超过 30 天，很可能需要重新登录" if expired else "")
             result[key] = {"label": spec["label"], "credential": True, "age_days": age, "likely_expired": expired, "note": note, "login_hint": spec["login_hint"],
-                           "no_video": bool(spec.get("no_video")), "modes": {m: v["label"] for m, v in spec["modes"].items()}}
+                           "no_video": bool(spec.get("no_video")), "needs_article": bool(spec.get("needs_article")), "modes": {m: v["label"] for m, v in spec["modes"].items()}}
         else:
             result[key] = {"label": spec["label"], "credential": False, "age_days": None, "likely_expired": True, "note": "还没有登录信息", "login_hint": spec["login_hint"],
-                           "no_video": bool(spec.get("no_video")), "modes": {m: v["label"] for m, v in spec["modes"].items()}}
+                           "no_video": bool(spec.get("no_video")), "needs_article": bool(spec.get("needs_article")), "modes": {m: v["label"] for m, v in spec["modes"].items()}}
     return result
 
 
-def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[str, Any] | None, publishers: dict[str, dict[str, Any]] = PUBLISHERS) -> dict[str, Any]:
+def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[str, Any] | None, publishers: dict[str, dict[str, Any]] = PUBLISHERS,
+                  article: Path | None = None, cover: Path | None = None) -> dict[str, Any]:
     spec = publishers.get(platform)
     if spec is None:
         raise PublishError("这个平台还不能一键发布")
     if mode not in spec["modes"]:
         raise PublishError("发布方式无效")
+    if spec.get("needs_article"):
+        if article is None or not article.is_file():
+            raise PublishError("先在「研习室文章」写好文章，X 发的是图文文章")
+        heading = next((l[2:].strip() for l in article.read_text(encoding="utf-8").splitlines() if l.startswith("# ")), "")
+        return {"platform": platform, "platform_label": spec["label"], "mode": mode, "mode_label": spec["modes"][mode]["label"],
+                "video": "", "video_mb": 0, "title": heading or article.stem, "body": "", "tags": [],
+                "article": str(article), "cover": str(cover) if cover and cover.is_file() else ""}
     text_only = bool(spec.get("no_video"))
     if not text_only and (video is None or not video.is_file()):
         raise PublishError("找不到成片文件")
@@ -161,9 +172,10 @@ def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[st
 
 def command_for(payload: dict[str, Any], publishers: dict[str, dict[str, Any]] = PUBLISHERS) -> list[str]:
     template = publishers[payload["platform"]]["modes"][payload["mode"]]["argv"]
-    values = {"video": payload["video"], "title": payload["title"], "body": payload["body"], "tags": ",".join(payload["tags"])}
+    values = {"video": payload["video"], "title": payload["title"], "body": payload["body"], "tags": ",".join(payload["tags"]),
+              "article": payload.get("article", ""), "cover": payload.get("cover", "")}
     # Only whole-argument placeholders are substituted, so titles with braces never break the command.
-    return [values[part[1:-1]] if part in ("{video}", "{title}", "{body}", "{tags}") else part for part in template]
+    return [values[part[1:-1]] if part[1:-1] in values and part.startswith("{") and part.endswith("}") else part for part in template]
 
 
 def confirmable(job: dict[str, Any], now: datetime | None = None) -> None:
