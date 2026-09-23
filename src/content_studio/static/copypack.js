@@ -51,11 +51,13 @@ async function renderCopyBox(topic, el) {
   const tagsOf = (raw) => raw.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
   el.innerHTML = `<section class="cb dy">
     <div class="dy-bar"><span class="dy-logo">抖音</span><b>发布视频</b><small>在这里写好，到抖音粘贴</small><span class="spacer"></span>
+      <button class="btn small ghost" type="button" id="cbTitles">出标题</button>
       ${topic.outline_path ? '<button class="btn small ghost" type="button" id="cbFill">用提纲填</button>' : ''}</div>
     <div class="dy-grid">
       <div class="dy-form">
         <label class="dy-field"><span>标题</span><input id="cbTitle" value="${esc(e.title)}" placeholder="${esc(topic.title)}" autocomplete="off" maxlength="60"></label>
         <div class="len-row" id="cbLens">${lengthChips(e.title, specs)}</div>
+        <div class="tc" id="cbTitleList" hidden></div>
         <label class="dy-field"><span>作品描述<i class="dy-count" id="cbCount">0/1000</i></span><textarea id="cbBody" rows="5" placeholder="好的开头能留住人。把第一句写在这里。">${esc(e.body)}</textarea></label>
         <label class="dy-field"><span>添加话题<i class="dy-hint">逗号分隔，抖音最多 5 个</i></span><input id="cbTags" value="${esc((e.tags || []).join('，'))}" placeholder="AI，投资，副业" autocomplete="off"></label>
         <div class="dy-foot">
@@ -127,6 +129,31 @@ async function renderCopyBox(topic, el) {
       CP.dirty = true;
       repaint();
     } catch (err) { toast(err.message); }
+  };
+  /* 标题候选：按 Anna 的「标题」工作流出，点一条填进标题框。不替 Park 选。 */
+  const list = $('#cbTitleList', el);
+  const showTitles = (t) => {
+    list.hidden = false;
+    if (t.running) { list.innerHTML = '<p class="tc-note">正在按「标题」工作流出候选，半分钟到一分钟…</p>'; return; }
+    if (t.error) { list.innerHTML = `<p class="tc-note bad">${esc(t.error)}</p>`; return; }
+    const r = t.result;
+    if (!r) { list.hidden = true; return; }
+    list.innerHTML = `<p class="tc-note">点一条填进标题${r.had_transcript ? '' : ' · 没找到转写，只看了选题和骨架'}${r.people.length ? ` · 视频里点名了 ${esc(r.people.join('、'))}` : ''}</p>
+      ${r.candidates.map((c, i) => `<button type="button" class="tc-row" data-tc="${i}"><b>${esc(c.title)}${c.over ? ` <i class="tc-over" title="抖音标题最多 30 字，发之前删几个字">${c.title.length} 字</i>` : ''}</b><span class="tc-pat ${c.pattern.includes('借力') ? 'borrow' : ''}">${esc(c.pattern)}</span><small>${esc(c.basis)}</small></button>`).join('')}`;
+    $$('[data-tc]', list).forEach((b) => (b.onclick = () => { title.value = r.candidates[Number(b.dataset.tc)].title; CP.dirty = true; repaint(); title.focus(); }));
+  };
+  const pollTitles = async () => {
+    let t;
+    try { t = await api(`/api/topics/${topic.id}/titles`); } catch (err) { return; }
+    if (!document.body.contains(list)) return;
+    showTitles(t);
+    if (t.running) setTimeout(pollTitles, 3000);
+  };
+  const tb = $('#cbTitles', el);
+  api(`/api/topics/${topic.id}/titles`).then((t) => { if (t.result || t.running) { tb.textContent = '再出一批标题'; showTitles(t); if (t.running) setTimeout(pollTitles, 3000); } }).catch(() => {});
+  tb.onclick = async () => {
+    try { await api(`/api/topics/${topic.id}/titles`, { method: 'POST' }); tb.textContent = '再出一批标题'; showTitles({ running: true }); setTimeout(pollTitles, 3000); }
+    catch (err) { toast(err.message); }
   };
   const refresh = () => { CP.dirty = false; delete CP.data[topic.id]; const body = $('#videoBody'); if (body) body.dataset.sig = ''; renderView(); };
   $('#cbSave', el).onclick = async () => {
