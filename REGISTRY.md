@@ -30,10 +30,13 @@ P3（Park 2026-09-14 授权）：后台代跑口播 workflow（审批门在工�
 | P1 内容生产工作台 | built | PR #24–#35 |
 | P2 视频线与全流程 | built | PR #44–#53，Issue #38–#43 |
 | P3 后台代跑 + 审批 · 一键发布 | built | PR #58 #59，Issue #56 #57 |
+| P4 9/22 复盘八项（发布台认成片、iCloud 拦截、进度可见、H2 进工作台、封面、标题、Hook 拼接、手机预览） | built | PR #152–#160，park-koubo-workflow#12 |
 | P3-1 研习室自动草稿 | waiting | #31（依赖 wechat-xingqiu#207） |
 | M4 扩平台数据 | not started | 抖音站内搜索因反作弊不做（#20） |
 
 ## Next
+
+0. 9/22 那条视频的真实项目在 Codex 的 iCloud 目录里；Codex 收工后挪到外置盘根目录并重新关联，发布台才看得到它的封面、标题和手机预览。
 
 1. Park 实际用一天后按反馈调整统筹与提纲的写法。
 2. wechat-xingqiu#207 验收通过后做 #31。
