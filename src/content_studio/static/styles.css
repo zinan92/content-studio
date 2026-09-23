@@ -175,6 +175,13 @@ button.chip-state{cursor:pointer}
 .vp-skip .muted{font-size:13px}
 /* 发布台：发不了的那些折起来，别再摆成一排让人重新挑一次 */
 .pub-others{margin:8px 0 0}
+/* 交付包封面：横竖两张并排，点开看原图 */
+.pub-covers{display:flex;gap:10px;margin:10px 0 2px;flex-wrap:wrap}
+.pub-cover{display:flex;flex-direction:column;gap:4px;text-decoration:none;color:var(--ink-3);font-size:12px}
+.pub-cover img{display:block;border:1px solid var(--line);border-radius:6px;background:var(--sunk)}
+.pub-cover.landscape img{height:96px;width:auto;aspect-ratio:4/3}
+.pub-cover.portrait img{height:96px;width:auto;aspect-ratio:3/4}
+.pub-cover:hover img{border-color:var(--accent)}
 .pub-others summary{cursor:pointer;color:var(--ink-3);font-size:12px;padding:4px 2px}
 .pub-others summary:hover{color:var(--ink-2)}
 .pub-others .pub-topics{padding-top:6px}

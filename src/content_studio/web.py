@@ -964,6 +964,7 @@ def create_app(
             "others": [c for c in candidates if c["id"] not in {s["id"] for s in sendable}],
             "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url")},
             "video": {"path": str(video), "name": video.name, "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
+            "release": _release_for(topic),
             "has_copy": bool(entry["title"] or entry["body"]),
             "has_article": article is not None,
             "entry": entry,
@@ -1774,6 +1775,18 @@ def create_app(
         from . import publisher
 
         return publishers if publishers is not None else publisher.PUBLISHERS
+
+    def _release_for(topic: dict[str, Any]) -> dict[str, Any] | None:
+        """final/ 下的封面和发布文案。项目名带出去，前端用它拼文件地址。"""
+        from . import release
+
+        if not topic.get("video_project"):
+            return None
+        try:
+            base = video_project.project_dir(video_root(), topic["video_project"])
+        except VideoProjectError:
+            return None
+        return {"project": topic["video_project"], **release.find_release(base)}
 
     def final_video_path(topic: dict[str, Any]) -> Path | None:
         if not topic.get("video_project"):

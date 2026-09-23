@@ -697,3 +697,11 @@
 - **怎么验证**：`tests/test_productize.py` 7 条；在临时 venv + 空 `CONTENT_STUDIO_HOME` 下 clone 分支跑 `check` / `serve` / `/api/state`，看不到 Park 的任何数据。
 - **踩了什么坑**：冒烟测试时在临时目录 `pip install -e .`，把全局的 editable 安装指到了临时副本，之后跑的测试其实测的是旧代码。以后冒烟一律用 venv。
   合并后 Park 的实例起不来：`web.py` 用了 `os` 没 import，256 个测试没一个给过带 `anna:` 的 profile，冒烟用的空模板又把那个分支短路了。补了 `test_profile_anna_paths_reach_the_env`。教训：新加的配置项，测试至少要给一次**填了值**的。
+
+## 2026-09-23 — 发布台认得 final/ 下的成片、封面和发布文案（#145）
+
+- **Context:** Codex 做完 9/22 那条视频，交付的是 `final/9月22日-抖音上传版.mp4`、`final/9月22日-封面.jpg`、`final/covers/*.png` 和 `final/发布文案.md`。工作台只认 `final/video.mp4`，发布台于是一直说「还没有成片」。
+- **Decision:** 新模块 `release.py` 只做识别。成片：老的固定位置优先，其次按名字提示词（上传版 > final > video），都没有就取最大的——代理片和预览片都比母版小。封面：名字带「封面 / cover」，排除抠像、取帧、拼图这些中间产物；按真实宽高分横竖，同一方向取最新的。文案：按 `##` 分节解析推荐标题、备选标题、简介、话题。
+- **不动 14 步判据:** `final_video` 只用于显示和发布；Step 14 仍然看 `final/video.mp4` + QA + 终审。测试里断言了 `delivered` 没被放宽。
+- **不装 Pillow:** 为了认横竖只读图片头——PNG 读 IHDR，JPEG 扫 SOF 段，二十行。为这一件事加一个依赖不值。
+- **Evidence:** 262 个测试通过（新增 6 个）。在 Codex 的真实项目上跑过：成片、横竖封面（取到最新的 dontbesilent 那版）、文案全部认对。

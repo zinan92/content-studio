@@ -33,7 +33,6 @@ STEP_NAMES = {
     9: "成品 A 与 QA", 10: "正文 Picture Lock", 11: "视觉轨道（H2）", 12: "声音轨道",
     13: "成品 B 与 QA", 14: "合成、终审 QA（H3）",
 }
-LEGACY_FINALS = ("final/video.mp4", "final-video.mp4", "delivery/final-video.mp4")
 READABLE = {".html", ".json", ".md", ".mp4", ".srt", ".txt", ".png", ".jpg"}
 
 
@@ -188,7 +187,9 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         "log": process_log_tail(base),
     }
     if not isinstance(contract, dict):
-        final = next((rel for rel in LEGACY_FINALS if (base / rel).is_file()), None)
+        from . import release
+
+        final = release.find_video(base)
         entries = [p for p in base.iterdir() if not p.name.startswith(".")]
         fresh = all(p.name in ("README.md", "拍摄提纲.md") for p in entries)
         if final:
@@ -228,13 +229,17 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         else:
             state = "todo"
         stages.append({"key": key, "label": label, "steps": list(numbers), "passed": passed, "total": len(numbers), "state": state})
+    from . import release
+
     gate = _gate(base, current, contract)
     delivered = current is None
     return {
         **common,
         "layout": SUPPORTED_LAYOUT,
         "delivered": delivered,
-        "final_video": "final/video.mp4" if artifacts["final/video.mp4"] else None,
+        # 只用于显示和发布：认 final/ 下真实交付的那一个。Step 14 的判据不变，仍看 final/video.mp4。
+        "final_video": release.find_video(base),
+        "release": release.find_release(base),
         "summary": "已交付" if delivered else (f"Step {current}：{STEP_NAMES[current]}" + (f" · {gate['title']}" if gate else "")),
         "steps": steps,
         "stages": stages,
