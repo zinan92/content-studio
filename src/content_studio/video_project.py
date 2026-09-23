@@ -44,6 +44,12 @@ def resolve_root(raw: str | None) -> Path:
     candidates = [Path(raw).expanduser()] if raw else [p.expanduser() for p in DEFAULT_ROOTS]
     for candidate in candidates:
         if candidate.is_dir():
+            from . import icloud
+
+            try:
+                icloud.refuse_synced_root(candidate)
+            except ValueError as exc:
+                raise VideoProjectError(str(exc)) from None
             return candidate.resolve()
     shown = raw or str(DEFAULT_ROOTS[0])
     hint = "（外接硬盘可能没接上）" if shown.startswith("/Volumes/") else ""
@@ -66,7 +72,12 @@ def safe_file(root: Path, name: str, relative: str) -> Path:
     path = (base / relative).resolve()
     if base not in path.parents or not path.is_file() or path.suffix.lower() not in READABLE:
         raise VideoProjectError("文件不存在")
-    return path
+    from . import icloud
+
+    try:
+        return icloud.ensure_local(path)
+    except icloud.NotLocalError as exc:
+        raise VideoProjectError(str(exc)) from None
 
 
 def _json(path: Path) -> Any:

@@ -705,3 +705,13 @@
 - **不动 14 步判据:** `final_video` 只用于显示和发布；Step 14 仍然看 `final/video.mp4` + QA + 终审。测试里断言了 `delivered` 没被放宽。
 - **不装 Pillow:** 为了认横竖只读图片头——PNG 读 IHDR，JPEG 扫 SOF 段，二十行。为这一件事加一个依赖不值。
 - **Evidence:** 262 个测试通过（新增 6 个）。在 Codex 的真实项目上跑过：成片、横竖封面（取到最新的 dontbesilent 那版）、文案全部认对。
+
+## 2026-09-23 — 项目目录不能在 iCloud 同步范围里；读文件前认出占位文件（#146）
+
+- **Context:** 9/22 的项目建在 `~/Documents/Codex/Workspaces/`，那里开着 iCloud「桌面与文稿」同步（`~/Documents` 带 `com.apple.file-provider-domain-id`）。系统把 hook 的成片和切片卸载成占位文件，ffprobe 读到空壳报 `moov atom not found`。前后耽误两个多小时，我还误判成「拼中文路径出了错」——真正原因是 Codex 查出来的。
+- **Decision:** 两道防线。
+  1. **根目录不许在同步范围里**：`resolve_root` 和保存设置时都拦，报清楚「会被卸载成占位文件，换到外置盘」。判断方式：路径在 `~/Library/Mobile Documents` 下，或某一级祖先目录带 file-provider 的 xattr。
+  2. **读媒体前认出占位文件**：`st_flags & SF_DATALESS`。转写、建表、开头检查、文件服务读之前都先查，报「没下载到本地」而不是报格式错误——前者告诉人该干什么，后者让人以为文件坏了。
+- **不做的:** 不重启 bird / fileproviderd，不删占位文件，不自动移动已有项目。Codex 此刻还在那个目录里做封面和上传，挪它会打断它。
+- **Evidence:** 267 个测试通过（新增 5 个）。在真实路径上跑过：Codex 的工作目录判为 iCloud（`~/Documents`），SSD 和 `~/work` 不在。
+- **Gotchas:** Python 在 macOS 上没有 `os.getxattr`，用 ctypes 调 libc 的 `getxattr`（macOS 的签名多一个 position 和 options 参数，比 Linux 多两个）。

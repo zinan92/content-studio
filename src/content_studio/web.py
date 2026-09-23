@@ -457,7 +457,13 @@ def create_app(
 
     @app.put("/api/settings")
     def put_settings(body: SettingsBody) -> dict[str, Any]:
-        return store.update_settings({k: v for k, v in body.model_dump().items() if v is not None})
+        patch = {k: v for k, v in body.model_dump().items() if v is not None}
+        if patch.get("video_projects_root"):
+            from . import icloud
+
+            # 存之前拦：存进去以后每个剪辑页都会报错，不如当场说清楚。
+            icloud.refuse_synced_root(Path(patch["video_projects_root"]).expanduser())
+        return store.update_settings(patch)
 
     @app.post("/api/sync")
     def sync_all() -> dict[str, Any]:
