@@ -214,6 +214,7 @@ async function renderNow(topic, info) {
 
   box.insertAdjacentHTML('beforeend', '<div class="vp-act" id="vpAct"></div>');
   renderActivity(topic);
+  if (info.final_video) { box.insertAdjacentHTML('beforeend', '<div class="vp-phone" id="vpPhone"></div>'); renderPhone(topic); }
   const start = $('#runStart');
   if (start) start.onclick = async () => {
     if (!confirm('让机器在后台继续跑这个口播项目？它会处理视频文件，停在下一个审批门。')) return;
@@ -232,6 +233,27 @@ async function renderNow(topic, info) {
   };
   const gateBox = $('#gateBox');
   if (gateBox) renderGate(topic, info, gateBox);
+}
+
+/* 手机预览：成片一百多 MB 发不到手机上。压成 540p，放得下就一个文件，放不下再切。
+   只在本机出文件（final/手机预览/），不上传。 */
+async function renderPhone(topic) {
+  const el = $('#vpPhone');
+  if (!el) return;
+  let st;
+  try { st = await api(`/api/topics/${topic.id}/phone-preview`); } catch (err) { el.innerHTML = ''; return; }
+  const list = st.parts.map((p) => `<a class="vp-phone-part" href="${p.url}" target="_blank" rel="noopener">${esc(p.name)} <small>${p.mb} MB</small></a>`).join('');
+  el.innerHTML = `<div class="vp-phone-h"><b>手机预览</b>
+      <small>${st.running ? '正在压…' : st.parts.length ? `${st.parts.length} 个文件，每个不超过 ${st.cap_mb} MB` : `压成 540p，每个文件不超过 ${st.cap_mb} MB，好发到手机上`}</small>
+      <span class="spacer"></span>
+      ${st.running ? '<span class="spin"></span>' : `<button class="btn small" type="button" id="vpPhoneGo">${st.parts.length ? '重做' : '做手机预览'}</button>`}</div>
+    ${st.error ? `<p class="bad">${esc(st.error)}</p>` : ''}${list ? `<div class="vp-phone-list">${list}</div>` : ''}`;
+  const go = $('#vpPhoneGo', el);
+  if (go) go.onclick = async () => {
+    try { toast((await api(`/api/topics/${topic.id}/phone-preview`, { method: 'POST' })).message); renderPhone(topic); } catch (err) { toast(err.message); }
+  };
+  clearTimeout(VP.phonePoll);
+  if (st.running) VP.phonePoll = setTimeout(() => { if (document.body.contains(el)) renderPhone(topic); }, 4000);
 }
 
 /* 实时动静：不管是工作台、Codex 还是 Claude 在跑，只看项目目录本身。
