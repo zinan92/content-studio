@@ -263,6 +263,12 @@ async function renderGate(topic, info, el) {
   if (r.gate === 'H1') {
     body = r.hooks.length ? `<ol class="gate-hooks">${r.hooks.map((h) => `<li>${esc(h.text || '')}${h.status && h.status !== 'ok' ? ` <span class="bad">（${esc(h.status)}，需要核对）</span>` : ''}</li>`).join('')}</ol><small class="muted">来自 ${esc(r.from)}</small>`
       : '<p class="muted">还没有 Hook。先在 worktable 里选好并导入。</p>';
+  } else if (r.gate === 'H2' && info.h2_review) {
+    // 审批页原样嵌进来：原画面 / 合成画面并排，样片能播。沙箱不给 same-origin，
+    // 页面里的脚本碰不到工作台的接口；批准按钮在沙箱外面。
+    const src = `/api/video-projects/${encodeURIComponent(info.name)}/raw/${info.h2_review.split('/').map(encodeURIComponent).join('/')}`;
+    body = `<iframe class="vp-h2" src="${src}" sandbox="allow-scripts allow-popups" title="H2 视觉审批页"></iframe>
+      <p class="muted vp-wt-note">${esc(info.h2_review)} · <a href="${src}" target="_blank" rel="noopener">新窗口打开 ↗</a></p>`;
   } else if (r.gate === 'H2') {
     body = `<p>视觉覆盖 ${r.coverage === null || r.coverage === undefined ? '—' : pct(r.coverage, 0)} · ${r.shots.length} 个镜头</p>
       <div class="tbl-wrap"><table class="gate-table"><thead><tr><th class="l">镜头</th><th>时间</th><th>类型</th><th class="l">目的</th><th>对你备注的处理</th></tr></thead><tbody>

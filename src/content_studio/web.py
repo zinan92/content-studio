@@ -1881,6 +1881,23 @@ def create_app(
             raise ValueError("只能取消还没确认的发布")
         return {"job": store.update_publish_job(job_id, state="cancelled", finished_at=now_iso())}
 
+    @app.get("/api/video-projects/{name}/raw/{relative:path}")
+    def project_raw(name: str, relative: str):
+        """按路径服务项目文件，只读。审批页里的相对地址靠它解析；视频支持拖动进度（Range）。"""
+        from urllib.parse import quote
+
+        try:
+            path = video_project.raw_file(video_root(), name, relative)
+        except VideoProjectError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        kind = video_project.RAW_TYPES[path.suffix.lower()]
+        if path.suffix.lower() == ".html":
+            base = video_project.project_dir(video_root(), name)
+            prefix = f"/api/video-projects/{quote(name)}/raw/"
+            html = video_project.rewrite_local_urls(path.read_text(encoding="utf-8", errors="replace"), base, prefix)
+            return Response(content=html, media_type=kind)
+        return FileResponse(path, media_type=kind)
+
     @app.get("/api/video-projects/{name}/file")
     def video_project_file(name: str, path: str) -> Response:
         target = video_project.safe_file(video_root(), name, path)

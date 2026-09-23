@@ -1036,3 +1036,27 @@ def test_a_dropped_topic_can_be_picked_up_again_from_the_inbox(client: TestClien
     assert any(t["id"] == topic_id for t in client.get("/api/topics").json())
     back = next(i for i in client.get("/api/vault/inbox?days=30").json()["items"] if i["path"] == note)
     assert back["used_by"]["dropped"] is False
+
+
+
+def test_the_h2_page_is_served_with_its_assets(client: TestClient, tmp_path: Path) -> None:
+    """审批页和它引用的样片都要能按路径加载；视频要能拖进度。"""
+    from urllib.parse import quote
+
+    root = tmp_path / "videos"
+    base = root / "2026-09-22_9月22日"
+    (base / "analysis" / "h2.assets").mkdir(parents=True)
+    (base / "analysis" / "h2.assets" / "V01.mp4").write_bytes(bytes(range(256)) * 40)
+    (base / "analysis" / "h2-visual-review-final.html").write_text(
+        f'<video src="file://{quote(str(base))}/analysis/h2.assets/V01.mp4"></video>', encoding="utf-8")
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    prefix = f"/api/video-projects/{quote(base.name)}/raw/"
+
+    page = client.get(prefix + "analysis/h2-visual-review-final.html")
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert f'src="{prefix}analysis/h2.assets/V01.mp4"' in page.text
+
+    clip = client.get(prefix + "analysis/h2.assets/V01.mp4", headers={"Range": "bytes=0-99"})
+    assert clip.status_code == 206 and len(clip.content) == 100
+
+    assert client.get(prefix + "analysis/../../x.mp4").status_code == 404
