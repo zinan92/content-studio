@@ -802,3 +802,8 @@
 - 决定：点账号卡片只看它（再点取消）；「爆款 / 全部作品」切换，全部作品也能点拆解、看报告；选中账号且看全部作品时有「拉更早的作品」：单账号往回翻 15 页（约 300 条），串行，遇到验证即停，不触发自动拆解（免得占当天名额）；加标题搜索。新接口 `GET /api/accounts/{id}/videos`、`POST /api/accounts/{id}/sync?deep=true`。
 - 为什么：Park 刷到一勾 7/3 那条想看拆解，找不到——雷达只列爆款、不能按账号筛，而且同步只拉最近 3 页，一勾库里最早的 7 月作品是 7/15，7/3 根本不在库里。
 - 顺手修：卡片上的「同步」按钮调用的 syncOneAccount 在 #89 改版时丢了，点了没反应；补回来并支持往回翻。
+
+## gzh 排版：一份 HTML，公众号和研习室都用（2026-09-24）
+- 决定：新增 `gzh_layout.py`：用 gzh-design skill（全自动、橄榄手记）给研习室那篇文章排版，存 `article.gzh.html`；过 skill 自带的 validate_gzh_html.py，再核文字（原文字符至少 97% 在、多出的字不超过 8%/200 字）。公众号草稿用它当正文；研习室经 `workbench-submit.mjs --html` 走 HTML 导入（zinan92/wechat-xingqiu#339）。文章改过（哈希对不上）旧排版作废，发布退回基础排版并在结果里说明。文章页加「gzh 排版」按钮和沙箱预览。
+- 为什么：Park 9/24：「公众号和小程序其实都可以通过 gzh skill 来编辑格式。」7/13、7/14 两篇就是这个 skill 排的；它按内容挑组件，比逐行机械转换好。
+- 顺手修：研习室草稿失败 MODULE_NOT_FOUND——#338 合并后本地研习室仓库切到了合并前的提交，脚本不在磁盘上。研习室仓库的 main 被 Codex 的 worktree 占着，本地保持 detached，每次合并后要 `git fetch && git checkout --detach origin/main`。

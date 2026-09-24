@@ -65,12 +65,15 @@ window.VIDEO_TABS.push({
             <button class="btn" type="button" id="artCopy">复制正文</button>
             <a class="btn" href="/api/topics/${topic.id}/article.md" download>下载 .md</a>
             <button class="btn" type="button" data-write="${topic.id}" title="重新让卡兹克写作写一版，会覆盖当前草稿">重写</button>
+            <button class="btn" type="button" id="artLayout" title="用 gzh-design skill 排版（橄榄手记）：公众号和研习室发布都用这份">gzh 排版</button>
             <span class="spacer"></span>
             ${topic.status === 'published' ? `<span class="stage-pill running">已发出</span>` : `<button class="btn primary" type="button" id="artHandoff">交给研习室</button><button class="btn" type="button" id="artWechat">发公众号 / X →</button><button class="btn" type="button" id="artPublished">研习室已发出</button>`}
           </div>`;
       }
     }
     body.innerHTML = main;
+    if (AR.draft && !AR.draft.error) body.insertAdjacentHTML('beforeend', '<div class="art-layout" id="artLayoutBox"></div>');
+    renderLayout(topic);
     $$('[data-mode]', body).forEach((b) => (b.onclick = () => { AR.mode = b.dataset.mode; refreshWorkTab(); renderView(); }));
     const text = $('#artText');
     if (text) text.oninput = () => { AR.dirty = true; };
@@ -110,3 +113,27 @@ window.VIDEO_TABS.push({
     };
   },
 });
+
+/* gzh 排版：一份 HTML，公众号和研习室发布都用它。预览放进沙箱，页面是模型生成的。 */
+async function renderLayout(topic) {
+  const box = $('#artLayoutBox');
+  const btn = $('#artLayout');
+  if (!box) return;
+  let st;
+  try { st = await api(`/api/topics/${topic.id}/layout`); } catch (err) { box.innerHTML = ''; return; }
+  if (btn) {
+    btn.textContent = st.running ? '正在排版…' : st.has_layout && !st.stale ? '重新 gzh 排版' : 'gzh 排版';
+    btn.disabled = !!st.running;
+    btn.onclick = async () => {
+      try { toast((await api(`/api/topics/${topic.id}/layout`, { method: 'POST' })).message); renderLayout(topic); } catch (err) { toast(err.message); }
+    };
+  }
+  const note = st.running ? '<span class="spin"></span> 正在用 gzh 排版（' + esc(st.theme || '橄榄手记') + '），5–10 分钟'
+    : st.error ? `<span class="bad">${esc(st.error)}</span>`
+      : st.stale ? '<span class="warn-t">文章改过了，旧排版作废：发布时会用基础排版，重新点「gzh 排版」</span>'
+        : st.has_layout ? `gzh 排版（${esc(st.theme || '')}）· ${day(st.generated_at)} · 公众号和研习室发布都用这份`
+          : '还没用 gzh 排版：发布时会用基础排版。点上面「gzh 排版」。';
+  box.innerHTML = `<div class="art-layout-h">${note}</div>${st.has_layout && !st.stale && !st.running ? `<iframe class="art-layout-frame" sandbox src="/api/topics/${topic.id}/layout.html?t=${Date.now()}" title="gzh 排版预览"></iframe>` : ''}`;
+  clearTimeout(renderLayout.t);
+  if (st.running) renderLayout.t = setTimeout(() => { if (document.body.contains(box)) renderLayout(topic); }, 5000);
+}

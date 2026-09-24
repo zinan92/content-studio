@@ -214,6 +214,11 @@ def publish_article(article: Path, *, cover: Path, publish: bool = False, author
                     creds: dict[str, str] | None = None, send: Send | None = None,
                     wait: Callable[[float], None] = time.sleep, polls: int = 10) -> dict[str, Any]:
     title, digest, body = render_html(article.read_text(encoding="utf-8"))
+    from . import gzh_layout
+
+    styled = gzh_layout.current(article)
+    if styled is not None:
+        body = styled.read_text(encoding="utf-8")  # gzh skill 排的版优先；文章改过就作废，用上面的机械排版
     if len(title) > TITLE_MAX:
         raise WechatError(f"公众号标题最多 {TITLE_MAX} 字，这篇 {len(title)} 字")
     if not cover.is_file():
@@ -231,8 +236,8 @@ def publish_article(article: Path, *, cover: Path, publish: bool = False, author
     got = _post("draft/get", token, {"media_id": media_id}, send).get("news_item") or [{}]
     if (got[0] or {}).get("title") != title:
         raise WechatError("草稿建了，但读回来标题对不上：去草稿箱看一眼")
-    result: dict[str, Any] = {"media_id": media_id, "title": title, "published": False,
-                              "url": "https://mp.weixin.qq.com/", "message": "已存进公众号草稿箱"}
+    result: dict[str, Any] = {"media_id": media_id, "title": title, "published": False, "layout": "gzh" if styled else "basic",
+                              "url": "https://mp.weixin.qq.com/", "message": "已存进公众号草稿箱" + ("（gzh 排版）" if styled else "（基础排版：还没用 gzh 排，或文章改过）")}
     if not publish:
         return result
     try:
