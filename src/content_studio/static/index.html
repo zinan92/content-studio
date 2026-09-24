@@ -98,6 +98,11 @@
           <button data-days="30" type="button">30 天</button>
           <button data-days="0" type="button">全部</button>
         </div>
+        <div class="seg-toggle" role="group" aria-label="范围">
+          <button class="on" data-scope="hot" type="button">爆款</button>
+          <button data-scope="all" type="button">全部作品</button>
+        </div>
+        <input class="radar-q" id="radarQ" type="search" placeholder="搜标题" autocomplete="off">
         <div class="seg-toggle" role="group" aria-label="排序">
           <button class="on" data-sort="multiple" type="button">按倍数</button>
           <button data-sort="likes" type="button">按点赞</button>
@@ -106,7 +111,8 @@
       </div>
       <div class="accounts" id="accts"></div>
       <div class="panel">
-        <div class="panel-h"><h2>爆款样本 <span class="num" id="hotN"></span></h2><small>互动结构：<span style="color:var(--save)">■</span> 收藏 <span style="color:var(--share)">■</span> 转发 <span style="color:var(--talk)">■</span> 评论（相对点赞）</small></div>
+        <div class="panel-h"><h2><span id="outsTitle">爆款样本</span> <span class="num" id="hotN"></span></h2><small>互动结构：<span style="color:var(--save)">■</span> 收藏 <span style="color:var(--share)">■</span> 转发 <span style="color:var(--talk)">■</span> 评论（相对点赞）</small></div>
+        <div class="radar-pick" id="radarPick"></div>
         <div class="outlist" id="outs"></div>
       </div>
     </section>

@@ -287,3 +287,14 @@ def test_announcements_are_never_queued_so_they_are_never_downloaded(tmp_path: P
     assert auto_enqueue_new_posts.__defaults__[1] is None  # days resolves to transcripts.FRESH_DAYS
     assert transcripts.FRESH_DAYS == 30
     store.close()
+
+
+def test_deep_sync_goes_further_back_and_keeps_what_was_there(store: StudioStore) -> None:
+    """9/24：一勾 7/3 那条不在库里——平时只拉 3 页。往回翻多拉几页，已有的作品不丢。"""
+    store.update_settings({"sync_pages": 2, "sync_delay_seconds": 2.0})
+    account = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    pages = [{"items": [_post(str(i), 10)], "has_more": True, "max_cursor": i} for i in range(1, 9)]
+    sync_account(store, account["id"], client_factory=lambda: FakeClient(pages), sleep=_no_sleep)
+    assert len(store.videos(account["id"])) == 2
+    sync_account(store, account["id"], client_factory=lambda: FakeClient(pages), sleep=_no_sleep, pages=6)
+    assert len(store.videos(account["id"])) == 6
