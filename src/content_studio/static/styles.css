@@ -1215,3 +1215,13 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .art-layout-h{font-size:13px;color:var(--ink-2);display:flex;align-items:center;gap:8px}
 .art-layout-frame{width:min(420px,100%);height:720px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .warn-t{color:var(--warn)}
+
+/* 小红书图文：缩略图按顺序排，点开看原图 */
+.xhs{display:flex;flex-direction:column;gap:10px;margin:6px 0 12px}
+.xhs-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.xhs-h small{color:var(--ink-3);font-size:12px}
+.xhs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:8px}
+.xhs-grid.dim{opacity:.45}
+.xhs-grid a{position:relative;display:block;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.xhs-grid img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover}
+.xhs-grid small{position:absolute;right:4px;bottom:2px;font-size:10px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6)}

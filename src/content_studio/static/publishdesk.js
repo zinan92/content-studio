@@ -399,8 +399,31 @@ function sideFor(p, d) {
     return `<h4>${esc(p.treatment_label)}</h4>${block}${mark}${history}${fields}`;
   }
   return `<h4>${esc(p.treatment_label)}</h4>
-    <p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>
+    ${p.key === 'xiaohongshu'
+      ? '<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p><div id="pdlXhs" class="xhs"></div>'
+      : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
+}
+
+/* 小红书图文：文章原文排成 3:4 图。01 是封面；打包下载的文件名就是顺序。 */
+async function renderXhs(dlg, topicId) {
+  const box = $('#pdlXhs', dlg);
+  if (!box) return;
+  let st;
+  try { st = await api(`/api/topics/${topicId}/xhs`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
+  const has = st.images.length && !st.stale;
+  const note = st.running ? '<span class="spin"></span> 正在出图，十几秒'
+    : st.error ? `<span class="bad">${esc(st.error)}</span>`
+      : st.stale ? '<span class="bad">文章改过了，这组图是旧的：重新出一次</span>'
+        : has ? `${st.images.length} 张 · ${st.chars} 字一字不改${st.over_limit ? ` · <b class="bad">超过小红书 ${st.max} 张上限，得拆成上下两篇</b>` : ''}`
+          : '还没出图';
+  box.innerHTML = `<div class="xhs-h"><button class="btn ${has ? '' : 'primary'}" type="button" id="xhsGo" ${st.running ? 'disabled' : ''}>${has || st.stale ? '重新出图文' : '出图文'}</button>
+      ${has ? `<a class="btn" href="/api/topics/${topicId}/xhs.zip" download>打包下载</a>` : ''}<small>${note}</small></div>
+    ${st.images.length ? `<div class="xhs-grid ${st.stale ? 'dim' : ''}">${st.urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener" title="第 ${i + 1} 张"><img src="${u}?t=${encodeURIComponent(st.generated_at || '')}" alt="第 ${i + 1} 张" loading="lazy"><small>${i + 1}</small></a>`).join('')}</div>` : ''}`;
+  $('#xhsGo', box).onclick = async () => {
+    try { toast((await api(`/api/topics/${topicId}/xhs`, { method: 'POST' })).message); renderXhs(dlg, topicId); } catch (err) { toast(err.message); }
+  };
+  if (st.running) setTimeout(() => { if (document.body.contains(box)) renderXhs(dlg, topicId); }, 2500);
 }
 
 /* 抖音单独有一块：把发出去的那条视频和这个选题对上。对上之后点赞和播放才会自己回来，
@@ -536,6 +559,7 @@ function renderDialog() {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: true, url } }); toast(`${p.label} 记为已发`); await refresh(); } catch (err) { toast(err.message); }
   };
   if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
+  if (p.key === 'xiaohongshu') renderXhs(dlg, t.id);
   const unmark = $('#pdlUnmark', dlg);
   if (unmark) unmark.onclick = async () => {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: false, url: null } }); toast('已撤销'); await refresh(); } catch (err) { toast(err.message); }

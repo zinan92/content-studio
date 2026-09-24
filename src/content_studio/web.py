@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 import json
 import os
+import re
 import logging
 from pathlib import Path
 import sqlite3
@@ -1276,6 +1277,84 @@ def create_app(
         doc = f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#fff">{page.read_text(encoding="utf-8")}</body></html>'
         return Response(content=doc, media_type="text/html; charset=utf-8",
                         headers={"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+    xhs_errors: dict[int, str] = {}
+
+    @app.post("/api/topics/{topic_id}/xhs")
+    def start_xhs(topic_id: int) -> dict[str, Any]:
+        """研习室文章一字不改排成小红书 3:4 图。"""
+        from . import xhs_cards
+
+        topic = store.topic(topic_id)
+        article = _article_path(topic)
+        if article is None or not article.is_file():
+            raise ValueError("先在「研习室文章」写好文章，小红书图文用的就是那一篇")
+        with writing_lock:
+            if 60_000 + topic_id in writing:
+                return {"started": False, "message": "正在出图"}
+            writing.add(60_000 + topic_id)
+        xhs_errors.pop(topic_id, None)
+
+        def run() -> None:
+            try:
+                meta = xhs_cards.make_cards(article)
+                store.log_event("copy", f"《{topic['title'][:24]}》小红书图文出好了：{meta['images']} 张", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 发布台显示
+                logger.warning("xhs cards %s failed: %s", topic_id, exc)
+                xhs_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+            finally:
+                with writing_lock:
+                    writing.discard(60_000 + topic_id)
+
+        threading.Thread(target=run, name=f"xhs-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始出小红书图文，十几秒"}
+
+    @app.get("/api/topics/{topic_id}/xhs")
+    def xhs_state(topic_id: int) -> dict[str, Any]:
+        from . import xhs_cards
+
+        topic = store.topic(topic_id)
+        with writing_lock:
+            running = 60_000 + topic_id in writing
+        st = xhs_cards.state(_article_path(topic))
+        return {"running": running, "error": xhs_errors.get(topic_id), **st,
+                "urls": [f"/api/topics/{topic_id}/xhs/{name}" for name in st["images"]]}
+
+    @app.get("/api/topics/{topic_id}/xhs/{name}")
+    def xhs_image(topic_id: int, name: str) -> Response:
+        from . import xhs_cards
+
+        article = _article_path(store.topic(topic_id))
+        if article is None or not re.fullmatch(r"\d{2}\.png", name):
+            raise HTTPException(status_code=404, detail="没有这张")
+        path = article.parent / xhs_cards.FOLDER / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="没有这张")
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/topics/{topic_id}/xhs.zip")
+    def xhs_zip(topic_id: int) -> Response:
+        """按顺序打包：01 是封面，手机上按文件名顺序选就对了。"""
+        import io
+        import zipfile
+
+        from . import xhs_cards
+
+        topic = store.topic(topic_id)
+        article = _article_path(topic)
+        folder = article.parent / xhs_cards.FOLDER if article else None
+        images = sorted(folder.glob("*.png")) if folder and folder.is_dir() else []
+        if not images:
+            raise HTTPException(status_code=404, detail="还没出图")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+            for image in images:
+                zf.write(image, image.name)
+        from urllib.parse import quote
+
+        filename = quote(f"小红书图文-{topic['title'][:20]}.zip")
+        return Response(content=buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"})
 
     @app.get("/api/topics/{topic_id}/outline")
     def get_outline(topic_id: int) -> dict[str, Any]:
