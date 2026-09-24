@@ -784,3 +784,11 @@
 - 为什么：Park 9/24 要求，不让 B 站自动截帧。
 - Gotcha：B 站封面分 4:3（首页推荐）和 16:9（个人空间）；横版封面正好 4:3，16:9 由同步开关从它裁出来。开关状态看 class 里有没有 `bcc-checkbox-checked`，已经勾着就别再点。
 - Gotcha：content-ops 本地分支比远端多两个 4 个月前的未推送提交（不是这次的），只 cherry-pick 了封面这一个提交到本地，没合并也没推它们。
+
+## #173 公众号一键发（2026-09-24）
+- 决定：新增 `wechat_publish.py`：研习室那篇 Markdown → 「橄榄手记」内联样式 HTML（过 gzh-design 的 validate_gzh_html.py）→ 公众号封面（add_material）→ draft/add → draft/get 读回标题核对；「直接发布」走 freepublish/submit 并轮询 freepublish/get。发布台公众号从「交给流水线」改成全自动通道，两个按钮都要确认。文章页「送去公众号」改成跳到发布台。
+- 封面：封面弹窗多出一张 2.35:1「公众号封面」；没有时把横版封面居中垫进 2.35:1（字和人都不裁）。release.find_covers 把 2.35:1 单独认成 wechat，不再混进横版。
+- 为什么：7/13、7/14 两篇是 Codex 手工做进草稿箱的，那套流程 9/21 停了，之后「送去公众号」的文章没人接。9/24 Park：公众号要一键发，插图不做。
+- Gotcha：draft/add 的 JSON 必须原样 UTF-8（ensure_ascii=False），否则草稿里中文变成一串 \u 码。
+- Gotcha：freepublish 是「发布」——出现在主页，不推送粉丝；推送是群发，不做。未认证的号可能没有发布接口权限（48001），这时停在草稿箱、说清楚。
+- 没验证过的：真实 draft/add（没替 Park 在草稿箱里建测试稿）；令牌从这台机器能取到（白名单通）。

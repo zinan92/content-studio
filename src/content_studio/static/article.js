@@ -66,7 +66,7 @@ window.VIDEO_TABS.push({
             <a class="btn" href="/api/topics/${topic.id}/article.md" download>下载 .md</a>
             <button class="btn" type="button" data-write="${topic.id}" title="重新让卡兹克写作写一版，会覆盖当前草稿">重写</button>
             <span class="spacer"></span>
-            ${topic.status === 'published' ? `<span class="stage-pill running">已发出</span>` : `<button class="btn primary" type="button" id="artHandoff">交给研习室</button><button class="btn" type="button" id="artWechat">送去公众号</button><button class="btn" type="button" id="artPublished">研习室已发出</button>`}
+            ${topic.status === 'published' ? `<span class="stage-pill running">已发出</span>` : `<button class="btn primary" type="button" id="artHandoff">交给研习室</button><button class="btn" type="button" id="artWechat">发公众号 / X →</button><button class="btn" type="button" id="artPublished">研习室已发出</button>`}
           </div>`;
       }
     }
@@ -87,15 +87,8 @@ window.VIDEO_TABS.push({
     if (copy) copy.onclick = async () => { if (await copyArticle(text ? text.value : AR.draft.markdown)) toast('已复制正文'); };
     // 公众号：工作台只把正文送进 004_内容加工中，配图/排版/发草稿箱走 Park 原有那套。
     const wechatBtn = $('#artWechat');
-    if (wechatBtn) wechatBtn.onclick = async () => {
-      if (!confirm('把这篇正文送进 Obsidian 的「004_内容加工中」，接着走你原来的公众号流程（配图 → 排版 → 发草稿箱）？\n\n工作台只写正文，不会替你发布。')) return;
-      wechatBtn.disabled = true;
-      try {
-        const res = await api(`/api/topics/${topic.id}/wechat-handoff`, { method: 'POST' });
-        toast(`已送到 ${res.folder.split('/').slice(-2).join('/')}`);
-      } catch (err) { toast(err.message); wechatBtn.disabled = false; }
-    };
-
+    // 公众号和 X 发的都是这篇文章：在发布台一键发（排版、封面都自动），不再送进旧的手工流程。
+    if (wechatBtn) wechatBtn.onclick = () => { S.publishId = topic.id; go("publish"); };
     const handoffBtn = $('#artHandoff');
     if (handoffBtn) handoffBtn.onclick = async () => {
       if (AR.dirty) { toast('先保存修改'); return; }

@@ -2039,8 +2039,10 @@ def create_app(
         copy = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms")
         article = Path(topic["article_path"]) if topic.get("article_path") else None
         release_info = _release_for(topic) or {}
-        landscape = (release_info.get("covers") or {}).get("landscape")
-        cover = video_project.project_dir(video_root(), topic["video_project"]) / landscape if landscape else None
+        covers = release_info.get("covers") or {}
+        # 公众号要 2.35:1：有专门出的公众号封面就用它，没有就用横版（发的时候垫宽）
+        chosen = (covers.get("wechat") if body.platform == "wechat_mp" else None) or covers.get("landscape")
+        cover = video_project.project_dir(video_root(), topic["video_project"]) / chosen if chosen else None
         payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs(),
                                           article=article, cover=cover)
         return {"job": store.create_publish_job(topic_id, payload)}
