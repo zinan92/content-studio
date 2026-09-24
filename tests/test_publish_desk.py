@@ -30,9 +30,15 @@ def test_shared_entry_prefers_first_written_platform():
 
 def test_fill_trims_to_platform_caps():
     entry = {"title": "一二三四五六七八九十一二三四五六七八九十多出来", "body": "x" * 5, "tags": ["a", "b", "c", "d", "e", "f"]}
-    fill = publish_desk.fill_for(copypack.PLATFORMS["xiaohongshu"], entry)
-    assert len(fill["title"]) == 20 and fill["title_over"] is True
-    assert fill["tags"] == ["a", "b", "c", "d", "e", "f"]
+    fill = publish_desk.fill_for(copypack.PLATFORMS["channels"], entry)
+    assert len(fill["title"]) == 16 and fill["title_over"] is True and fill["title_trimmed"] is True
+    xhs = publish_desk.fill_for(copypack.PLATFORMS["xiaohongshu"], entry)
+    assert xhs["title"] == entry["title"] and xhs["title_over"] is True and xhs["title_trimmed"] is False  # 小红书不截，提醒
+    assert xhs["tags"] == ["a", "b", "c", "d", "e", "f"]
+    # 9/24 实测：小红书两个英文字母算一个字
+    title = "我终于理解了dontbesilent为什么开源dbskill！"
+    assert copypack.title_units(title, copypack.PLATFORMS["xiaohongshu"]) == 21.5
+    assert copypack.title_units(title[:20], copypack.PLATFORMS["xiaohongshu"]) == 14
     x = publish_desk.fill_for(copypack.PLATFORMS["x"], entry)
     assert x["title"] == "" and x["tags"] == ["a", "b", "c"] and x["title_over"] is False
 

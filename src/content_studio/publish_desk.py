@@ -38,12 +38,18 @@ def shared_entry(copy: dict[str, Any] | None) -> dict[str, Any]:
 
 def fill_for(spec: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
     """按这个平台的上限裁好，前端每个空一个「复制」。"""
+    from .copypack import title_units
+
     cap_title = int(spec.get("title") or 0)
+    units = title_units(entry["title"], spec)
+    keep = spec.get("no_trim")  # 小红书：不替他截，超了提醒他自己删
     return {
-        "title": entry["title"][:cap_title] if cap_title else "",
+        "title": (entry["title"] if keep else entry["title"][:cap_title]) if cap_title else "",
         "body": entry["body"][: int(spec.get("body") or 0)],
         "tags": entry["tags"][: int(spec.get("tags") or 0)],
-        "title_over": bool(cap_title) and len(entry["title"]) > cap_title,
+        "title_over": bool(cap_title) and units > cap_title,
+        "title_units": units,
+        "title_trimmed": bool(cap_title) and not keep and len(entry["title"]) > cap_title,
     }
 
 

@@ -1332,6 +1332,20 @@ def create_app(
             raise HTTPException(status_code=404, detail="没有这张")
         return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
+    @app.post("/api/topics/{topic_id}/xhs/reveal")
+    def xhs_reveal(topic_id: int) -> dict[str, Any]:
+        """在访达里打开小红书图片文件夹并选中第一张（封面），上传时直接拖或选。只打开，不动文件。"""
+        import subprocess
+
+        from . import xhs_cards
+
+        article = _article_path(store.topic(topic_id))
+        first = article.parent / xhs_cards.FOLDER / "01.png" if article else None
+        if first is None or not first.is_file():
+            raise ValueError("还没出图：先点「出图文」")
+        subprocess.run(["open", "-R", str(first)], check=False, timeout=10)
+        return {"ok": True}
+
     @app.get("/api/topics/{topic_id}/xhs.zip")
     def xhs_zip(topic_id: int) -> Response:
         """按顺序打包：01 是封面，手机上按文件名顺序选就对了。"""
