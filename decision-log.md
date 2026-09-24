@@ -772,3 +772,9 @@
 - 为什么：9/23 Park：「X 的形式一定要是图文文章。」
 - Gotcha：发文章的账号要有 X Premium，没有会 403，错误里直说。偏移按 UTF-16 算（emoji 占两个）。图先全部检查再上传，别传一半才发现有张不行。
 - 没验证过的：真实 X 接口（测试全用假的传输层，没有替 Park 在 X 上建过东西）；加粗的 style 名按公开示例写的 "bold"。
+
+## #168 一键发布挑对 Python（2026-09-24）
+- 现象：Park 点 B 站投稿，报 No module named 'playwright'。
+- 原因：工作台后台 PATH 里第一个 python3 是 Homebrew 的，没装 playwright；发布命令写死 `python3` 交给 PATH 去猜。之前没人真点过这个按钮，所以一直没暴露。
+- 决定：通道声明要的库（B 站、视频号：playwright），发布时从候选解释器里挑第一个装了它的；工作台自己的模块（X 图文）用工作台同一个 Python；YouTube 脚本自己会切到 content-ops/.venv。都找不到就说清楚缺什么、怎么装。
+- Gotcha：B 站登录态用 `/usr/local/bin/python3 scripts/bilibili_web_upload.py --headless check` 查过，有效。
