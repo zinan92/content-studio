@@ -13,7 +13,7 @@ MIN_BASELINE_POSTS = 20
 MIN_BASELINE_MEDIAN = 50
 LABELS = ("钩子", "承诺", "论点", "案例", "跑题", "收束", "引导")
 OPENING_FALLBACK_SECONDS = 15.0
-HYPOTHESIS_NOTE = "结构标签和“为什么爆 / 为什么散”是模型基于转写与数据给出的待验证假设，不是爆款判定规则。"
+HYPOTHESIS_NOTE = "结构标签和“为什么爆”是模型基于转写与数据给出的待验证假设，不是爆款判定规则。"
 
 
 class ReportError(RuntimeError):
