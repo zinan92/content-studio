@@ -778,3 +778,9 @@
 - 原因：工作台后台 PATH 里第一个 python3 是 Homebrew 的，没装 playwright；发布命令写死 `python3` 交给 PATH 去猜。之前没人真点过这个按钮，所以一直没暴露。
 - 决定：通道声明要的库（B 站、视频号：playwright），发布时从候选解释器里挑第一个装了它的；工作台自己的模块（X 图文）用工作台同一个 Python；YouTube 脚本自己会切到 content-ops/.venv。都找不到就说清楚缺什么、怎么装。
 - Gotcha：B 站登录态用 `/usr/local/bin/python3 scripts/bilibili_web_upload.py --headless check` 查过，有效。
+
+## B 站投稿带封面（2026-09-24）
+- 决定：content-ops 的 B 站上传脚本加 `--cover`（zinan92/content-ops#2）：打开「封面制作」，勾「双比例同步改动」，上传横版封面，点完成，确认封面位有图；没设上就在投稿前停下。发布台 B 站投稿时带上交付包里的横版封面。
+- 为什么：Park 9/24 要求，不让 B 站自动截帧。
+- Gotcha：B 站封面分 4:3（首页推荐）和 16:9（个人空间）；横版封面正好 4:3，16:9 由同步开关从它裁出来。开关状态看 class 里有没有 `bcc-checkbox-checked`，已经勾着就别再点。
+- Gotcha：content-ops 本地分支比远端多两个 4 个月前的未推送提交（不是这次的），只 cherry-pick 了封面这一个提交到本地，没合并也没推它们。
