@@ -329,4 +329,5 @@ STATUS_TEXT = {
 
 def explain(result: dict[str, Any]) -> str:
     status = str(result.get("status") or "")
-    return STATUS_TEXT.get(status) or str(result.get("message") or status or "发布失败")[:300]
+    # X / 公众号 / 研习室的脚本把原因放在 error 里；只看 message 的话页面上只剩「发布失败」
+    return STATUS_TEXT.get(status) or str(result.get("message") or result.get("error") or status or "发布失败")[:300]
