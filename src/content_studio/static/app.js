@@ -806,7 +806,6 @@ function renderReport() {
   const facts = FACTS.filter(([k]) => r.facts[k] !== null && r.facts[k] !== undefined)
     .map(([k, l, f, hot]) => `<div><div class="l">${l}</div><div class="v ${hot && r.facts[k] >= S.state.settings.threshold ? 'hot' : ''}">${f(r.facts[k])}</div></div>`).join('');
   const cite = (ev) => (ev && ev.length ? ev.map((e) => `<span class="evidence"><button type="button" data-seek="${e.start}">${mmss(e.start)}</button> ${esc(e.quote)}</span>`).join('') : '');
-  const pace = r.segments.map((s) => ({ label: s.label, cpm: s.end > s.start ? Math.round(s.text.replace(/\s/g, '').length / ((s.end - s.start) / 60)) : 0, drift: s.drift }));
 
   body.innerHTML = `
     <div class="panel">
@@ -844,13 +843,10 @@ function renderReport() {
       </div>
       <div class="side">
         <div class="panel"><div class="panel-h"><h2>为什么爆</h2></div><div class="why"><ul>${r.why_boom.map((w) => `<li><span style="color:var(--ink)">${esc(w.text)}</span>${cite(w.evidence)}</li>`).join('')}</ul></div></div>
-        <div class="panel"><div class="panel-h"><h2>为什么散</h2></div><div class="why"><ul>${r.why_scatter.map((w) => `<li><span style="color:var(--ink)">${esc(w.text)}</span>${cite(w.evidence)}</li>`).join('')}</ul></div></div>
-        <div class="panel"><div class="panel-h"><h2>语速节奏</h2><small>字 / 分钟 · 按段（由转写计算）</small></div><div class="pace" id="rPace"></div></div>
-        <div class="banner info"><div>${esc(r.hypothesis_note)}</div></div>
+        <div class="banner info"><div>${esc(String(r.hypothesis_note || '').replace(' / 为什么散', ''))}</div></div>
       </div>
     </div>`;
 
-  drawPace(pace);
   const seek = (i) => {
     $$('#rTl button').forEach((x) => x.classList.toggle('on', x.dataset.i === String(i)));
     $$('#rTx .line').forEach((l) => l.classList.toggle('on', l.dataset.i === String(i)));
@@ -867,25 +863,6 @@ function renderReport() {
   }));
 }
 
-function drawPace(pace) {
-  const el = $('#rPace');
-  const vals = pace.map((p) => p.cpm).filter((v) => v > 0);
-  if (!vals.length) { el.innerHTML = '<div class="empty">没有足够的转写计算语速</div>'; return; }
-  const W = 320, H = 140, m = { l: 34, b: 24, t: 10 };
-  const lo = Math.max(0, Math.floor((Math.min(...vals) - 20) / 50) * 50), hi = Math.ceil((Math.max(...vals) + 10) / 50) * 50;
-  const bw = (W - m.l) / pace.length;
-  const ys = (v) => m.t + (1 - (v - lo) / Math.max(1, hi - lo)) * (H - m.t - m.b);
-  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="各段语速">`;
-  [lo, Math.round((lo + hi) / 2), hi].forEach((v) => (s += `<line class="gridl" x1="${m.l}" x2="${W}" y1="${ys(v)}" y2="${ys(v)}"/><g class="axis"><text x="${m.l - 5}" y="${ys(v) + 3}" text-anchor="end">${v}</text></g>`));
-  pace.forEach((p, i) => {
-    const x = m.l + i * bw + bw * 0.18;
-    const fast = p.cpm > avg * 1.15;
-    s += `<rect x="${x}" y="${ys(Math.max(p.cpm, lo))}" width="${bw * 0.64}" height="${Math.max(0, H - m.b - ys(Math.max(p.cpm, lo)))}" rx="2" fill="${p.drift ? 'var(--warn)' : fast ? 'var(--hot)' : 'var(--accent)'}" fill-opacity=".75"><title>第 ${i + 1} 段 ${p.label} · ${p.cpm} 字/分</title></rect>`;
-    if (pace.length <= 12) s += `<g class="axis"><text x="${x + bw * 0.32}" y="${H - 8}" text-anchor="middle">${i + 1}</text></g>`;
-  });
-  el.innerHTML = s + '</svg>';
-}
 
 /* ================= boot & polling ================= */
 async function boot() {
