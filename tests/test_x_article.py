@@ -104,3 +104,26 @@ def test_x_publishes_the_article_not_the_copy(tmp_path: Path) -> None:
     assert payload["title"] == "标题在这" and payload["cover"] == str(cover)
     argv = publisher.command_for(payload)
     assert argv[-5:] == ["--article", str(article), "--cover", str(cover), "--publish"]
+
+
+def test_channels_run_with_a_python_that_has_their_libraries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """9/24：B 站投稿报没有 playwright——PATH 里第一个 python3 没装它。按通道要的库挑解释器。"""
+    import sys
+
+    publisher._PYTHON_FOR.clear()
+    assert publisher.python_with(("json",), candidates=("/nope/python", sys.executable)) == sys.executable
+    with pytest.raises(publisher.PublishError, match="找不到装了 no_such_mod_xyz"):
+        publisher.python_with(("no_such_mod_xyz",), candidates=(sys.executable,))
+    assert publisher.python_with(()) == sys.executable
+
+    seen = []
+    monkeypatch.setattr(publisher, "python_with", lambda mods, candidates=None: seen.append(mods) or "/picked/python")
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"0")
+    payload = publisher.build_payload("bilibili", "upload", video=video, copy={"bilibili": {"title": "标题", "body": "简介"}})
+    assert publisher.command_for(payload)[0] == "/picked/python" and seen[-1] == ("playwright",)
+    article = tmp_path / "a.md"
+    article.write_text("# 标题\n\n正文", encoding="utf-8")
+    x = publisher.build_payload("x", "article_draft", video=None, copy=None, article=article)
+    publisher.command_for(x)
+    assert seen[-1] == ()  # 工作台自己的模块：用工作台同一个 Python

@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import Any
 
 CONTENT_OPS = Path(os.environ.get("CONTENT_OPS_PATH", "~/work/content-ops")).expanduser()
@@ -21,6 +22,7 @@ RUN_TIMEOUT_SECONDS = 45 * 60
 PUBLISHERS: dict[str, dict[str, Any]] = {
     "channels": {
         "label": "视频号",
+        "needs": ("playwright",),
         "copy_key": "channels",
         "credential": PUBLISH_ROOT / "cookies/tencent_uploader/account.json",
         # 2026-09-21 Park：腾讯最近两个月开始封自动发布，以前能用。重新登录治不好平台侧的限制，
@@ -34,6 +36,7 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
     },
     "bilibili": {
         "label": "B 站",
+        "needs": ("playwright",),
         "copy_key": "bilibili",
         "credential": PUBLISH_ROOT / "cookies/bilibili_creator.json",
         # 文件日期只能猜「大概过期了」，这条命令是真去问 B 站。2026-09-21 实测：cookie
@@ -170,8 +173,35 @@ def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[st
             "video": str(video), "video_mb": round(video.stat().st_size / 1_048_576, 1), "title": title, "body": body, "tags": tags}
 
 
+# 9/24 B 站投稿报 No module named 'playwright'：工作台后台 PATH 里第一个 python3 是 Homebrew 的，
+# 没装 playwright。命令里写的「python3」不再交给 PATH 去猜，按这个通道要的库挑解释器。
+PYTHON_CANDIDATES = (sys.executable, "/usr/local/bin/python3", "/usr/bin/python3", "/opt/homebrew/bin/python3")
+_PYTHON_FOR: dict[tuple[str, ...], str] = {}
+
+
+def python_with(modules: tuple[str, ...], candidates: tuple[str, ...] = PYTHON_CANDIDATES) -> str:
+    if not modules:
+        return sys.executable
+    if modules in _PYTHON_FOR:
+        return _PYTHON_FOR[modules]
+    for candidate in candidates:
+        if not candidate or not Path(candidate).is_file():
+            continue
+        try:
+            done = subprocess.run([candidate, "-c", "import " + ", ".join(modules)], capture_output=True, timeout=30, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode == 0:
+            _PYTHON_FOR[modules] = candidate
+            return candidate
+    raise PublishError(f"这台机器上找不到装了 {'、'.join(modules)} 的 Python：在终端运行 /usr/local/bin/python3 -m pip install {' '.join(modules)}")
+
+
 def command_for(payload: dict[str, Any], publishers: dict[str, dict[str, Any]] = PUBLISHERS) -> list[str]:
-    template = publishers[payload["platform"]]["modes"][payload["mode"]]["argv"]
+    spec = publishers[payload["platform"]]
+    template = list(spec["modes"][payload["mode"]]["argv"])
+    if template and template[0] == "python3":
+        template[0] = python_with(tuple(spec.get("needs") or ()))
     values = {"video": payload["video"], "title": payload["title"], "body": payload["body"], "tags": ",".join(payload["tags"]),
               "article": payload.get("article", ""), "cover": payload.get("cover", "")}
     # Only whole-argument placeholders are substituted, so titles with braces never break the command.
