@@ -1179,3 +1179,38 @@ def test_radar_lists_every_video_of_one_account(client: TestClient) -> None:
     started = client.post(f"/api/accounts/{acct['id']}/sync?deep=true").json()
     assert started["started"] is True and "往回翻" in started["message"]
     _wait_sync(client)
+
+
+def test_saving_a_draft_does_not_mark_the_platform_published(tmp_path: Path) -> None:
+    """9/24：X 只存了草稿，发布台就标「已发到 X」，按钮也没了。脚本说 published=false 就不记。"""
+    import sys
+    import time
+    from content_studio import web as web_module
+
+    article = tmp_path / "drafts" / "topic-1" / "article.md"
+    script = "import json; print(json.dumps({'ok': True, 'published': False, 'url': 'https://x.com/compose/articles'}))"
+    cred = tmp_path / "secrets.yaml"
+    cred.write_text("x: {}")
+    specs = {"x": {"label": "X", "copy_key": "x", "credential": cred, "login_hint": "", "no_video": True, "needs_article": True,
+                   "modes": {"article_draft": {"label": "存草稿", "argv": [sys.executable, "-c", script]}}}}
+    cookie = tmp_path / "cookies.json"
+    cookie.write_text(json.dumps({"sessionid": "x"}))
+    cookie.chmod(0o600)
+    app = web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
+                                downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False, drafts_dir=tmp_path / "drafts",
+                                publishers=specs)
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
+        topic = c.post("/api/topics", json={"title": "t", "formats": "both"}).json()
+        article.parent.mkdir(parents=True)
+        article.write_text("# 标题\n\n正文", encoding="utf-8")
+        app.state.store.update_topic(topic["id"], article_path=str(article))
+        job = c.post(f"/api/topics/{topic['id']}/publish-jobs", json={"platform": "x", "mode": "article_draft"}).json()["job"]
+        c.post(f"/api/publish-jobs/{job['id']}/confirm")
+        for _ in range(100):
+            current = c.get(f"/api/topics/{topic['id']}/publish-jobs").json()["jobs"][0]
+            if current["state"] != "running":
+                break
+            time.sleep(0.05)
+        assert current["state"] == "done"
+        assert "x" not in c.get(f"/api/topics/{topic['id']}/copy").json()["records"]
+    app.state.store.close()
