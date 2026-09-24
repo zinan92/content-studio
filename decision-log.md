@@ -792,3 +792,8 @@
 - Gotcha：draft/add 的 JSON 必须原样 UTF-8（ensure_ascii=False），否则草稿里中文变成一串 \u 码。
 - Gotcha：freepublish 是「发布」——出现在主页，不推送粉丝；推送是群发，不做。未认证的号可能没有发布接口权限（48001），这时停在草稿箱、说清楚。
 - 没验证过的：真实 draft/add（没替 Park 在草稿箱里建测试稿）；令牌从这台机器能取到（白名单通）。
+
+## #175 研习室一键发（2026-09-24）
+- 决定：发布台「研习室」（原「小程序」）接成全自动通道：`node wechat-xingqiu-shell/scripts/workbench-submit.mjs`，研习室那篇文章存成草稿或直接发布。钥匙在 `~/.config/park/secrets.yaml` 的 `yanxishi` 段，走环境变量传给脚本（不进命令行参数）；brief_id 用 `content-studio-topic-<id>`，同一选题再发会更新同一篇。
+- 云端：zinan92/wechat-xingqiu#338，admin-api 的工作台钥匙只开 section.list / content.import / content.publish；已部署到企业环境并只读验证（无钥匙、错钥匙、未开放动作都拒，对钥匙能列栏目）。
+- 没验证过的：真实 content.import / publish（没替 Park 建测试草稿）。

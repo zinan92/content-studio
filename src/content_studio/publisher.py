@@ -19,6 +19,19 @@ PUBLISH_ROOT = Path("~/content-toolkit/capabilities/publish").expanduser()
 CONFIRM_WINDOW_SECONDS = 30 * 60
 RUN_TIMEOUT_SECONDS = 45 * 60
 
+XINGQIU = Path("~/work/wechat-xingqiu-shell").expanduser()
+
+
+def _secret(section: str, key: str) -> str:
+    try:
+        import yaml
+
+        data = yaml.safe_load(Path("~/.config/park/secrets.yaml").expanduser().read_text(encoding="utf-8")) or {}
+        return str((data.get(section) or {}).get(key) or "")
+    except Exception:  # noqa: BLE001 - 没配就是空，调用方会说缺什么
+        return ""
+
+
 PUBLISHERS: dict[str, dict[str, Any]] = {
     "channels": {
         "label": "视频号",
@@ -63,6 +76,22 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "modes": {
             "article_draft": {"label": "存为 X 图文文章草稿", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}"]},
             "article_publish": {"label": "直接发布图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}", "--publish"]},
+        },
+    },
+    "miniprogram": {
+        "label": "研习室",
+        "copy_key": "miniprogram",
+        # 9/24 Park：研习室要一键发。云函数 admin-api 认「工作台钥匙」（zinan92/wechat-xingqiu#338），
+        # 本机脚本用网页后台同一套转换；同一选题再发会更新同一篇（brief_id 固定）。
+        "credential": Path("~/.config/park/secrets.yaml").expanduser(),
+        "needs_keys": ("yanxishi", ("workbench_key", "env_id")),
+        "secret_env": {"WORKBENCH_KEY": ("yanxishi", "workbench_key")},
+        "login_hint": "研习室工作台钥匙在 ~/.config/park/secrets.yaml 的 yanxishi: 段（workbench_key、env_id），云函数 admin-api 存它的哈希",
+        "no_video": True,
+        "needs_article": True,
+        "modes": {
+            "draft": {"label": "存成研习室草稿", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}"]},
+            "publish": {"label": "直接发布到研习室", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}", "--publish"]},
         },
     },
     "wechat_mp": {
@@ -218,8 +247,12 @@ def command_for(payload: dict[str, Any], publishers: dict[str, dict[str, Any]] =
     template = list(spec["modes"][payload["mode"]]["argv"])
     if template and template[0] == "python3":
         template[0] = python_with(tuple(spec.get("needs") or ()))
+    article = payload.get("article", "")
     values = {"video": payload["video"], "title": payload["title"], "body": payload["body"], "tags": ",".join(payload["tags"]),
-              "article": payload.get("article", ""), "cover": payload.get("cover", "")}
+              "article": article, "cover": payload.get("cover", ""),
+              # 同一选题的文章放在 drafts/topic-<id>/ 下：拿目录名当稳定 id，再发会更新同一篇而不是新建
+              "brief_id": f"content-studio-{Path(article).parent.name}" if article else "",
+              "yanxishi_env": _secret("yanxishi", "env_id") if "{yanxishi_env}" in template else ""}
     # Only whole-argument placeholders are substituted, so titles with braces never break the command.
     return [values[part[1:-1]] if part[1:-1] in values and part.startswith("{") and part.endswith("}") else part for part in template]
 
@@ -248,8 +281,14 @@ def parse_result(stdout: str) -> dict[str, Any]:
 
 def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBLISHERS, timeout: float = RUN_TIMEOUT_SECONDS) -> dict[str, Any]:
     argv = command_for(payload, publishers)
+    env = None
+    wanted = publishers[payload["platform"]].get("secret_env") or {}
+    if wanted:
+        # 钥匙走环境变量，不进命令行参数（ps 里看得见）
+        env = {**os.environ, **{name: _secret(*where) for name, where in wanted.items()}}
     try:
-        completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, cwd=str(CONTENT_OPS) if CONTENT_OPS.is_dir() else None)
+        completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env,
+                                   cwd=str(CONTENT_OPS) if CONTENT_OPS.is_dir() else None)
     except subprocess.TimeoutExpired:
         return {"ok": False, "status": "timeout", "message": "发布超时（45 分钟），去平台后台看看有没有上传成功"}
     except OSError as exc:
