@@ -330,10 +330,12 @@ button.chip-state{cursor:pointer}
 .reach-platforms summary{cursor:pointer;padding:10px 24px;font-size:13px;display:flex;gap:10px;align-items:baseline}
 .reach-platforms summary small{color:var(--ink-3);font-size:12px}
 .rp-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 24px;padding:4px 24px 14px}
-.rp-row{display:grid;grid-template-columns:96px 1fr 88px;gap:6px 8px;align-items:center;padding:6px 0;border-top:1px solid var(--line-soft);font-size:13px}
+.rp-row{display:grid;grid-template-columns:max-content minmax(72px,1fr) 88px;gap:6px 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line-soft);font-size:13px}
 .rp-row.off{opacity:.55}
 .rp-row small{grid-column:3;font-size:10.5px;color:var(--ink-3);text-align:right}
-.rp-on{display:flex;gap:6px;align-items:center;cursor:pointer}
+.rp-on{display:flex;gap:6px;align-items:center;cursor:pointer;white-space:nowrap}
+/* 9/24 平台名和状态标签被挤成竖排：一律不换行，第一栏按内容宽 */
+.rp-on b{white-space:nowrap}
 .rp-on input{accent-color:var(--out)}
 .rp-handle,.rp-views{border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--surface);color:var(--ink);font:inherit;font-size:12.5px;min-width:0}
 .rp-views{text-align:right;font-family:var(--mono)}
@@ -973,7 +975,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
   color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1}
 
 .rp-on .plat{width:20px;height:20px;border-radius:5px;font-size:10px;flex:0 0 auto}
-.rp-tag{font-size:11px;border-radius:999px;padding:1px 8px;background:var(--sunk);color:var(--ink-3)}
+.rp-tag{font-size:11px;border-radius:999px;padding:1px 8px;background:var(--sunk);color:var(--ink-3);white-space:nowrap;flex:none}
 .rp-tag.ok{background:var(--out-soft);color:var(--out)}
 .rp-tag.warn{background:var(--warn-soft,var(--sunk));color:var(--warn)}
 
