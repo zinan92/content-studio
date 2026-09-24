@@ -2224,7 +2224,9 @@ def create_app(
             result = {"ok": False, "status": "error", "message": str(exc)}
         ok = bool(result.get("ok"))
         store.update_publish_job(job_id, state="done" if ok else "failed", result=result, message=None if ok else publisher.explain(result), finished_at=now_iso())
-        if ok:
+        # 存草稿不算发出去：X / 公众号 / 研习室的脚本在草稿时返回 published=false。
+        # 9/24 X 只存了草稿，发布台就标「已发到 X」，按钮也跟着没了。
+        if ok and result.get("published") is not False:
             copy_platform = publisher_specs()[job["platform"]]["copy_key"]
             try:
                 store.set_publish_record(job["topic_id"], copy_platform, published=True, url=publisher.result_url(result))
