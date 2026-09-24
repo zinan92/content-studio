@@ -32,6 +32,15 @@ def _secret(section: str, key: str) -> str:
         return ""
 
 
+def _gzh_html(article: str) -> str:
+    if not article:
+        return ""
+    from . import gzh_layout
+
+    page = gzh_layout.current(Path(article))
+    return str(page) if page else ""
+
+
 PUBLISHERS: dict[str, dict[str, Any]] = {
     "channels": {
         "label": "视频号",
@@ -90,8 +99,8 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "no_video": True,
         "needs_article": True,
         "modes": {
-            "draft": {"label": "存成研习室草稿", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}"]},
-            "publish": {"label": "直接发布到研习室", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}", "--publish"]},
+            "draft": {"label": "存成研习室草稿", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--html", "{gzh_html}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}"]},
+            "publish": {"label": "直接发布到研习室", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--html", "{gzh_html}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}", "--publish"]},
         },
     },
     "wechat_mp": {
@@ -252,7 +261,9 @@ def command_for(payload: dict[str, Any], publishers: dict[str, dict[str, Any]] =
               "article": article, "cover": payload.get("cover", ""),
               # 同一选题的文章放在 drafts/topic-<id>/ 下：拿目录名当稳定 id，再发会更新同一篇而不是新建
               "brief_id": f"content-studio-{Path(article).parent.name}" if article else "",
-              "yanxishi_env": _secret("yanxishi", "env_id") if "{yanxishi_env}" in template else ""}
+              "yanxishi_env": _secret("yanxishi", "env_id") if "{yanxishi_env}" in template else "",
+              # gzh skill 排好的版（和文章对得上才用）；没有就空着，脚本按 Markdown 导入
+              "gzh_html": _gzh_html(article) if "{gzh_html}" in template else ""}
     # Only whole-argument placeholders are substituted, so titles with braces never break the command.
     return [values[part[1:-1]] if part[1:-1] in values and part.startswith("{") and part.endswith("}") else part for part in template]
 

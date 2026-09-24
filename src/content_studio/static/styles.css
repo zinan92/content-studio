@@ -1207,3 +1207,9 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .rp-chip button{border:0;background:none;color:inherit;font-size:15px;line-height:1;cursor:pointer;padding:0 4px}
 .radar-q{font:inherit;font-size:13px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);width:160px}
 .out.cold .mult{color:var(--ink-3)}
+
+/* 文章页：gzh 排版预览，按手机宽度看 */
+.art-layout{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+.art-layout-h{font-size:13px;color:var(--ink-2);display:flex;align-items:center;gap:8px}
+.art-layout-frame{width:min(420px,100%);height:720px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.warn-t{color:var(--warn)}

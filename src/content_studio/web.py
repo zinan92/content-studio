@@ -1221,6 +1221,62 @@ def create_app(
             running = 30_000 + topic_id in writing
         return {"running": running, "error": title_errors.get(topic_id), "result": titles.read_titles(drafts_root, topic_id)}
 
+    layout_errors: dict[int, str] = {}
+
+    def _article_path(topic: dict[str, Any]) -> Path | None:
+        return Path(topic["article_path"]) if topic.get("article_path") else None
+
+    @app.post("/api/topics/{topic_id}/layout")
+    def start_layout(topic_id: int) -> dict[str, Any]:
+        """用 gzh-design skill 给研习室文章排版；公众号和研习室发布都用这份。"""
+        from . import gzh_layout
+
+        topic = store.topic(topic_id)
+        article = _article_path(topic)
+        if article is None or not article.is_file():
+            raise ValueError("先在「研习室文章」写好文章")
+        with writing_lock:
+            if 50_000 + topic_id in writing:
+                return {"started": False, "message": "正在排"}
+            writing.add(50_000 + topic_id)
+        layout_errors.pop(topic_id, None)
+
+        def run() -> None:
+            try:
+                gzh_layout.layout(article)
+                store.log_event("copy", f"《{topic['title'][:24]}》用 gzh 排好版了", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 文章页显示
+                logger.warning("gzh layout %s failed: %s", topic_id, exc)
+                layout_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+            finally:
+                with writing_lock:
+                    writing.discard(50_000 + topic_id)
+
+        threading.Thread(target=run, name=f"layout-{topic_id}", daemon=True).start()
+        return {"started": True, "message": f"开始用 gzh 排版（{gzh_layout.THEME}），一般 5–10 分钟"}
+
+    @app.get("/api/topics/{topic_id}/layout")
+    def layout_state(topic_id: int) -> dict[str, Any]:
+        from . import gzh_layout
+
+        topic = store.topic(topic_id)
+        with writing_lock:
+            running = 50_000 + topic_id in writing
+        return {"running": running, "error": layout_errors.get(topic_id), **gzh_layout.state(_article_path(topic))}
+
+    @app.get("/api/topics/{topic_id}/layout.html")
+    def layout_html(topic_id: int) -> Response:
+        """排版预览。放进隔离的源：页面是模型生成的，不许碰工作台接口。"""
+        from . import gzh_layout
+
+        article = _article_path(store.topic(topic_id))
+        page = article.parent / gzh_layout.FILENAME if article else None
+        if page is None or not page.is_file():
+            raise HTTPException(status_code=404, detail="还没排版")
+        doc = f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#fff">{page.read_text(encoding="utf-8")}</body></html>'
+        return Response(content=doc, media_type="text/html; charset=utf-8",
+                        headers={"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
     @app.get("/api/topics/{topic_id}/outline")
     def get_outline(topic_id: int) -> dict[str, Any]:
         from . import outline
