@@ -140,3 +140,9 @@ def test_bilibili_upload_carries_the_landscape_cover(tmp_path: Path, monkeypatch
     assert argv[-2:] == ["--cover", str(cover)]
     bare = publisher.command_for(publisher.build_payload("bilibili", "upload", video=video, copy=copy))
     assert bare[-2:] == ["--cover", ""]  # 没有封面：脚本照旧，让 B 站自己截帧
+
+
+def test_failure_reason_reaches_the_page() -> None:
+    """9/24：X 报「需要 Premium」，页面上只显示「发布失败」。"""
+    assert "Premium" in publisher.explain({"ok": False, "error": "X 不让发（403）：发图文文章需要账号开通 X Premium"})
+    assert publisher.explain({"ok": False}) == "发布失败"
