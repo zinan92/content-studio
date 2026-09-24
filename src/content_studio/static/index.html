@@ -13,6 +13,7 @@
 <div class="app">
   <aside class="rail">
     <div class="brand"><b>内容工作台</b><span id="brandSub">Park · 本机</span></div>
+    <button type="button" class="rail-pos" data-view="positioning" title="我是谁 · 怎么找到客户 · 卖什么"><span class="flow-k">定位</span><span>我是谁 · 找到谁 · 卖什么<small>方向不对，后面全白做</small></span></button>
     <nav class="flow" id="nav" aria-label="阶段">
       <button type="button" data-view="input" data-stage="in"><i class="node"></i><span class="flow-k">01</span><span class="flow-t">进项<small>读进来什么</small></span><b class="count" id="navIn"></b></button>
       <button type="button" data-view="board" data-stage="work"><i class="node"></i><span class="flow-k">02</span><span class="flow-t">加工中<small>正在做哪几条</small></span><b class="count" id="navWork"></b></button>
@@ -140,6 +141,11 @@
       </div>
       </details>
     </section>
+    <!-- POSITIONING -->
+    <section class="view wide" id="v-positioning" data-stage="pos">
+      <header class="page-h"><div><div class="stage-eyebrow">定位</div><h1>我是谁 · 怎么找到客户 · 卖什么</h1><p>做自媒体最重要的就是定位。这一页是唯一的答案，每天开工先看一眼；方向一变先改这里。</p></div></header>
+      <div id="positioningBody"></div>
+    </section>
     <!-- SETTINGS -->
     <section class="view" id="v-settings" data-stage="set">
       <header class="page-h"><div><div class="stage-eyebrow">设置</div><h1>设置与 Skills</h1><p>只保存在本机。</p></div></header>
@@ -189,6 +195,7 @@
 <script src="/static/article.js"></script>
 <script src="/static/output.js"></script>
 <script src="/static/skills.js"></script>
+<script src="/static/positioning.js"></script>
 <script src="/static/anna.js"></script>
 <script src="/static/app.js"></script>
 </body>

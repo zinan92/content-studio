@@ -803,6 +803,43 @@ def test_anna_can_propose_a_rule_and_park_writing_it_reaches_the_scorer(
     assert standard.BLOCK_START not in guide.read_text(encoding="utf-8")
 
 
+def test_positioning_page_and_anna_proposals(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from content_studio import positioning, qa
+
+    guide = tmp_path / "SKILL.md"
+    guide.write_text("---\nname: park-content-qa\n---\n\n# 标准\n", encoding="utf-8")
+    monkeypatch.setenv(qa.QA_GUIDE_ENV, str(guide))
+
+    # No file yet: the page says so instead of failing.
+    empty = client.get("/api/positioning").json()
+    assert empty["exists"] is False and empty["path"].endswith(positioning.FILE_NAME)
+
+    doc = tmp_path / positioning.FILE_NAME
+    doc.write_text("# Park 的定位\n\n### 一、我是谁\n十年交易。\n", encoding="utf-8")
+    got = client.get("/api/positioning").json()
+    assert got["exists"] and "十年交易" in got["markdown"]
+
+    # Anna on the 定位 page is handed the file itself, and her proposal lands in 待拍板 only.
+    assert client.post("/api/anna", json={"scope": "positioning", "message": "我的三问哪一问最弱？"}).json()["started"]
+    for _ in range(200):
+        chat = client.get("/api/anna", params={"scope": "positioning"}).json()
+        if not chat["busy"]:
+            break
+        time.sleep(0.02)
+    assert chat["label"] == "定位"
+    assert "Park 的定位页" in _fake_anna.last_user and "十年交易" in _fake_anna.last_user
+
+    posted = client.post("/api/positioning", json={"text": "只对博主，交易者留在私域", "source": "Anna"})
+    assert posted.status_code == 200
+    item = posted.json()["proposal"]
+    text = doc.read_text(encoding="utf-8")
+    assert text.startswith("# Park 的定位\n\n### 一、我是谁\n十年交易.\n".replace(".", "。"))
+    assert "只对博主" in text and positioning.BLOCK_START in text
+    assert client.post("/api/positioning", json={"text": "只对博主，交易者留在私域"}).status_code == 400
+    assert client.delete(f"/api/positioning/{item['id']}").json()["proposals"] == []
+    assert client.delete(f"/api/positioning/{item['id']}").status_code == 400
+
+
 def test_anna_on_the_report_page_is_given_the_open_teardown(client: TestClient) -> None:
     """Without the report in her context she would invent the lesson Park then writes into his standard."""
     client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "kind": "teacher"})

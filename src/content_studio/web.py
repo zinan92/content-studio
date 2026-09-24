@@ -34,6 +34,7 @@ from . import video_project
 from . import copypack
 from . import outline as outline_mod
 from .video_project import VideoProjectError
+from .positioning import PositioningError
 from .store import StoreError, StudioStore, now_iso
 from .worker import TeardownWorker, WorkerConfig, normalize_video_url
 
@@ -373,6 +374,7 @@ def create_app(
 
     from .standard import StandardError
 
+    @app.exception_handler(PositioningError)
     @app.exception_handler(StandardError)
     @app.exception_handler(StoreError)
     @app.exception_handler(AccountError)
@@ -1636,6 +1638,16 @@ def create_app(
                 lines.append(f"## 拍摄\n连续拍摄 {k.get('days')} 天；距上次拍 {k.get('days_since_last')} 天")
             if report_id:
                 lines.append(_report_context(report_id))
+        elif kind == "positioning":
+            from . import positioning
+
+            pos = positioning.read()
+            lines.append("## Park 的定位页（他正在看的就是这份文件）\n" + (pos["markdown"][:12000] if pos["exists"] else "还没有定位文件"))
+            me = store.self_account()
+            if me is not None:
+                lines.append(f"## 他的抖音主页\n昵称：{me.get('nickname')}；粉丝 {me.get('follower_count')}\n简介：{me.get('signature') or '（没抓到）'}")
+                titles = [(v['title'] or '').split(chr(10))[0][:50] for v in store.videos(me["id"]) if not v["is_image_post"]][:12]
+                lines.append("## 他最近的视频标题（做「陌生人自测」用）\n" + ("\n".join(f"- {t}" for t in titles) or "没有"))
         else:
             lines.append("Park 在设置页。")
         return "\n\n".join(lines)
@@ -2472,6 +2484,31 @@ def create_app(
 
         rule = standard.add_rule(body.text, source=body.source)
         return {"rule": rule, "rules": standard.rules()}
+
+    # -- 定位：我是谁 / 怎么找到客户 / 卖什么 -------------------------------------
+
+    @app.get("/api/positioning")
+    def get_positioning() -> dict[str, Any]:
+        from . import positioning
+
+        return positioning.read()
+
+    @app.post("/api/positioning")
+    def post_positioning(body: StandardBody) -> dict[str, Any]:
+        """Append one proposal to 「待拍板」. Anna wrote the sentence; Park clicked the
+        button that shows it. His own text above the block is never touched."""
+        from . import positioning
+
+        item = positioning.add_proposal(body.text, source=body.source)
+        return {"proposal": item, "proposals": positioning.proposals()}
+
+    @app.delete("/api/positioning/{proposal_id}")
+    def delete_positioning(proposal_id: str) -> dict[str, Any]:
+        from . import positioning
+
+        if not positioning.remove_proposal(proposal_id):
+            raise ValueError("这一条已经不在待拍板里了")
+        return {"proposals": positioning.proposals()}
 
     @app.delete("/api/standard/{rule_id}")
     def delete_standard(rule_id: str) -> dict[str, Any]:

@@ -15,7 +15,7 @@ const ANNA_PROMPTS = {
 function annaScope() {
   if (S.view === 'work' && S.workId) return `work:${S.workId}`;
   if (OUTPUT_FAMILY.includes(S.view)) return 'output';
-  if (['input', 'board', 'settings'].includes(S.view)) return S.view;
+  if (['input', 'board', 'settings', 'positioning'].includes(S.view)) return S.view;
   return 'board';
 }
 
@@ -90,7 +90,7 @@ function annaActionButton(a, scope) {
   if ((a.kind === 'outline' || a.kind === 'qa' || a.kind === 'memo') && kind !== 'work') return '';
   if (a.kind === 'take' && !['input', 'board'].includes(kind)) return '';
   // 记进标准 has no topic and a lesson can come from any page, so it is not gated by scope.
-  const text = a.kind === 'memo' ? `存进备注：${a.arg}` : a.kind === 'take' ? `拿来做：${a.arg}` : a.kind === 'standard' ? `记进标准：${a.arg}` : a.label;
+  const text = a.kind === 'memo' ? `存进备注：${a.arg}` : a.kind === 'take' ? `拿来做：${a.arg}` : a.kind === 'standard' ? `记进标准：${a.arg}` : a.kind === 'positioning' ? `记进定位：${a.arg}` : a.label;
   return `<button class="btn small an-act" type="button" data-an-kind="${a.kind}" data-an-arg="${esc(a.arg || '')}">${esc(text)}</button>`;
 }
 
@@ -116,6 +116,12 @@ async function runAnnaAction(kind, arg, scope) {
       await api('/api/standard', { method: 'POST', body: { text: arg, source: 'Anna · ' + (AN.data ? AN.data.label : '') } });
       if (window.reloadStandard) await window.reloadStandard();
       toast('已记进标准');
+    } else if (kind === 'positioning') {
+      // Anna's sentence goes into 「待拍板」 only; Park moves it into the body by hand.
+      if (!confirm(`把这一句记进定位的「待拍板」？\n\n${arg}`)) return;
+      await api('/api/positioning', { method: 'POST', body: { text: arg, source: 'Anna' } });
+      if (window.reloadPositioning) await window.reloadPositioning();
+      toast('已记进待拍板');
     } else if (kind === 'take') {
       await api('/api/topics', { method: 'POST', body: { title: arg, formats: 'both', account_id: S.mine && S.mine.account ? S.mine.account.id : null } });
       toast('已放进看板');
@@ -192,6 +198,14 @@ async function renderAnna() {
   if (d.busy) AN.poll = setTimeout(async () => { if (AN.open && annaScope() === scope) { try { await loadAnna(scope); } catch (_) { /* retry next tick */ } renderAnna(); } }, 2000);
 }
 window.renderAnna = renderAnna;
+
+/** Open the panel from another page, optionally with a first line already typed. */
+window.openAnna = (prefill) => {
+  AN.open = true;
+  try { localStorage.setItem('cs-anna', 'open'); } catch (_) { /* ignore */ }
+  renderAnna();
+  setTimeout(() => { const i = $('#anIn'); if (i) { if (prefill && !i.value) i.value = prefill; i.focus(); } }, 80);
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   const btn = $('#railAnna');
