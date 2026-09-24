@@ -80,11 +80,11 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "needs_keys": ("x", ("api_key", "api_secret", "access_token", "access_secret")),
         "login_hint": "在 developer.x.com 建应用（权限选 Read and Write），把四个密钥写进 ~/.config/park/secrets.yaml 的 x: 段",
         "no_video": True,
-        # 9/23 Park：X 一定要是图文文章。发的是研习室文章 + 横版封面，不是文案框里那几行。
+        # 9/23 Park：X 一定要是图文文章。发的是研习室文章 + 纯文字 5:2 封面（9/24：不要带人脸的），不是文案框里那几行。
         "needs_article": True,
         "modes": {
-            "article_draft": {"label": "存为 X 图文文章草稿", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}"]},
-            "article_publish": {"label": "直接发布图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}", "--publish"]},
+            "article_draft": {"label": "存为 X 图文文章草稿", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}"]},
+            "article_publish": {"label": "直接发布图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--publish"]},
         },
     },
     "miniprogram": {

@@ -4,7 +4,8 @@
 先上传图片拿 media_id，再 POST /2/articles/draft 建草稿（DraftJS 的 content_state），
 需要时 POST /2/articles/{id}/publish 发布。发文章的账号要有 X Premium。
 
-图：横版封面放在最前面；文章里用 `![说明](相对路径)` 插的本地图片一起上传。
+图：封面放进 X 文章自己的封面位（cover_media），默认按标题出一张纯文字 5:2 横幅（x_cover.py，不带人脸，
+9/24 Park 要求）；文章里用 `![说明](相对路径)` 插的本地图片一起上传。
 默认只存草稿——Park 在 X 上看一眼再点发布；直接发布要他在发布台再确认一次。
 
     python3 -m content_studio.x_article --article 文章.md --cover 横封面.jpg [--publish]
@@ -176,23 +177,29 @@ def _post_json(url: str, payload: dict[str, Any] | None, creds: dict[str, str], 
 
 
 def publish_article(article: Path, *, cover: Path | None = None, publish: bool = False,
-                    creds: dict[str, str] | None = None, send: Send | None = None) -> dict[str, Any]:
+                    creds: dict[str, str] | None = None, send: Send | None = None,
+                    make_cover: Callable[[str, Path], Path] | None = None) -> dict[str, Any]:
+    """封面放进 X 文章自己的封面位（cover_media）。没给封面就按标题出一张纯文字 5:2 的（不带人脸）。"""
     title, items = parse_markdown(article.read_text(encoding="utf-8"))
-    if cover is not None:
-        items = [{"type": "image", "src": str(cover), "alt": ""}, *items]
+    if cover is None:
+        from .x_cover import make_cover as default_make
+
+        cover = (make_cover or default_make)(title, article.parent / "x-cover.jpg")
+    _check_image(cover)
     images = {item["src"]: (Path(item["src"]) if Path(item["src"]).is_absolute() else article.parent / item["src"])
               for item in items if item["type"] == "image"}
     for path in images.values():
         _check_image(path)  # 先全部查一遍，别传了一半才发现有张图不行
-    if not images:
-        raise XError("图文文章至少要一张图：先做封面，或者在文章里插图")
     creds = creds or load_credentials()
+    cover_id = upload_image(cover, creds, send=send)
     media = {src: upload_image(path, creds, send=send) for src, path in images.items()}
-    draft = _post_json(f"{API}/articles/draft", {"title": title, "content_state": content_state(items, media)}, creds, send)
+    payload = {"title": title, "content_state": content_state(items, media),
+               "cover_media": {"media_id": cover_id, "media_category": "tweet_image"}}
+    draft = _post_json(f"{API}/articles/draft", payload, creds, send)
     article_id = (draft.get("data") or {}).get("id")
     if not article_id:
         raise XError("X 没返回草稿 id")
-    result: dict[str, Any] = {"id": str(article_id), "title": title, "images": len(media), "published": False,
+    result: dict[str, Any] = {"id": str(article_id), "title": title, "images": len(media), "cover": str(cover), "published": False,
                               "url": "https://x.com/compose/articles"}
     if publish:
         done = _post_json(f"{API}/articles/{article_id}/publish", None, creds, send).get("data") or {}
