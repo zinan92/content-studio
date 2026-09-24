@@ -384,13 +384,13 @@ function sideFor(p, d) {
     } else if (p.state === 'setup') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>${esc(p.login_hint)}</p>${manual}`;
     } else if (p.needs_article && !d.has_article) {
-      block = '<p class="pdl-note">X 发的是图文文章：先在「研习室文章」写好（视频拍完的会以视频原话为准），横版封面会放在最前面。</p>';
+      block = `<p class="pdl-note">${esc(p.label)}发的是研习室那篇文章：先在「研习室文章」写好（视频拍完的会以视频原话为准），封面会自动带上。</p>`;
     } else if (!p.needs_article && !d.has_copy) {
       block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
-      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? '。发的是研习室那篇文章，横版封面放最前面；需要 X Premium' : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
+      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? (p.key === 'x' ? '。发的是研习室那篇文章，横版封面放最前面；需要 X Premium' : '。发的是研习室那篇文章，自动排版（橄榄手记）+ 公众号封面；「发布」不推送粉丝') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
         <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
     } else {
@@ -467,7 +467,7 @@ async function openCover(topicId) {
       <div class="cv-l">用哪一帧的人<small>挑表情好、眼睛睁着的</small></div>
       <div class="cv-frames">${o.frames.map((f) => `<button type="button" class="cv-frame ${f.at === st.at ? 'on' : ''}" data-cv-at="${f.at}"><img src="${f.url}" alt="第 ${Math.round(f.at)} 秒"><small>${Math.floor(f.at / 60)}:${String(Math.round(f.at % 60)).padStart(2, '0')}</small></button>`).join('')}</div>
     </div>
-    <div class="cv-foot"><button class="btn" type="button" id="cvGo">出横竖两张</button><span class="pdl-note" id="cvMsg">抠人像要十几秒。</span></div>
+    <div class="cv-foot"><button class="btn" type="button" id="cvGo">出横、竖、公众号三张</button><span class="pdl-note" id="cvMsg">抠人像要十几秒。</span></div>
     <div class="cv-out" id="cvOut"></div>`;
   const ta = $('#cvLines', dlg);
   const bindEm = () => $$('[data-cv-em]', dlg).forEach((b) => (b.onclick = () => { st.emphasis = b.dataset.cvEm; $('#cvEms', dlg).innerHTML = emphasisChips(); bindEm(); }));
@@ -485,7 +485,7 @@ async function openCover(topicId) {
       const r = await api(`/api/topics/${topicId}/cover`, { method: 'POST', body: st });
       const name = encodeURIComponent(r.project);
       const stamp = Date.now();
-      $('#cvOut', dlg).innerHTML = Object.entries(r.covers).map(([k, path]) => `<img class="cv-shot ${k === '横' ? 'landscape' : 'portrait'}" src="/api/video-projects/${name}/file?path=${encodeURIComponent(path)}&t=${stamp}" alt="${k}版封面">`).join('');
+      $('#cvOut', dlg).innerHTML = Object.entries(r.covers).map(([k, path]) => `<img class="cv-shot ${k === '竖' ? 'portrait' : k === '公众号' ? 'wechat' : 'landscape'}" src="/api/video-projects/${name}/file?path=${encodeURIComponent(path)}&t=${stamp}" alt="${k}版封面">`).join('');
       $('#cvMsg', dlg).textContent = '好了，已经放进交付包。不满意就换一帧或改字再出一次。';
       PD.data = null; $('#publishBody').dataset.sig = ''; renderView();
     } catch (err) { $('#cvMsg', dlg).textContent = err.message; }
@@ -496,7 +496,7 @@ async function openCover(topicId) {
 /* 交付包里的封面：项目 final/ 下现成的横版和竖版。 */
 function releaseStrip(rel) {
   if (!rel || !rel.covers) return '';
-  const shots = [['landscape', '横版'], ['portrait', '竖版']].filter(([k]) => rel.covers[k]);
+  const shots = [['landscape', '横版'], ['portrait', '竖版'], ['wechat', '公众号']].filter(([k]) => rel.covers[k]);
   if (!shots.length) return '';
   return `<div class="pub-covers">${shots.map(([k, label]) => {
     const url = `/api/video-projects/${encodeURIComponent(rel.project)}/file?path=${encodeURIComponent(rel.covers[k])}`;

@@ -65,6 +65,21 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
             "article_publish": {"label": "直接发布图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--cover", "{cover}", "--publish"]},
         },
     },
+    "wechat_mp": {
+        "label": "公众号",
+        "copy_key": "wechat_mp",
+        # 9/24 Park：公众号要一键发。研习室那篇文章排好版（橄榄手记）+ 公众号封面，进草稿箱；
+        # 「发布」出现在公众号主页但不推送粉丝，推送（群发）不在这里做。
+        "credential": Path("~/.config/park/secrets.yaml").expanduser(),
+        "needs_keys": ("wechat", ("appid", "secret")),
+        "login_hint": "公众号后台 → 设置与开发 → 基本配置：AppID、AppSecret 写进 ~/.config/park/secrets.yaml 的 wechat: 段，并把这台机器的 IP 加进白名单",
+        "no_video": True,
+        "needs_article": True,
+        "modes": {
+            "draft": {"label": "存进公众号草稿箱", "argv": ["python3", "-m", "content_studio.wechat_publish", "--article", "{article}", "--cover", "{cover}"]},
+            "publish": {"label": "直接发布（不推送粉丝）", "argv": ["python3", "-m", "content_studio.wechat_publish", "--article", "{article}", "--cover", "{cover}", "--publish"]},
+        },
+    },
     "youtube": {
         "label": "YouTube",
         "copy_key": "youtube",

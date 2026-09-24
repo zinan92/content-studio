@@ -40,7 +40,7 @@ def test_the_real_shape_codex_delivered(tmp_path: Path) -> None:
     )
     r = release.find_release(tmp_path)
     assert r["video"] == "final/9月22日-抖音上传版.mp4"
-    assert r["covers"] == {"landscape": "final/9月22日-封面.jpg", "portrait": "final/covers/9月22日-竖封面.png"}
+    assert r["covers"] == {"landscape": "final/9月22日-封面.jpg", "portrait": "final/covers/9月22日-竖封面.png", "wechat": None}
     assert r["copy"]["title"] == "产品越来越便宜，真正越来越贵的是信任"
     assert r["copy"]["alternatives"] == ["AI 时代，自媒体博主为什么必须从卖课转向卖产品？"]
     assert r["copy"]["body"] == "当人人都能手搓产品，稀缺的就不再是做出来。"

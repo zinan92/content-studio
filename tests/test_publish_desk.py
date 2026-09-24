@@ -9,6 +9,7 @@ SPECS = {
     "x": {"needs_keys": ("x", ("api_key",))},
     "bilibili": {"credential": "/tmp/x", "probe": ["true"]},
     "channels": {"credential": "/tmp/y", "blocked": "限制了"},
+    "wechat_mp": {"needs_keys": ("wechat", ("appid", "secret")), "needs_article": True},
 }
 
 
@@ -17,7 +18,8 @@ def test_treatment_by_channel_kind():
     assert publish_desk.treatment("x", SPECS["x"]) == "auto"
     assert publish_desk.treatment("bilibili", SPECS["bilibili"]) == "scan"
     assert publish_desk.treatment("channels", SPECS["channels"]) == "scan"
-    assert publish_desk.treatment("wechat_mp", None) == "handoff"
+    # 9/24 起公众号一键发（排版 + 封面进草稿箱），不再是「交给流水线」
+    assert publish_desk.treatment("wechat_mp", SPECS["wechat_mp"]) == "auto"
 
 
 def test_shared_entry_prefers_first_written_platform():
@@ -55,7 +57,7 @@ def test_rows_state_shipped_and_can_auto():
     assert rows["x"]["job"]["id"] == 2  # cancelled one skipped
     assert rows["x"]["can_auto"] is True and rows["x"]["no_video"] is True and rows["x"]["modes"] == {"post": "发"}
     assert rows["bilibili"]["can_auto"] is False and rows["bilibili"]["treatment"] == "scan"
-    assert rows["wechat_mp"]["treatment"] == "handoff" and rows["wechat_mp"]["handoff_done"] is True
+    assert rows["wechat_mp"]["treatment"] == "manual" and rows["wechat_mp"]["handoff_done"] is None  # 这里没给它通道
     assert rows["douyin"]["handoff_done"] is None
     assert rows["douyin"]["fill"]["title"] == "标题"
 
@@ -97,7 +99,7 @@ def test_desk_endpoint_shape(client):
     assert set(rows) == {"douyin", "channels", "xiaohongshu", "wechat_mp", "miniprogram", "x", "bilibili", "youtube", "xiaoyuzhou"}
     assert rows["bilibili"]["shipped"] is True and rows["bilibili"]["record"]["url"] == "https://b23.tv/1"
     assert rows["douyin"]["shipped"] is False and rows["douyin"]["fill"]["title"] == "标题"
-    assert rows["wechat_mp"]["treatment"] == "handoff" and rows["wechat_mp"]["handoff_done"] is False
+    assert rows["wechat_mp"]["treatment"] == "auto" and rows["wechat_mp"]["needs_article"] is True
     # 指定不在候选里的 id 也能打开
     other = client.post("/api/topics", json={"title": "第二条"}).json()
     client.patch(f"/api/topics/{other['id']}", json={"archived": True})

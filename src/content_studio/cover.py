@@ -29,6 +29,9 @@ ORANGE = "#ef3711"
 FORMATS = {
     "横": {"w": 1440, "h": 1080, "x0": 78, "maxw": 720, "top": 150, "bottom": 830, "fs": (72, 124),
            "person": {"h": 820, "cx": 1130}},
+    # 公众号封面 2.35:1：信息流里就这一条，字在左、人在右，和横版一个语言。
+    "公众号": {"w": 1880, "h": 800, "x0": 96, "maxw": 900, "top": 90, "bottom": 650, "fs": (58, 104),
+             "person": {"h": 720, "cx": 1470}},
     "竖": {"w": 1080, "h": 1440, "x0": 71, "maxw": 900, "top": 120, "bottom": 690, "fs": (64, 104),
            "person": {"h": 700, "cx": 560}},
 }
@@ -222,7 +225,7 @@ def render(svg_path: Path) -> Path:
 
 def make_covers(base: Path, video: Path, *, lines: list[str], emphasis: str, at: float,
                 title: str | None = None, name: str | None = None) -> dict[str, str]:
-    """出横竖两张封面到 final/covers/，返回相对项目目录的路径。"""
+    """出横、竖、公众号三张封面到 final/covers/，返回相对项目目录的路径。"""
     lines = [l.strip() for l in lines if l.strip()]
     check_lines(title, lines, emphasis)
     out = base / "final" / "covers"
@@ -233,7 +236,7 @@ def make_covers(base: Path, video: Path, *, lines: list[str], emphasis: str, at:
     person = out / f"{stem}-cutout.png"
     ratio = cutout(frame, person, rect=face_rect(base))
     result = {}
-    for fmt, label in (("横", "横封面"), ("竖", "竖封面")):
+    for fmt, label in (("横", "横封面"), ("竖", "竖封面"), ("公众号", "公众号封面")):
         path = out / f"{stem}-{label}.svg"
         path.write_text(svg(lines, emphasis, fmt, person.name, ratio), encoding="utf-8")
         render(path)

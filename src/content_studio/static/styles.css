@@ -198,6 +198,7 @@ button.chip-state{cursor:pointer}
 .pub-cover img{display:block;border:1px solid var(--line);border-radius:6px;background:var(--sunk)}
 .pub-cover.landscape img{height:96px;width:auto;aspect-ratio:4/3}
 .pub-cover.portrait img{height:96px;width:auto;aspect-ratio:3/4}
+.pub-cover.wechat img{height:96px;width:auto;aspect-ratio:47/20}
 .pub-cover:hover img{border-color:var(--accent)}
 .pub-others summary{cursor:pointer;color:var(--ink-3);font-size:12px;padding:4px 2px}
 .pub-others summary:hover{color:var(--ink-2)}

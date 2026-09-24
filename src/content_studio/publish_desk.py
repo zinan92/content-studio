@@ -19,8 +19,6 @@ SHARED_KEYS = ("douyin", "channels", "bilibili", "youtube")
 
 
 def treatment(key: str, spec: dict[str, Any] | None) -> str:
-    if key == "wechat_mp":
-        return "handoff"
     if spec is None:
         return "manual"
     if spec.get("needs_keys"):

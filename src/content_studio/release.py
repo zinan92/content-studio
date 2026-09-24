@@ -74,17 +74,19 @@ def image_size(path: Path) -> tuple[int, int] | None:
 
 
 def find_covers(base: Path) -> dict[str, str | None]:
-    """横版（宽 > 高）和竖版封面各挑一张，返回相对路径。"""
+    """横版（宽 > 高）、竖版、公众号（2.35:1）封面各挑一张，返回相对路径。"""
     found = _files(base / "final", IMAGE_SUFFIXES) + _files(base / "final" / "covers", IMAGE_SUFFIXES)
     covers = [
         p for p in found
         if any(h in p.name.lower() for h in COVER_HINTS) and not any(n in p.name.lower() for n in COVER_NOISE)
     ]
-    out: dict[str, str | None] = {"landscape": None, "portrait": None}
+    out: dict[str, str | None] = {"landscape": None, "portrait": None, "wechat": None}
     # 新的在前：改过一版封面，旧的那张不该再被选中。
     for p in sorted(covers, key=lambda p: p.stat().st_mtime, reverse=True):
         size = image_size(p)
-        if size:
+        if "公众号" in p.name or (size and size[0] / size[1] >= 2.2):
+            kind = "wechat"  # 2.35:1 的公众号封面也是「宽 > 高」，不能被当成横版
+        elif size:
             kind = "landscape" if size[0] > size[1] else "portrait"
         elif "竖" in p.name:
             kind = "portrait"
