@@ -15,7 +15,9 @@ from typing import Any
 PLATFORMS: dict[str, dict[str, Any]] = {
     "douyin": {"label": "抖音", "title": 30, "body": 1000, "tags": 5, "admin": "https://creator.douyin.com/creator-micro/content/upload"},
     "channels": {"label": "视频号", "title": 16, "body": 1000, "tags": 5, "admin": "https://channels.weixin.qq.com/platform/post/create"},
-    "xiaohongshu": {"label": "小红书", "title": 20, "body": 1000, "tags": 10, "admin": "https://creator.xiaohongshu.com/publish/publish"},
+    # 小红书标题 20「字」：两个英文字母算一个字（9/24 Park 实测：按 20 个字符截出来，小红书显示 14）。不截，超了提醒。
+    "xiaohongshu": {"label": "小红书", "title": 20, "body": 1000, "tags": 10, "admin": "https://creator.xiaohongshu.com/publish/publish",
+                    "count": "half_ascii", "no_trim": True},
     "bilibili": {"label": "B 站", "title": 80, "body": 2000, "tags": 10, "admin": "https://member.bilibili.com/platform/upload/video/frame"},
     "youtube": {"label": "YouTube", "title": 100, "body": 5000, "tags": 15, "admin": "https://studio.youtube.com/"},
     "x": {"label": "X", "title": 0, "body": 280, "tags": 3, "admin": "https://x.com/compose/post", "weighted": True},
@@ -68,3 +70,10 @@ def read_copy(drafts_dir: Path, topic_id: int) -> dict[str, Any] | None:
     data = json.loads(path.read_text(encoding="utf-8"))
     data["checks"] = {key: measure(key, entry) for key, entry in data["platforms"].items() if key in PLATFORMS}
     return data
+
+
+def title_units(text: str, spec: dict[str, Any]) -> float:
+    """按平台的算法数标题长度。小红书：ASCII 字符算半个字。"""
+    if spec.get("count") == "half_ascii":
+        return sum(0.5 if ord(ch) < 128 else 1 for ch in text)
+    return float(len(text))

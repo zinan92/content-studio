@@ -335,13 +335,13 @@ function sideFor(p, d) {
   const field = (label, value, hint) => value
     ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-copy="${esc(value)}">复制</button></div>` : '';
   const fields = d.has_copy ? `<h4>这个平台该填什么</h4><div class="pdl-fields">
-      ${field('标题', p.fill.title, `最多 ${p.caps.title} 字${p.fill.title_over ? ' · 已裁短' : ''}`)}
+      ${field('标题', p.fill.title, `最多 ${p.caps.title} 字${p.fill.title_trimmed ? ' · 已裁短' : p.fill.title_over ? ` · 现在 ${p.fill.title_units} 字，超了，发的时候删几个字` : ''}`)}
       ${field(p.key === 'wechat_mp' ? '正文开头' : p.key === 'x' ? '推文' : '简介', p.fill.body, `最多 ${p.caps.body} 字`)}
       ${field('话题', p.fill.tags.map((x) => '#' + x).join(' '), `最多 ${p.caps.tags} 个`)}
     </div>` : `<p class="pdl-note">还没写文案。<button class="linklike" type="button" id="pdlWrite">去写标题和简介 →</button></p>`;
   const manual = `<div class="pdl-acts">
       ${d.has_copy ? '<button class="btn" type="button" id="pdlCopyAll">复制全部文案</button>' : ''}
-      ${p.admin ? `<a class="btn primary" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center">打开${esc(p.label)}上传 ↗</a>` : ''}
+      ${p.admin ? `<a class="btn primary" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" ${p.key === 'xiaohongshu' ? 'data-xhs-open' : ''}>打开${esc(p.label)}上传 ↗${p.key === 'xiaohongshu' ? '（同时打开图片文件夹）' : ''}</a>` : ''}
     </div>`;
   const mark = `<div class="pdl-mark"><h4>发完了？记一笔</h4><input id="pdlUrl" placeholder="${esc(p.label)}的链接（可留空）" autocomplete="off"><button class="btn" type="button" id="pdlMark">标为已发</button></div>`;
   const hist = (d.platforms.find((x) => x.key === p.key) || {}).job;
@@ -560,6 +560,9 @@ function renderDialog() {
   };
   if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
   if (p.key === 'xiaohongshu') renderXhs(dlg, t.id);
+  // 小红书上传页要选图：点「打开小红书上传」时顺手在访达里打开图片文件夹，不用去后台找
+  const xhsOpen = $('[data-xhs-open]', dlg);
+  if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
   const unmark = $('#pdlUnmark', dlg);
   if (unmark) unmark.onclick = async () => {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: false, url: null } }); toast('已撤销'); await refresh(); } catch (err) { toast(err.message); }

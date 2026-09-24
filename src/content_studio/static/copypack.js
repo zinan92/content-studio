@@ -17,11 +17,15 @@ function sharedEntry(copy) {
   return key ? platforms[key] : { title: '', body: '', tags: [] };
 }
 
+// 按平台的算法数字数：小红书两个英文字母算一个字
+const titleUnits = (text, spec) => (spec && spec.count === 'half_ascii' ? [...text].reduce((n, ch) => n + (ch.charCodeAt(0) < 128 ? 0.5 : 1), 0) : text.length);
+
 function lengthChips(title, specs) {
   return SHARED_KEYS.map((k) => {
     const cap = specs[k].title;
-    const over = title.length > cap;
-    return `<span class="len-chip ${over ? 'bad' : ''}" title="${esc(specs[k].label)}标题最多 ${cap} 字">${esc(specs[k].label)} ${title.length}/${cap}</span>`;
+    const n = titleUnits(title, specs[k]);
+    const over = n > cap;
+    return `<span class="len-chip ${over ? 'bad' : ''}" title="${esc(specs[k].label)}标题最多 ${cap} 字">${esc(specs[k].label)} ${n}/${cap}</span>`;
   }).join('');
 }
 
@@ -87,10 +91,10 @@ async function renderCopyBox(topic, el) {
       <div class="panel-h"><h3>各平台怎么填</h3><small>按各家的字数裁好了，点「复制」去粘贴 · 不会替你上传</small></div>
       ${on.map((m) => {
         const spec = specs[m.key];
-        const title = spec.title ? entry.title.slice(0, spec.title) : '';
+        const title = spec.title ? (spec.no_trim ? entry.title : entry.title.slice(0, spec.title)) : '';
         const body = entry.body.slice(0, spec.body);
         const tags = entry.tags.slice(0, spec.tags);
-        const over = spec.title && entry.title.length > spec.title;
+        const over = spec.title && titleUnits(entry.title, spec) > spec.title;
         const field = (label, value, hint) => value
           ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-pf-copy="${esc(value)}">复制</button></div>`
           : '';
