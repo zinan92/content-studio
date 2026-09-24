@@ -45,7 +45,7 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "probe_ok": "valid",
         "login_hint": f"cd {PUBLISH_ROOT} && ./.venv/bin/python sau_cli.py bilibili login --account creator",
         "modes": {
-            "upload": {"label": "投稿（B 站审核后公开）", "argv": ["python3", str(CONTENT_OPS / "scripts/bilibili_web_upload.py"), "--headless", "upload", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
+            "upload": {"label": "投稿（B 站审核后公开）", "argv": ["python3", str(CONTENT_OPS / "scripts/bilibili_web_upload.py"), "--headless", "upload", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}", "--cover", "{cover}"]},
         },
     },
     "x": {
@@ -170,7 +170,8 @@ def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[st
     if not title:
         raise PublishError(f"先在「发布」页写好标题并保存")
     return {"platform": platform, "platform_label": spec["label"], "mode": mode, "mode_label": spec["modes"][mode]["label"],
-            "video": str(video), "video_mb": round(video.stat().st_size / 1_048_576, 1), "title": title, "body": body, "tags": tags}
+            "video": str(video), "video_mb": round(video.stat().st_size / 1_048_576, 1), "title": title, "body": body, "tags": tags,
+            "cover": str(cover) if cover and cover.is_file() else ""}
 
 
 # 9/24 B 站投稿报 No module named 'playwright'：工作台后台 PATH 里第一个 python3 是 Homebrew 的，

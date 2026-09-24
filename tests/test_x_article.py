@@ -127,3 +127,16 @@ def test_channels_run_with_a_python_that_has_their_libraries(monkeypatch: pytest
     x = publisher.build_payload("x", "article_draft", video=None, copy=None, article=article)
     publisher.command_for(x)
     assert seen[-1] == ()  # 工作台自己的模块：用工作台同一个 Python
+
+
+def test_bilibili_upload_carries_the_landscape_cover(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(publisher, "python_with", lambda mods, candidates=None: "/py")
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"0")
+    cover = tmp_path / "横封面.jpg"
+    cover.write_bytes(b"1")
+    copy = {"bilibili": {"title": "标题", "body": "简介"}}
+    argv = publisher.command_for(publisher.build_payload("bilibili", "upload", video=video, copy=copy, cover=cover))
+    assert argv[-2:] == ["--cover", str(cover)]
+    bare = publisher.command_for(publisher.build_payload("bilibili", "upload", video=video, copy=copy))
+    assert bare[-2:] == ["--cover", ""]  # 没有封面：脚本照旧，让 B 站自己截帧

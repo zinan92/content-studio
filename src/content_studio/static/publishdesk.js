@@ -390,7 +390,7 @@ function sideFor(p, d) {
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
-      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? '。发的是研习室那篇文章，横版封面放最前面；需要 X Premium' : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）`}。</p>
+      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? '。发的是研习室那篇文章，横版封面放最前面；需要 X Premium' : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
         <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
     } else {
