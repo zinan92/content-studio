@@ -62,19 +62,20 @@ def test_offsets_count_utf16() -> None:
     assert styles == [{"offset": 3, "length": 1, "style": "bold"}]
 
 
-def test_uploads_cover_first_then_drafts_and_only_publishes_when_asked(tmp_path: Path) -> None:
+def test_cover_goes_into_the_cover_slot_not_the_body(tmp_path: Path) -> None:
+    """9/24：封面放进 X 文章自己的 cover_media；正文第一块不再是一张图。"""
     (tmp_path / "a.md").write_text(ARTICLE, encoding="utf-8")
     (tmp_path / "shot.png").write_bytes(b"\x89PNG....")
-    cover = tmp_path / "横封面.jpg"
+    cover = tmp_path / "x-cover.jpg"
     cover.write_bytes(b"\xff\xd8....")
     fake = Fake()
     result = x_article.publish_article(tmp_path / "a.md", cover=cover, creds=CREDS, send=fake)
     urls = [c[0] for c in fake.calls]
     assert urls == [x_article.UPLOAD, x_article.UPLOAD, f"{x_article.API}/articles/draft"]
-    assert b'filename="\xe6\xa8\xaa\xe5\xb0\x81\xe9\x9d\xa2.jpg"' in fake.calls[0][1] and b"tweet_image" in fake.calls[0][1]
     draft = json.loads(fake.calls[2][1])
-    assert draft["title"].startswith("我终于理解了") and draft["content_state"]["blocks"][0]["type"] == "atomic"
-    assert result == {"id": "a1", "title": draft["title"], "images": 2, "published": False, "url": "https://x.com/compose/articles"}
+    assert draft["cover_media"] == {"media_id": "m1", "media_category": "tweet_image"}
+    assert draft["content_state"]["blocks"][0]["type"] == "unstyled"  # 正文从文字开始
+    assert result["images"] == 1 and result["published"] is False and result["url"] == "https://x.com/compose/articles"
     assert all("OAuth " in c[2]["Authorization"] for c in fake.calls)
 
     fake = Fake()
@@ -82,14 +83,22 @@ def test_uploads_cover_first_then_drafts_and_only_publishes_when_asked(tmp_path:
     assert fake.calls[-1][0] == f"{x_article.API}/articles/a1/publish" and done["url"].endswith("/99")
 
 
-def test_refuses_before_uploading_anything(tmp_path: Path) -> None:
-    (tmp_path / "a.md").write_text("# 只有字\n\n正文", encoding="utf-8")
+def test_default_cover_is_made_from_the_title_and_bad_images_stop_early(tmp_path: Path) -> None:
+    (tmp_path / "a.md").write_text("# 只有字的标题\n\n正文", encoding="utf-8")
+    made = []
+
+    def fake_cover(title: str, out: Path) -> Path:
+        made.append(title)
+        out.write_bytes(b"\xff\xd8")
+        return out
+
     fake = Fake()
-    with pytest.raises(XError, match="至少要一张图"):
-        x_article.publish_article(tmp_path / "a.md", creds=CREDS, send=fake)
+    x_article.publish_article(tmp_path / "a.md", creds=CREDS, send=fake, make_cover=fake_cover)
+    assert made == ["只有字的标题"] and json.loads(fake.calls[-1][1])["cover_media"]["media_id"] == "m1"
     (tmp_path / "b.md").write_text("# 标题\n\n![](missing.png)", encoding="utf-8")
+    fake = Fake()
     with pytest.raises(XError, match="找不到图片"):
-        x_article.publish_article(tmp_path / "b.md", creds=CREDS, send=fake)
+        x_article.publish_article(tmp_path / "b.md", creds=CREDS, send=fake, make_cover=fake_cover)
     assert fake.calls == []
 
 
@@ -101,9 +110,9 @@ def test_x_publishes_the_article_not_the_copy(tmp_path: Path) -> None:
     cover = tmp_path / "c.jpg"
     cover.write_bytes(b"1")
     payload = publisher.build_payload("x", "article_publish", video=None, copy=None, article=article, cover=cover)
-    assert payload["title"] == "标题在这" and payload["cover"] == str(cover)
+    assert payload["title"] == "标题在这"
     argv = publisher.command_for(payload)
-    assert argv[-5:] == ["--article", str(article), "--cover", str(cover), "--publish"]
+    assert argv[-3:] == ["--article", str(article), "--publish"] and "--cover" not in argv  # X 自己按标题出纯文字封面
 
 
 def test_channels_run_with_a_python_that_has_their_libraries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -146,3 +155,17 @@ def test_failure_reason_reaches_the_page() -> None:
     """9/24：X 报「需要 Premium」，页面上只显示「发布失败」。"""
     assert "Premium" in publisher.explain({"ok": False, "error": "X 不让发（403）：发图文文章需要账号开通 X Premium"})
     assert publisher.explain({"ok": False}) == "发布失败"
+
+
+@pytest.mark.skipif(__import__("importlib").util.find_spec("playwright") is None, reason="playwright missing")
+def test_text_cover_is_a_5_to_2_banner(tmp_path: Path) -> None:
+    from content_studio import x_cover
+
+    out = x_cover.make_cover("产品越来越便宜，信任越来越贵，自媒体的下半场才刚刚开始", tmp_path / "c.jpg")
+    data = out.read_bytes()
+    assert data[:2] == b"\xff\xd8"
+    # JPEG SOF0 里读宽高
+    i = data.index(b"\xff\xc0")
+    height, width = int.from_bytes(data[i + 5:i + 7], "big"), int.from_bytes(data[i + 7:i + 9], "big")
+    assert (width, height) == (1500, 600)
+    assert "自媒体的下半场" in x_cover.cover_html("产品越来越便宜，信任越来越贵，自媒体的下半场才刚刚开始")
