@@ -97,3 +97,28 @@ def test_desk_sends_the_article_and_cover(tmp_path: Path, monkeypatch: pytest.Mo
     cover.write_bytes(b"1")
     argv = publisher.command_for(publisher.build_payload("wechat_mp", "publish", video=None, copy=None, article=article, cover=cover))
     assert argv[1:3] == ["-m", "content_studio.wechat_publish"] and argv[-1] == "--publish" and str(cover) in argv
+
+
+def test_yanxishi_key_travels_by_env_not_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """研习室：钥匙从 secrets.yaml 读、走环境变量；同一选题 brief_id 固定，再发会更新同一篇。"""
+    monkeypatch.setattr(publisher, "_secret", lambda section, key: {"workbench_key": "K" * 96, "env_id": "cloudbase-test"}[key])
+    folder = tmp_path / "topic-21"
+    folder.mkdir()
+    article = folder / "article.md"
+    article.write_text(ARTICLE, encoding="utf-8")
+    payload = publisher.build_payload("miniprogram", "publish", video=None, copy=None, article=article)
+    argv = publisher.command_for(payload)
+    assert argv[0] == "node" and argv[1].endswith("wechat-xingqiu-shell/scripts/workbench-submit.mjs")
+    assert argv[argv.index("--env") + 1] == "cloudbase-test" and argv[argv.index("--brief-id") + 1] == "content-studio-topic-21"
+    assert argv[-1] == "--publish" and not any("K" * 96 in a for a in argv)
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(cmd=cmd, env=kw.get("env"))
+        return subprocess.CompletedProcess(cmd, 0, '{"ok": true, "articleId": "article_x", "published": true, "message": "已发布到研习室"}', "")
+
+    monkeypatch.setattr(publisher.subprocess, "run", fake_run)
+    result = publisher.run(payload)
+    assert result.get("ok") is True and seen["env"]["WORKBENCH_KEY"] == "K" * 96
+    assert not any("K" * 96 in a for a in seen["cmd"])
