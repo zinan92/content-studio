@@ -1165,3 +1165,17 @@ def test_phone_preview_endpoint(client: TestClient, tmp_path: Path, monkeypatch:
     assert state["error"] is None and [p["name"] for p in state["parts"]] == ["01_00-00至12-06.mp4"]
     clip = client.get(state["parts"][0]["url"], headers={"Range": "bytes=0-99"})
     assert clip.status_code == 206 and len(clip.content) == 100
+
+
+def test_radar_lists_every_video_of_one_account(client: TestClient) -> None:
+    """对标雷达「全部作品」：不只爆款，每条带中位倍数和拆解状态。"""
+    acct = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}"}).json()["account"]
+    _wait_sync(client)
+    data = client.get(f"/api/accounts/{acct['id']}/videos").json()
+    assert data["nickname"] == "对标号" and len(data["videos"]) == 5
+    likes_to_multiple = {v["likes"]: v["multiple"] for v in data["videos"]}
+    assert likes_to_multiple[110] == 1.0 and likes_to_multiple[5000] > 40  # 中位 110
+    assert all("has_report" in v and "job" in v for v in data["videos"])
+    started = client.post(f"/api/accounts/{acct['id']}/sync?deep=true").json()
+    assert started["started"] is True and "往回翻" in started["message"]
+    _wait_sync(client)

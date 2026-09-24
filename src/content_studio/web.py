@@ -395,6 +395,8 @@ def create_app(
             return None
         return {k: job[k] for k in ("id", "stage", "error", "source", "created_at", "updated_at", "url", "video_id")}
 
+    DEEP_SYNC_PAGES = 15
+
     def teardown_state(video_id: str) -> dict[str, Any]:
         job = store.job_for_video(video_id)
         has_report = report_file(video_id) is not None
@@ -512,10 +514,12 @@ def create_app(
         threshold = float(store.settings()["threshold"])
         return {"account": {**account_view(account, threshold), "syncing": syncing}}
 
-    def _sync_and_queue(account_id: int) -> dict:
-        result = sync_account(store, account_id, client_factory=factory)
+    def _sync_and_queue(account_id: int, deep: bool = False) -> dict:
+        result = sync_account(store, account_id, client_factory=factory, pages=DEEP_SYNC_PAGES if deep else None)
         acct = store.account(account_id)
-        store.log_event("sync", f"同步完 {acct.get('nickname') or '账号'}，共 {result.get('video_count', '?')} 条作品")
+        store.log_event("sync", f"{'往回翻完' if deep else '同步完'} {acct.get('nickname') or '账号'}，这次拉到 {result.get('video_count', '?')} 条作品")
+        if deep:
+            return result  # 往回翻是为了找旧作品看，不触发自动拆解，免得占掉当天的名额
         if store.account(account_id)["is_self"]:
             if creator_sync_fn is not None:
                 result["creator_metrics"] = creator_sync_fn()
@@ -527,12 +531,26 @@ def create_app(
         return result
 
     @app.post("/api/accounts/{account_id}/sync")
-    def post_sync(account_id: int) -> dict[str, Any]:
+    def post_sync(account_id: int, deep: bool = False) -> dict[str, Any]:
         account = store.account(account_id)
         if account["platform"] != PLATFORM_DOUYIN:
             raise AccountError(PENDING_NOTES.get(account["platform"], "该平台抓取待接入"))
-        started = ops.run(account_id, lambda: _sync_and_queue(account_id))
-        return {"started": started, "message": "开始同步" if started else "这个账号正在同步中"}
+        started = ops.run(account_id, lambda: _sync_and_queue(account_id, deep=deep))
+        if not started:
+            return {"started": False, "message": "这个账号正在同步中"}
+        return {"started": True, "message": f"开始往回翻，最多 {DEEP_SYNC_PAGES} 页（约 {DEEP_SYNC_PAGES * 20} 条），一两分钟" if deep else "开始同步"}
+
+    @app.get("/api/accounts/{account_id}/videos")
+    def account_videos(account_id: int) -> dict[str, Any]:
+        """一个对标账号的全部作品（不只爆款），带中位倍数和拆解状态。"""
+        account = store.account(account_id)
+        median = store.account_median(account_id)
+        rows = []
+        for v in store.videos(account_id):
+            multiple = round(v["likes"] / median, 1) if median and v["likes"] is not None else None
+            rows.append({**v, "multiple": multiple, "account_nickname": account["nickname"], "account_median": median,
+                         **teardown_state(v["video_id"])})
+        return {"account_id": account_id, "nickname": account["nickname"], "median": median, "videos": rows}
 
     @app.delete("/api/accounts/{account_id}")
     def delete_account(account_id: int) -> dict[str, Any]:

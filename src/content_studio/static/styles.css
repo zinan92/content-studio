@@ -1195,3 +1195,15 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .vp-vis input{width:56px;font:inherit;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);text-align:right}
 .vp-hook-alt{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
 #vpNowMedia{margin-top:8px}
+
+/* 对标雷达：点账号卡片只看它；非爆款的作品倍数用灰色 */
+.acct.pick{cursor:pointer}
+.acct.pick:hover{border-color:var(--ink-3)}
+.acct.pick.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.radar-pick{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 18px;font-size:13px}
+.radar-pick:empty{display:none}
+.radar-pick:not(:empty){padding:10px 18px;border-bottom:1px solid var(--line-soft)}
+.rp-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:3px 6px 3px 12px}
+.rp-chip button{border:0;background:none;color:inherit;font-size:15px;line-height:1;cursor:pointer;padding:0 4px}
+.radar-q{font:inherit;font-size:13px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);width:160px}
+.out.cold .mult{color:var(--ink-3)}

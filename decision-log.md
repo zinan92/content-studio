@@ -797,3 +797,8 @@
 - 决定：发布台「研习室」（原「小程序」）接成全自动通道：`node wechat-xingqiu-shell/scripts/workbench-submit.mjs`，研习室那篇文章存成草稿或直接发布。钥匙在 `~/.config/park/secrets.yaml` 的 `yanxishi` 段，走环境变量传给脚本（不进命令行参数）；brief_id 用 `content-studio-topic-<id>`，同一选题再发会更新同一篇。
 - 云端：zinan92/wechat-xingqiu#338，admin-api 的工作台钥匙只开 section.list / content.import / content.publish；已部署到企业环境并只读验证（无钥匙、错钥匙、未开放动作都拒，对钥匙能列栏目）。
 - 没验证过的：真实 content.import / publish（没替 Park 建测试草稿）。
+
+## #177 对标雷达：只看一个账号、全部作品、往回翻、搜标题（2026-09-24）
+- 决定：点账号卡片只看它（再点取消）；「爆款 / 全部作品」切换，全部作品也能点拆解、看报告；选中账号且看全部作品时有「拉更早的作品」：单账号往回翻 15 页（约 300 条），串行，遇到验证即停，不触发自动拆解（免得占当天名额）；加标题搜索。新接口 `GET /api/accounts/{id}/videos`、`POST /api/accounts/{id}/sync?deep=true`。
+- 为什么：Park 刷到一勾 7/3 那条想看拆解，找不到——雷达只列爆款、不能按账号筛，而且同步只拉最近 3 页，一勾库里最早的 7 月作品是 7/15，7/3 根本不在库里。
+- 顺手修：卡片上的「同步」按钮调用的 syncOneAccount 在 #89 改版时丢了，点了没反应；补回来并支持往回翻。

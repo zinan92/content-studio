@@ -228,8 +228,12 @@ def sync_account(
     *,
     client_factory: ClientFactory,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    pages: int | None = None,
 ) -> dict[str, Any]:
-    """One serial pass: profile + up to N pages of posts. Stops on risk control."""
+    """One serial pass: profile + up to N pages of posts. Stops on risk control.
+
+    `pages` 只给「拉更早的作品」用：平时 3 页（约 60 条）够看近况，想找一条更早的就得往回翻。
+    """
     account = store.account(account_id)
     if account["platform"] != PLATFORM_DOUYIN:
         raise AccountError(PENDING_NOTES.get(account["platform"], "该平台抓取待接入"))
@@ -239,7 +243,7 @@ def sync_account(
             _fetch_account(
                 client_factory,
                 account["external_id"],
-                pages=int(settings["sync_pages"]),
+                pages=int(pages or settings["sync_pages"]),
                 delay=float(settings["sync_delay_seconds"]),
                 sleep=sleep,
             )

@@ -118,6 +118,10 @@ const S = {
   report: null,
   sort: 'multiple',
   radarDays: 7,
+  radarAccount: null,   // 点了哪个对标账号：只看它
+  radarScope: 'hot',    // hot 只看爆款 / all 全部作品
+  radarQuery: '',
+  radarVideos: {},      // accountId → 全部作品（切到「全部作品」时按需拉）
   mineSort: { key: 'published_at', dir: -1 },
   addMode: 'benchmark',
 };
@@ -479,7 +483,7 @@ function renderRadar() {
         : a.status === 'error' ? `<div class="status"><span class="err">同步失败：${esc(a.last_error)}</span></div>`
           : `<div class="status">${esc(ago(a.last_synced_at))}</div>`;
     const title = a.nickname || (a.platform === '抖音' ? '新账号（同步后显示昵称）' : a.external_id ? '@' + a.external_id : '新账号');
-    return `<div class="panel acct">
+    return `<div class="panel acct pick ${S.radarAccount === a.id ? 'on' : ''}" data-pick="${a.id}" title="点一下只看这个账号，再点一下看全部">
       <div class="acct-top"><h3 title="${esc(title)}"><span class="pb">${esc(a.platform)}</span>${esc(title)}</h3><span class="fans">${a.follower_count !== null ? fmt(a.follower_count) + ' 粉' : ''} <button class="acct-x" data-rm="${a.id}" title="移出对标库" aria-label="移出对标库">×</button></span></div>
       ${a.platform === '抖音' ? spark(a.spark, a.median_likes, threshold) : `<div class="url">${esc(a.profile_url)}</div>`}
       ${a.platform === '抖音' ? `<div class="meta"><span>中位 <b>${fmt(a.median_likes)}</b></span><span>作品 <b>${a.video_count}</b></span><span style="color:var(--hot)">爆款 <b style="color:var(--hot)">${a.breakout_count}</b></span></div>` : ''}
@@ -491,21 +495,88 @@ function renderRadar() {
   $('#addBtn').onclick = () => openAdd('benchmark');
   bindAccountActions($('#accts'), '对标库');
 
+  $$('#accts [data-pick]').forEach((card) => (card.onclick = (e) => {
+    if (e.target.closest('button, a')) return;  // 卡片上的按钮和链接照旧
+    const id = Number(card.dataset.pick);
+    S.radarAccount = S.radarAccount === id ? null : id;
+    renderRadar();
+  }));
+
   const cutoff = S.radarDays ? Date.now() - S.radarDays * 86400000 : 0;
-  const list = S.outliers.filter((v) => !cutoff || (v.published_at && new Date(v.published_at).getTime() >= cutoff))
-    .sort((a, b) => (S.sort === 'published_at' ? String(b.published_at).localeCompare(String(a.published_at)) : b[S.sort] - a[S.sort]));
-  const hidden = S.outliers.length - list.length;
-  $('#hotN').textContent = `${list.length} 条${hidden ? ` · 更早的 ${hidden} 条在「全部」里` : ''}`;
   const douyinAccounts = S.accounts.filter((a) => a.platform === '抖音');
-  $('#outs').innerHTML = list.length ? list.map((v) => `<div class="out">
-      <div class="mult">${v.multiple.toFixed(1)}×<small>中位倍数</small></div>
-      <div><div class="t clamp" title="${esc(v.title)}">${esc(cleanTitle(v.title))}</div><div class="by">${esc(v.account_nickname || '')} · ${day(v.published_at)} · ${mmss(v.duration_seconds)}${v.is_top ? ' · 置顶' : ''}</div></div>
+  const picked = S.radarAccount ? S.accounts.find((a) => a.id === S.radarAccount) : null;
+  if (S.radarAccount && !picked) S.radarAccount = null;
+  let pool;
+  if (S.radarScope === 'all') {
+    const ids = picked ? [picked.id] : douyinAccounts.map((a) => a.id);
+    const missing = ids.filter((id) => !S.radarVideos[id]);
+    if (missing.length) {
+      $('#outs').innerHTML = '<div class="empty"><span class="spin"></span> 正在读全部作品…</div>';
+      Promise.all(missing.map((id) => api(`/api/accounts/${id}/videos`).then((d) => { S.radarVideos[id] = d.videos; }).catch(() => { S.radarVideos[id] = []; })))
+        .then(() => { if (S.view === 'radar') renderRadar(); });
+      return;
+    }
+    pool = ids.flatMap((id) => S.radarVideos[id] || []);
+  } else {
+    pool = S.outliers.filter((v) => !picked || v.account_id === picked.id);
+  }
+  const q = S.radarQuery.trim().toLowerCase();
+  const inWindow = pool.filter((v) => !cutoff || (v.published_at && new Date(v.published_at).getTime() >= cutoff));
+  const list = inWindow.filter((v) => !q || String(v.title || '').toLowerCase().includes(q))
+    .sort((a, b) => (S.sort === 'published_at' ? String(b.published_at).localeCompare(String(a.published_at)) : (b[S.sort] ?? -1) - (a[S.sort] ?? -1)));
+  const hidden = pool.length - inWindow.length;
+  $('#outsTitle').textContent = S.radarScope === 'all' ? '全部作品' : '爆款样本';
+  $('#hotN').textContent = `${list.length} 条${hidden ? ` · 更早的 ${hidden} 条在「全部」里` : ''}`;
+  const earliest = picked && S.radarScope === 'all' ? (S.radarVideos[picked.id] || []).reduce((m, v) => (!m || (v.published_at && v.published_at < m) ? v.published_at : m), null) : null;
+  $('#radarPick').innerHTML = picked
+    ? `<span class="rp-chip">只看 <b>${esc(picked.nickname || '这个账号')}</b><button type="button" id="rpClear" aria-label="看全部账号">×</button></span>
+       ${S.radarScope === 'all' ? `<span class="muted">库里 ${(S.radarVideos[picked.id] || []).length} 条${earliest ? `，最早 ${day(earliest)}` : ''}。</span>
+       <button class="btn small ghost" type="button" id="rpDeep" ${picked.syncing ? 'disabled' : ''} title="平时同步只拉最近约 60 条；往回翻最多 300 条，一页一页慢慢拉，遇到抖音验证就停">${picked.syncing ? '正在同步…' : '拉更早的作品'}</button>` : ''}`
+    : '';
+  const clear = $('#rpClear');
+  if (clear) clear.onclick = () => { S.radarAccount = null; renderRadar(); };
+  const deep = $('#rpDeep');
+  if (deep) deep.onclick = () => syncOneAccount(picked.id, deep, { deep: true });
+  const threshold2 = S.state.settings.threshold;
+  $('#outs').innerHTML = list.length ? list.map((v) => {
+    const hot = v.multiple !== null && v.multiple !== undefined && v.multiple >= threshold2;
+    const label = `${v.account_nickname || ''} · ${v.multiple === null || v.multiple === undefined ? '' : v.multiple.toFixed(1) + '×'}`;
+    return `<div class="out ${hot ? '' : 'cold'}">
+      <div class="mult">${v.multiple === null || v.multiple === undefined ? '—' : v.multiple.toFixed(1) + '×'}<small>中位倍数</small></div>
+      <div><div class="t clamp" title="${esc(v.title)}">${esc(cleanTitle(v.title))}</div><div class="by">${esc(v.account_nickname || '')} · ${day(v.published_at)} · ${v.is_image_post ? '图文' : mmss(v.duration_seconds)}${v.is_top ? ' · 置顶' : ''}</div></div>
       <div class="stats">赞 ${fmt(v.likes)}<br>收藏 ${fmt(v.collects)} · 转发 ${fmt(v.shares)}</div>
       <div class="mixcol">${mixBar(v)}</div>
-      <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">${teardownButton(v, { source: `对标爆款 · ${v.account_nickname || ''} · ${v.multiple.toFixed(1)}×` })}</div>
-    </div>`).join('')
-    : `<div class="empty"><b>${douyinAccounts.length ? (S.radarDays ? `这 ${S.radarDays} 天没有新爆款` : '当前门槛下没有爆款') : '还没有抖音对标账号'}</b><span>${douyinAccounts.length ? (hidden ? `更早的 ${hidden} 条在「全部」里。` : '把门槛调低一点，或等账号同步完成。') : '点上面的「加入对标账号」，粘贴对方主页链接。'}</span></div>`;
+      <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">${v.is_image_post ? '<span class="muted">图文</span>' : teardownButton(v, { source: `${hot ? '对标爆款' : '对标作品'} · ${label}` })}</div>
+    </div>`;
+  }).join('')
+    : `<div class="empty"><b>${!douyinAccounts.length ? '还没有抖音对标账号' : q ? `没有标题里带「${esc(S.radarQuery.trim())}」的` : S.radarScope === 'all' ? (S.radarDays ? `这 ${S.radarDays} 天没有作品` : '还没有作品') : (S.radarDays ? `这 ${S.radarDays} 天没有新爆款` : '当前门槛下没有爆款')}</b><span>${!douyinAccounts.length ? '点上面的「加入对标账号」，粘贴对方主页链接。' : hidden ? `更早的 ${hidden} 条在「全部」里。` : S.radarScope === 'hot' ? '切到「全部作品」能看到没爆的。' : picked ? '点「拉更早的作品」往回翻。' : ''}</span></div>`;
   bindTeardownButtons($('#outs'));
+}
+
+/* 单个账号同步（9/20 改版时这个函数丢了，卡片上的「同步」点了没反应）。deep=true 往回翻更早的作品。 */
+async function syncOneAccount(id, btn, { deep = false } = {}) {
+  const before = S.accounts.find((a) => a.id === id) || {};
+  const was = before.video_count || 0;
+  btn.disabled = true;
+  try {
+    const started = await api(`/api/accounts/${id}/sync${deep ? '?deep=true' : ''}`, { method: 'POST' });
+    toast(started.message);
+    if (!started.started) { btn.disabled = false; return; }
+    for (let i = 0; i < 150; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      await refreshAll();
+      const now = S.accounts.find((a) => a.id === id);
+      if (!now) return;
+      if (now.syncing) continue;
+      delete S.radarVideos[id];
+      if (S.view === 'radar') renderRadar();
+      if (now.status === 'error') { toast(`同步失败：${now.last_error || '未知原因'}`); return; }
+      const added = (now.video_count || 0) - was;
+      toast(`${now.nickname || '账号'}：${added > 0 ? `多了 ${added} 条` : '没有新的作品'}，库里现在 ${now.video_count} 条`);
+      return;
+    }
+    toast('还在同步，稍后看这张卡片上的时间');
+  } catch (err) { toast(err.message); btn.disabled = false; }
 }
 
 /** Remove / sync — the 对标 card grid. */
@@ -538,6 +609,12 @@ $$('#v-radar [data-days]').forEach((b) => (b.onclick = () => {
   $$('#v-radar [data-days]').forEach((x) => x.classList.toggle('on', x === b));
   renderRadar();
 }));
+$$('#v-radar [data-scope]').forEach((b) => (b.onclick = () => {
+  S.radarScope = b.dataset.scope;
+  $$('#v-radar [data-scope]').forEach((x) => x.classList.toggle('on', x === b));
+  renderRadar();
+}));
+$('#radarQ').oninput = (e) => { S.radarQuery = e.target.value; renderRadar(); };
 $$('#v-radar [data-sort]').forEach((b) => (b.onclick = () => {
   S.sort = b.dataset.sort;
   $$('#v-radar [data-sort]').forEach((x) => x.classList.toggle('on', x === b));
