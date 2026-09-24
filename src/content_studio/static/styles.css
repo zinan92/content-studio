@@ -996,13 +996,14 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .banner.setup small{display:block;margin-top:6px;color:var(--ink-3)}
 
 /* ---- 03 发布台：每个平台一张它自己的上传页，灰=还没发，彩=发了 ---- */
-.pub-head{display:flex;flex-direction:column;gap:10px}
-.pub-topics{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.pub-topics>small{color:var(--ink-3);font-size:12px;margin-right:2px}
-.pub-topic{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px 4px 6px;display:inline-flex;gap:8px;align-items:center;cursor:pointer;font:inherit;color:var(--ink-2);max-width:min(760px,100%);min-width:0}
+.pub-head{display:flex;flex-direction:column;gap:10px;margin:6px 0 22px}
+.pub-topics{display:flex;gap:10px 12px;flex-wrap:wrap;align-items:center}
+.pub-topics>small{color:var(--ink-3);font-size:12px;margin-right:6px}
+.pub-topic{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 16px 7px 8px;display:inline-flex;gap:12px;align-items:center;cursor:pointer;font:inherit;color:var(--ink-2);max-width:min(760px,100%);min-width:0}
 .pub-topic b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;min-width:0}
 /* 阶段小标签和份数不许被挤：9/24「待发」被挤成两行，整条变得又高又宽 */
 .pub-topic .ms-chip,.pub-topic .num{flex:none;white-space:nowrap}
+.pub-topic .ms-chip{padding:2px 9px}
 .pub-topic .num{font-size:11px;color:var(--ink-3)}
 .pub-topic:hover{border-color:var(--ink-3)}
 .pub-topic.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
