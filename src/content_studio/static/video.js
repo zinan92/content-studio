@@ -131,7 +131,7 @@ window.VIEWS.work = {
     const topic = WK.topics.find((t) => t.id === VD.topicId);
     if (!topic) { root.innerHTML = '<div class="panel empty"><b>找不到这条视频</b><button class="btn" type="button" onclick="go(\'board\')">回到看板</button></div>'; return; }
     const card = BD.data && BD.data.cards.find((c) => c.id === topic.id);
-    const stage = topic.published_video_id ? 'shipped' : card ? card.stage : 'outline';
+    const stage = (topic.published_video_id || topic.closed_at) ? 'shipped' : card ? card.stage : 'outline';
     const tabs = window.VIDEO_TABS.slice().sort((a, b) => TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key));
     let body = $('#videoBody');
     const sig = JSON.stringify([VD.topicId, VD.tab, VD.mode, VD.outline && VD.outline.updated_at, stage, card && card.next.text, topic.outline_state, Boolean(topic.outline_path), topic.video_project, topic.status, topic.published_video_id, topic.write_state, Boolean(topic.article_path), topic.archived_at]);

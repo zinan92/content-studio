@@ -692,12 +692,14 @@ def create_app(
     @app.get("/api/vault/inbox")
     def vault_inbox(days: int = 1, source: str | None = None) -> dict[str, Any]:
         since = vault.window_start(min(max(days, 1), 30))
+        from . import board
+
         triage = store.triage()
         items = vault.inbox(vault_path(), since=since, sources=(source,) if source else None)
         # A note that already became a video should not look like fresh material.
         used: dict[str, dict[str, Any]] = {}
         for topic in store.topics(include_archived=True):
-            shipped = bool(topic.get("published_video_id"))
+            shipped = board.is_shipped(topic)
             dropped = bool(topic.get("archived_at")) and not shipped
             for path in topic["note_paths"]:
                 row = {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped, "dropped": dropped}
@@ -989,7 +991,7 @@ def create_app(
             "candidates": sendable,
             "waiting": waiting,
             "others": [c for c in candidates if c["id"] not in {s["id"] for s in sendable}],
-            "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url")},
+            "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url"), "closed_at": topic.get("closed_at")},
             "video": {"path": str(video), "name": video.name, "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
             "release": _release_for(topic),
             "has_copy": bool(entry["title"] or entry["body"]),
@@ -1059,6 +1061,24 @@ def create_app(
             store.set_focus(None)
             store.log_event("focus", f"《{current['title'][:30]}》放回了选题池", topic_id)
         return {"topic": store.topic(topic_id)}
+
+    @app.post("/api/topics/{topic_id}/close")
+    def close_topic(topic_id: int) -> dict[str, Any]:
+        """「发布完毕」：这条结了，从加工中拿掉。还没发的平台（比如小宇宙）以后照样能在发布台补。"""
+        topic = store.topic(topic_id)
+        if not store.publish_records(topic_id) and not topic.get("published_video_id"):
+            raise ValueError("一个平台都还没发，先发再点「发布完毕」")
+        if topic.get("is_focus"):
+            store.set_focus(None)
+        topic = store.update_topic(topic_id, closed_at=now_iso())
+        store.log_event("close", f"《{topic['title'][:30]}》发布完毕，从加工中拿掉", topic_id)
+        return {"topic": topic}
+
+    @app.delete("/api/topics/{topic_id}/close")
+    def reopen_topic(topic_id: int) -> dict[str, Any]:
+        topic = store.update_topic(topic_id, closed_at=None)
+        store.log_event("close", f"《{topic['title'][:30]}》撤销发布完毕，放回加工中", topic_id)
+        return {"topic": topic}
 
     @app.post("/api/topics/{topic_id}/snooze")
     def snooze_topic(topic_id: int, body: SnoozeBody) -> dict[str, Any]:
