@@ -135,12 +135,16 @@ def sync_everything(
     creator_db: Path,
     enqueue: bool = True,
     has_report=lambda _video_id: False,
+    platform_fetchers: dict | None = None,
 ) -> dict:
     """One pass over every Douyin account. Stops the whole pass on risk control."""
     from .accounts import RiskControlStop
 
+    from . import platform_stats
+
     factory = _cookie_client_factory(cookie_path)
-    summary: dict = {"accounts": [], "creator_metrics": None, "enqueued": 0}
+    # B站 / X / 研习室 的触达和抖音无关，放最前面：抖音撞上风控提前结束也不耽误它们。
+    summary: dict = {"accounts": [], "creator_metrics": None, "enqueued": 0, "platforms": platform_stats.sync(store, platform_fetchers)}
     for account in store.accounts():
         if account["platform"] != PLATFORM_DOUYIN:
             continue
