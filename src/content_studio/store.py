@@ -149,6 +149,15 @@ CREATE TABLE IF NOT EXISTS reviews (
     data TEXT,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS post_snapshots (
+    platform TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    title TEXT,
+    published_at TEXT,
+    fetched_at TEXT NOT NULL,
+    views INTEGER NOT NULL,
+    PRIMARY KEY (platform, post_id, fetched_at)
+);
 CREATE TABLE IF NOT EXISTS reach_entries (
     day TEXT NOT NULL,
     platform TEXT NOT NULL,
@@ -756,6 +765,24 @@ class StudioStore:
             "WHERE v.account_id = ? AND v.is_image_post = 0 AND s.fetched_at >= ? ORDER BY s.fetched_at",
             (account_id, since_day),
         )
+
+    def add_post_snapshots(self, platform: str, posts: list[dict[str, Any]], fetched_at: str) -> None:
+        """B站 / X / 研习室 每条内容这一次读到的累计数（platform_stats.sync 写）。"""
+        with self.tx() as conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO post_snapshots(platform, post_id, title, published_at, fetched_at, views) VALUES (?, ?, ?, ?, ?, ?)",
+                [(platform, str(p["post_id"]), p.get("title"), p.get("published_at"), fetched_at, int(p["views"])) for p in posts],
+            )
+
+    def post_snapshots(self, platform: str, since_day: str) -> list[dict[str, Any]]:
+        """Same shape as account_snapshots, so reach.daily_views works on both."""
+        return self._rows(
+            "SELECT post_id AS video_id, fetched_at, views, published_at FROM post_snapshots WHERE platform = ? AND fetched_at >= ? ORDER BY fetched_at",
+            (platform, since_day),
+        )
+
+    def post_synced_at(self) -> dict[str, str]:
+        return {row["platform"]: row["at"] for row in self._rows("SELECT platform, MAX(fetched_at) AS at FROM post_snapshots GROUP BY platform")}
 
     def reach_entries(self, since_day: str) -> list[dict[str, Any]]:
         return self._rows("SELECT day, platform, views FROM reach_entries WHERE day >= ? ORDER BY day", (since_day,))

@@ -750,16 +750,33 @@ def test_reach_combines_douyin_snapshots_with_hand_typed_platforms(client: TestC
     r = client.get("/api/reach").json()
     assert [p["key"] for p in r["platforms"]][:2] == ["douyin", "channels"] and len(r["days"]) == 14 and r["today"] == 0
     assert client.put("/api/reach", json={"day": today, "platform": "douyin", "views": 5}).status_code == 400
-    assert client.put("/api/reach", json={"day": today, "platform": "x", "views": -1}).status_code == 400
-    r = client.put("/api/reach", json={"day": today, "platform": "x", "views": 120}).json()
-    assert r["today"] == 120 and r["days"][-1]["by_platform"] == {"x": 120}
+    assert client.put("/api/reach", json={"day": today, "platform": "x", "views": 5}).status_code == 400  # X 是自动读的
+    assert client.put("/api/reach", json={"day": today, "platform": "xiaohongshu", "views": -1}).status_code == 400
+    r = client.put("/api/reach", json={"day": today, "platform": "xiaohongshu", "views": 120}).json()
+    assert r["today"] == 120 and r["days"][-1]["by_platform"] == {"xiaohongshu": 120}
     client.put("/api/reach", json={"day": today, "platform": "youtube", "views": 30})
-    r = client.put("/api/reach", json={"day": today, "platform": "x", "views": None}).json()
+    r = client.put("/api/reach", json={"day": today, "platform": "xiaohongshu", "views": None}).json()
     assert r["today"] == 30 and [p["today"] for p in r["platforms"] if p["key"] == "youtube"] == [30]
-    client.put("/api/settings", json={"platform_accounts": {"x": {"on": True, "handle": "@park"}}})
+    client.put("/api/settings", json={"platform_accounts": {"xiaohongshu": {"on": True, "handle": "Park的AI世界"}}})
     r = client.get("/api/reach").json()
-    x = [p for p in r["platforms"] if p["key"] == "x"][0]
-    assert x["on"] is True and x["handle"] == "@park"
+    xhs = [p for p in r["platforms"] if p["key"] == "xiaohongshu"][0]
+    assert xhs["on"] is True and xhs["handle"] == "Park的AI世界"
+
+
+def test_reach_counts_bilibili_x_and_yanxishi_from_daily_reads(client: TestClient) -> None:
+    from datetime import date, timedelta
+
+    today, yesterday = date.today(), date.today() - timedelta(days=1)
+    store = client.app.state.store
+    old = "2026-01-01T00:00:00+00:00"
+    store.add_post_snapshots("bilibili", [{"post_id": "BV1", "title": "老视频", "published_at": old, "views": 500}], f"{yesterday}T09:30:00+00:00")
+    store.add_post_snapshots("bilibili", [{"post_id": "BV1", "title": "老视频", "published_at": old, "views": 565}], f"{today}T09:30:00+00:00")
+    store.add_post_snapshots("x", [{"post_id": "1", "title": "新", "published_at": f"{today}T08:00:00+00:00", "views": 986}], f"{today}T09:30:00+00:00")
+    r = client.get("/api/reach").json()
+    assert r["days"][-1]["by_platform"] == {"bilibili": 65, "x": 986}  # 老视频第一次只当基线；新发的全算
+    assert r["days"][-2]["by_platform"] == {}
+    assert set(r["synced_at"]) >= {"bilibili", "x"}
+    assert {p["key"]: p["auto"] for p in r["platforms"]}["miniprogram"] is True
 
 
 def test_a_followed_accounts_new_posts_reach_the_input_page(client: TestClient) -> None:

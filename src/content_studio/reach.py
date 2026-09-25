@@ -12,22 +12,22 @@ from datetime import date, timedelta
 from typing import Any
 
 # key, label, auto (the workbench pulls the numbers itself), mark (the tile letter), hue.
-# Park has an account on all nine. `auto` is about *data*, not publishing — only 抖音 reports
-# its own numbers today; for the rest he types them in, or the nightly Obsidian read picks
-# them up. Brand logos are deliberately not bundled: they are other companies' trademarks,
+# Park has an account on all nine. `auto` is about *data*, not publishing — 抖音 from its own
+# sync, B站 / X / 研习室 from platform_stats (9/25); for the rest he types them in. Brand logos are deliberately not bundled: they are other companies' trademarks,
 # so each platform gets a letter tile in its own hue instead.
 PLATFORMS: tuple[tuple[str, str, bool], ...] = (
     ("douyin", "抖音", True),
     ("channels", "视频号", False),
     ("xiaohongshu", "小红书", False),
     ("wechat_mp", "公众号", False),
-    ("miniprogram", "研习室", False),
-    ("x", "X", False),
-    ("bilibili", "B 站", False),
+    ("miniprogram", "研习室", True),
+    ("x", "X", True),
+    ("bilibili", "B 站", True),
     ("youtube", "YouTube", False),
     ("xiaoyuzhou", "小宇宙", False),
 )
 PLATFORM_KEYS = tuple(k for k, _, _ in PLATFORMS)
+AUTO_KEYS = tuple(k for k, _, auto in PLATFORMS if auto)
 PLATFORM_STYLE: dict[str, dict[str, str]] = {
     "douyin": {"mark": "抖", "hue": "#FE2C55"},
     "channels": {"mark": "视", "hue": "#07C160"},

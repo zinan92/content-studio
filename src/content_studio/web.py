@@ -1013,8 +1013,14 @@ def create_app(
         for day_key, views in auto.items():
             if views:
                 totals[day_key]["douyin"] = views
+        pulled = [k for k in reach.AUTO_KEYS if k != "douyin"]
+        for key in pulled:
+            for day_key, views in reach.daily_views(store.post_snapshots(key, since), days, today).items():
+                if views and day_key in totals:
+                    totals[day_key][key] = views
         for row in store.reach_entries(since):
-            if row["day"] in totals:
+            # 自动的平台以读到的为准；以前手填的旧数只在还没开始自动读的日子里算。
+            if row["day"] in totals and row["platform"] not in totals[row["day"]]:
                 totals[row["day"]][row["platform"]] = int(row["views"])
         accounts = store.settings()["platform_accounts"] or {}
         today_key = today.isoformat()
@@ -1026,14 +1032,15 @@ def create_app(
                 for key, label, auto_flag in reach.PLATFORMS
             ],
             "douyin_synced_at": me["last_synced_at"] if me else None,
+            "synced_at": {**store.post_synced_at(), **({"douyin": me["last_synced_at"]} if me else {})},
         }
 
     @app.put("/api/reach")
     def put_reach(body: ReachBody) -> dict[str, Any]:
         from . import reach
 
-        if body.platform not in reach.PLATFORM_KEYS or body.platform == "douyin":
-            raise ValueError("这个平台不能手填")
+        if body.platform not in reach.PLATFORM_KEYS or body.platform in reach.AUTO_KEYS:
+            raise ValueError("这个平台的数据是自动读的，不用手填")
         parse_day(body.day)
         if body.views is not None and body.views < 0:
             raise ValueError("触达不能是负数")

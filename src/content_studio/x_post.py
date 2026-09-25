@@ -64,8 +64,10 @@ def _quote(value: str) -> str:
     return urllib.parse.quote(str(value), safe="~")
 
 
-def authorization_header(method: str, url: str, creds: dict[str, str], *, nonce: str | None = None, timestamp: str | None = None) -> str:
-    """OAuth 1.0a signature. A JSON body is not part of the base string — only the oauth_* params are."""
+def authorization_header(method: str, url: str, creds: dict[str, str], *, nonce: str | None = None, timestamp: str | None = None,
+                         query: dict[str, str] | None = None) -> str:
+    """OAuth 1.0a signature. A JSON body is not part of the base string — only the oauth_* params
+    and, for a GET, the query parameters (``url`` stays without them)."""
     params = {
         "oauth_consumer_key": creds["api_key"],
         "oauth_nonce": nonce or secrets.token_hex(16),
@@ -74,7 +76,8 @@ def authorization_header(method: str, url: str, creds: dict[str, str], *, nonce:
         "oauth_token": creds["access_token"],
         "oauth_version": "1.0",
     }
-    normalized = "&".join(f"{_quote(k)}={_quote(params[k])}" for k in sorted(params))
+    signed = {**params, **(query or {})}
+    normalized = "&".join(f"{_quote(k)}={_quote(signed[k])}" for k in sorted(signed))
     base = "&".join([method.upper(), _quote(url), _quote(normalized)])
     key = f"{_quote(creds['api_secret'])}&{_quote(creds['access_secret'])}".encode()
     params["oauth_signature"] = base64.b64encode(hmac.new(key, base.encode(), hashlib.sha1).digest()).decode()
