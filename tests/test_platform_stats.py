@@ -110,3 +110,16 @@ def test_a_timeout_gets_one_more_try(tmp_path: Path) -> None:
         return [{"post_id": "a", "title": "t", "published_at": None, "views": 4}]
 
     assert platform_stats.sync(store, {"miniprogram": flaky}) == {"miniprogram": {"ok": True, "posts": 1}} and len(tries) == 2
+
+
+def test_youtube_without_read_permission_is_skipped_quietly(tmp_path: Path) -> None:
+    store = StudioStore(tmp_path / "s.sqlite3")
+    runner = lambda argv, **kw: subprocess.CompletedProcess(argv, 2, stdout='{"ok": false, "status": "needs_reauth", "message": "重新授权一次"}', stderr="")
+    out = platform_stats.sync(store, {"youtube": lambda: platform_stats.youtube_posts(runner=runner)})
+    assert out["youtube"]["not_connected"] is True and "youtube" not in store.post_synced_at()
+
+
+def test_youtube_views_are_read_once_authorized() -> None:
+    body = {"ok": True, "items": [{"id": "abc", "title": "新平台", "publishedAt": "2026-09-24T10:00:00Z", "views": 31}]}
+    runner = lambda argv, **kw: subprocess.CompletedProcess(argv, 0, stdout=json.dumps(body), stderr="")
+    assert platform_stats.youtube_posts(runner=runner) == [{"post_id": "abc", "title": "新平台", "published_at": "2026-09-24T10:00:00Z", "views": 31}]
