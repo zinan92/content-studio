@@ -21,8 +21,9 @@ SNOOZE_DAYS = 14
 
 
 def is_shipped(topic: dict[str, Any]) -> bool:
-    # Only a linked Douyin video ships a card; status=published can mean the article went out first.
-    return bool(topic.get("published_video_id"))
+    # A linked Douyin video ships a card; so does Park pressing 「发布完毕」 on the publish desk
+    # (9/25: 发到 9 个平台、小宇宙先不发，这条就算结了). status=published can mean only the article went out.
+    return bool(topic.get("published_video_id") or topic.get("closed_at"))
 
 
 def stage_for(topic: dict[str, Any], project: dict[str, Any] | None) -> str:

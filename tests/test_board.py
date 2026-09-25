@@ -26,6 +26,7 @@ def test_next_action_puts_gates_and_failed_openings_on_park() -> None:
     assert ready["stage"] == "ready" and "开头 15 秒没过" in ready["next"]["text"]
     assert board.card(_topic(outline_state="running"), None)["next"]["mine"] is False
     assert board.is_shipped(_topic(published_video_id="v")) and not board.is_shipped(_topic(status="published"))
+    assert board.is_shipped(_topic(closed_at="2026-09-25T10:00:00+00:00"))  # Park 点了「发布完毕」
 
 
 def test_next_action_defers_to_a_failing_qa_verdict_instead_of_calling_it_ready() -> None:

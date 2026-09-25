@@ -1002,6 +1002,10 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 /* ---- 03 发布台：每个平台一张它自己的上传页，灰=还没发，彩=发了 ---- */
 .pub-head{display:flex;flex-direction:column;gap:10px;margin:6px 0 22px}
 .pub-topics{display:flex;gap:10px 12px;flex-wrap:wrap;align-items:center}
+.pub-close{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.pub-close span{color:var(--ink-2);font-size:13px}
+.pub-close.done{border-color:var(--out);background:var(--out-soft)}
+.pub-close.done b{color:var(--out)}
 .pub-topics>small{color:var(--ink-3);font-size:12px;margin-right:6px}
 .pub-topic{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 16px 7px 8px;display:inline-flex;gap:12px;align-items:center;cursor:pointer;font:inherit;color:var(--ink-2);max-width:min(760px,100%);min-width:0}
 .pub-topic b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;min-width:0}

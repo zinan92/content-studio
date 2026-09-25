@@ -19,6 +19,27 @@ async function loadDesk(force) {
   return PD.data;
 }
 window.invalidatePublish = () => { PD.data = null; PD.at = 0; };
+
+/* 「发布完毕」：这条结了，从加工中拿掉。没发的平台（比如小宇宙）以后照样能在这里补。 */
+function closeBar(d) {
+  const t = d.topic;
+  const sent = (d.platforms || []).filter((p) => p.shipped).length;
+  if (t.closed_at) {
+    return `<div class="pub-close done"><b>✓ 这条已经发布完毕</b><span>不在「加工中」了。还有没发的平台，照样可以在下面补。</span>
+      <button class="linklike" type="button" data-pd-close="reopen">撤销，放回加工中</button></div>`;
+  }
+  if (!sent) return '';
+  return `<div class="pub-close"><button class="btn primary" type="button" data-pd-close="close">✓ 发布完毕</button>
+    <span>发完了就点一下，这条就结了，「加工中」里不再显示它。没发的平台以后还能在这儿补。</span></div>`;
+}
+
+async function closeTopic(id, reopen) {
+  try {
+    await api(`/api/topics/${id}/close`, { method: reopen ? 'DELETE' : 'POST' });
+    toast(reopen ? '已放回加工中' : '发布完毕，这条结了');
+    if (window.refreshTopics) await window.refreshTopics(); else { PD.data = null; renderView(); }
+  } catch (err) { toast(err.message); }
+}
 window.refreshPublishNav = async () => { try { paintPublishNav(await api('/api/publish/desk')); } catch (_) { /* rail count only */ } };
 
 function paintPublishNav(d) {
@@ -289,12 +310,14 @@ window.VIEWS.publish = {
       body.innerHTML = `<div class="pub-head">
         <div class="pub-topics"><small>发这条</small>${chip({ ...d.topic, shipped_count: (d.candidates.find((c) => c.id === d.topic.id) || {}).shipped_count }, d.topic.id)}
         ${pick.map((c) => chip(c, d.topic.id)).join('')}</div>
+        ${closeBar(d)}
       </div>${others}
       <div class="pub-grid">${d.platforms.map((p) => tile(p, d)).join('')}</div>`;
     }
     fitReplicas(body);
     if (!PD.ro && window.ResizeObserver) { PD.ro = new ResizeObserver(() => fitReplicas(body)); PD.ro.observe(body); }
     $$('[data-pd-work]', body).forEach((b) => (b.onclick = () => openWork(Number(b.dataset.pdWork))));
+    $$('[data-pd-close]', body).forEach((b) => (b.onclick = () => closeTopic(d.topic.id, b.dataset.pdClose === 'reopen')));
     $$('[data-pd-topic]', body).forEach((b) => (b.onclick = () => { PD.topicId = Number(b.dataset.pdTopic); S.publishId = PD.topicId; PD.data = null; history.replaceState(null, '', `#publish/${PD.topicId}`); renderView(); }));
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
     const edit = $('#pdEditCopy');

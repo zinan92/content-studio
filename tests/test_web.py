@@ -1251,3 +1251,21 @@ def test_saving_a_draft_does_not_mark_the_platform_published(tmp_path: Path) -> 
         assert current["state"] == "done"
         assert "x" not in c.get(f"/api/topics/{topic['id']}/copy").json()["records"]
     app.state.store.close()
+
+
+def test_publish_done_takes_the_video_off_the_board_and_can_be_undone(client: TestClient) -> None:
+    # 9/25 Park：发完 9 个平台（小宇宙先不发），点「发布完毕」，加工中就不该再有这条。
+    t = client.post("/api/topics", json={"title": "新平台", "formats": "video"}).json()
+    client.post(f"/api/topics/{t['id']}/focus")
+    assert client.post(f"/api/topics/{t['id']}/close").status_code == 400  # 一个平台都没发
+    client.put(f"/api/topics/{t['id']}/platforms", json={"platform": "xiaohongshu", "published": True})
+
+    closed = client.post(f"/api/topics/{t['id']}/close").json()["topic"]
+    assert closed["closed_at"] and not closed["is_focus"]
+    board = client.get("/api/board").json()
+    assert board["focus"] is None and t["id"] not in [c["id"] for c in board["cards"]]
+    desk = client.get(f"/api/publish/desk?topic_id={t['id']}").json()
+    assert desk["topic"]["closed_at"] and desk["topic"]["stage"] == "shipped"  # 小宇宙还能回来补
+
+    client.delete(f"/api/topics/{t['id']}/close")
+    assert t["id"] in [c["id"] for c in client.get("/api/board").json()["cards"]]
