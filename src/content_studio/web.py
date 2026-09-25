@@ -1013,7 +1013,9 @@ def create_app(
         for day_key, views in auto.items():
             if views:
                 totals[day_key]["douyin"] = views
-        pulled = [k for k in reach.AUTO_KEYS if k != "douyin"]
+        synced = store.post_synced_at()
+        # YouTube 在 Park 授权「查看」之后才开始有读数；有了就按自动算。
+        pulled = [k for k in reach.PLATFORM_KEYS if k != "douyin" and (k in reach.AUTO_KEYS or k in synced)]
         for key in pulled:
             for day_key, views in reach.daily_views(store.post_snapshots(key, since), days, today).items():
                 if views and day_key in totals:
@@ -1027,19 +1029,19 @@ def create_app(
         return {
             **reach.summary(totals, today),
             "platforms": [
-                {"key": key, "label": label, "auto": auto_flag, "on": bool((accounts.get(key) or {}).get("on")) or auto_flag,
+                {"key": key, "label": label, "auto": auto_flag or key in pulled, "on": bool((accounts.get(key) or {}).get("on")) or auto_flag or key in pulled,
                  "handle": (accounts.get(key) or {}).get("handle") or "", "today": totals[today_key].get(key)}
                 for key, label, auto_flag in reach.PLATFORMS
             ],
             "douyin_synced_at": me["last_synced_at"] if me else None,
-            "synced_at": {**store.post_synced_at(), **({"douyin": me["last_synced_at"]} if me else {})},
+            "synced_at": {**synced, **({"douyin": me["last_synced_at"]} if me else {})},
         }
 
     @app.put("/api/reach")
     def put_reach(body: ReachBody) -> dict[str, Any]:
         from . import reach
 
-        if body.platform not in reach.PLATFORM_KEYS or body.platform in reach.AUTO_KEYS:
+        if body.platform not in reach.PLATFORM_KEYS or body.platform in reach.AUTO_KEYS or body.platform in store.post_synced_at():
             raise ValueError("这个平台的数据是自动读的，不用手填")
         parse_day(body.day)
         if body.views is not None and body.views < 0:

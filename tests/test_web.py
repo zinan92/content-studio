@@ -777,6 +777,11 @@ def test_reach_counts_bilibili_x_and_yanxishi_from_daily_reads(client: TestClien
     assert r["days"][-2]["by_platform"] == {}
     assert set(r["synced_at"]) >= {"bilibili", "x"}
     assert {p["key"]: p["auto"] for p in r["platforms"]}["miniprogram"] is True
+    assert client.put("/api/reach", json={"day": today.isoformat(), "platform": "youtube", "views": 3}).status_code == 200  # 还没授权：手填
+    store.add_post_snapshots("youtube", [{"post_id": "y1", "title": "t", "published_at": old, "views": 10}], f"{today}T09:30:00+00:00")
+    r = client.get("/api/reach").json()
+    assert {p["key"]: p["auto"] for p in r["platforms"]}["youtube"] is True  # 授权后读到了就变自动
+    assert client.put("/api/reach", json={"day": today.isoformat(), "platform": "youtube", "views": 3}).status_code == 400
 
 
 def test_a_followed_accounts_new_posts_reach_the_input_page(client: TestClient) -> None:

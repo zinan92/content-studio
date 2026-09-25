@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any, Callable
 import urllib.error
 import urllib.parse
@@ -30,13 +31,18 @@ XINGQIU = Path("~/work/wechat-xingqiu-shell").expanduser()
 # launchd 的日常同步没有 Homebrew 的 PATH，node 和 tcb 都在那儿。
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
-LABELS = {"bilibili": "B站", "x": "X", "miniprogram": "研习室"}
+LABELS = {"bilibili": "B站", "x": "X", "miniprogram": "研习室", "youtube": "YouTube"}
+CONTENT_OPS = Path("~/work/content-ops").expanduser()
 
 Post = dict[str, Any]  # {post_id, title, published_at, views}
 
 
 class StatsError(RuntimeError):
     """说给人听的一句话。"""
+
+
+class NotConnected(StatsError):
+    """还没接上（比如 YouTube 还没授权「查看」）：安静跳过，不记成失败。"""
 
 
 def _get_json(request: urllib.request.Request) -> dict[str, Any]:
@@ -122,7 +128,26 @@ def yanxishi_posts(*, runner: Callable[..., Any] = subprocess.run) -> list[Post]
             for a in result.get("items") or [] if a.get("id")]
 
 
-FETCHERS: dict[str, Callable[[], list[Post]]] = {"bilibili": bilibili_posts, "x": x_posts, "miniprogram": yanxishi_posts}
+def youtube_posts(*, runner: Callable[..., Any] = subprocess.run) -> list[Post]:
+    """content-ops 的 youtube_channel.py stats（它自己切到带 Google 库的 venv）。
+    授权里没有只读权限时算「还没接上」，等 Park 点一次授权。"""
+    try:
+        done = runner([sys.executable, str(CONTENT_OPS / "scripts/youtube_channel.py"), "stats"], capture_output=True, text=True, timeout=180, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise StatsError(f"跑不起来 YouTube 脚本：{exc}") from exc
+    try:
+        result = json.loads(done.stdout or "")
+    except ValueError:
+        raise StatsError(f"YouTube 脚本没有返回结果：{(done.stderr or '').strip()[-200:]}") from None
+    if result.get("status") in ("needs_reauth", "token_missing"):
+        raise NotConnected(str(result.get("message") or "YouTube 还没授权"))
+    if not result.get("ok"):
+        raise StatsError(str(result.get("message") or result.get("status") or "YouTube 读失败"))
+    return [{"post_id": v["id"], "title": v.get("title") or "", "published_at": v.get("publishedAt"), "views": int(v.get("views") or 0)}
+            for v in result.get("items") or [] if v.get("id")]
+
+
+FETCHERS: dict[str, Callable[[], list[Post]]] = {"bilibili": bilibili_posts, "x": x_posts, "miniprogram": yanxishi_posts, "youtube": youtube_posts}
 
 
 def sync(store: StudioStore, fetchers: dict[str, Callable[[], list[Post]]] | None = None) -> dict[str, Any]:
@@ -136,8 +161,14 @@ def sync(store: StudioStore, fetchers: dict[str, Callable[[], list[Post]]] | Non
                 posts = fetch()
                 error = None
                 break
+            except NotConnected as exc:
+                error = exc
+                break
             except StatsError as exc:
                 error = exc
+        if isinstance(error, NotConnected):
+            out[platform] = {"ok": False, "not_connected": True, "error": str(error)}
+            continue
         if error is not None:
             out[platform] = {"ok": False, "error": str(error)}
             store.log_event("reach", f"{LABELS.get(platform, platform)} 数据没读到：{error}")
