@@ -31,6 +31,24 @@ window.VIEWS.positioning = {
       return;
     }
     const pend = d.proposals || [];
+    if (d.page) {
+      // Park's designed one pager, exactly as published: the frame is the page.
+      const theme = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      body.innerHTML = `
+        <iframe class="pos-frame" id="posFrame" src="/api/positioning/page?theme=${theme}&t=${Date.now()}" title="帕克动手"></iframe>
+        <div class="pos-bar">
+          <button class="btn small primary" type="button" id="posAsk">叫 Anna 过来</button>
+          <span class="pos-bar-pend">${pend.length ? `待拍板 ${pend.length} 条：` + pend.map((p) => `<span class="pos-chip">${esc(p.text)} <button class="linklike" type="button" data-pos-drop="${esc(p.id)}">不采纳</button></span>`).join('') : ''}</span>
+          <span class="pos-bar-meta"><code>${esc(d.path.replace(/positioning\.md$/, 'positioning.html'))}</code> <button class="linklike" type="button" id="posReload">重新读</button></span>
+        </div>`;
+      $('#posAsk').onclick = () => { if (window.openAnna) window.openAnna('先帮我看这一页：我的三问里，哪一问答得最不像细分定位？只追问一个问题。'); };
+      $('#posReload').onclick = () => window.reloadPositioning();
+      $$('[data-pos-drop]', body).forEach((b) => (b.onclick = async () => {
+        if (!confirm('把这一条从待拍板里删掉？')) return;
+        try { await api(`/api/positioning/${b.dataset.posDrop}`, { method: 'DELETE' }); toast('已删掉'); await window.reloadPositioning(); } catch (err) { toast(err.message); }
+      }));
+      return;
+    }
     body.innerHTML = `
       <div class="pos-grid">
         <article class="panel pos-doc"><div class="md">${renderMarkdown(d.markdown)}</div></article>

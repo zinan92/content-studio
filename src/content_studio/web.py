@@ -2522,6 +2522,17 @@ def create_app(
 
         return positioning.read()
 
+    @app.get("/api/positioning/page", response_class=HTMLResponse)
+    def get_positioning_page(theme: str = "") -> HTMLResponse:
+        """Park's designed one pager, shown inside the 定位 view. Same-origin, so the
+        frame inherits nothing but the theme stamp we pass."""
+        from . import positioning
+
+        html = positioning.read_page(theme=theme)
+        if html is None:
+            raise HTTPException(status_code=404, detail="还没有定位页")
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
     @app.post("/api/positioning")
     def post_positioning(body: StandardBody) -> dict[str, Any]:
         """Append one proposal to 「待拍板」. Anna wrote the sentence; Park clicked the

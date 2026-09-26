@@ -101,7 +101,7 @@ const CORE_VIEWS = ['mine', 'radar', 'report', 'settings'];
 const OUTPUT_FAMILY = ['output', 'mine', 'radar', 'report'];
 const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷达'], ['report', '拆解报告']];
 const S = {
-  view: 'board',
+  view: 'positioning',
   workId: null,
   publishId: null,
   accountId: (() => { try { return Number(localStorage.getItem('cs-account')) || null; } catch (_) { return null; } })(),
@@ -165,6 +165,7 @@ function readHash() {
     if (!id) return 'board';
     S.workId = Number(id);
   }
+  if (!view) return 'positioning'; // 首页就是这一页
   return [...CORE_VIEWS, ...Object.keys(window.VIEWS)].includes(view) ? view : 'board';
 }
 
