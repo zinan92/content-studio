@@ -94,15 +94,17 @@ def test_anna_reads_the_positioning_and_knows_the_action(doc: Path, tmp_path: Pa
     assert anna.SCOPE_LABELS["positioning"] == "定位"
 
 
-def test_designed_page_sits_beside_the_markdown_and_gets_the_theme(doc: Path) -> None:
-    assert positioning.read_page() is None and positioning.read()["page"] is False
-    page = doc.with_name(positioning.PAGE_NAME)
-    page.write_text("<title>帕克动手</title><style>:root{--x:1}</style><div>诊断和交付是同一个人</div>", encoding="utf-8")
-    html = positioning.read_page(theme="dark")
-    assert html.startswith("<!doctype html><html") and 'data-theme="dark"' in html
-    assert "诊断和交付是同一个人" in html and html.rstrip().endswith("</body></html>")
-    assert positioning.read()["page"] is True
-    # a full document is passed through, only stamped
-    page.write_text("<!doctype html><html lang=\"zh-CN\"><body>x</body></html>", encoding="utf-8")
-    assert positioning.read_page(theme="light").startswith('<!doctype html><html data-theme="light" lang="zh-CN">')
-    assert positioning.read_page(theme="weird").count("data-theme") == 0
+def test_structured_data_sits_beside_the_markdown(doc: Path) -> None:
+    import json
+
+    assert positioning.read_data() is None and positioning.read()["data"] is None
+    data = doc.with_name(positioning.DATA_NAME)
+    data.write_text(json.dumps({"company": {"name": "帕克动手"}, "questions": []}, ensure_ascii=False), encoding="utf-8")
+    assert positioning.read_data()["company"]["name"] == "帕克动手"
+    assert positioning.read()["data"]["company"]["name"] == "帕克动手"
+    data.write_text("{not json", encoding="utf-8")
+    with pytest.raises(positioning.PositioningError):
+        positioning.read_data()
+    data.write_text('{"company": {}}', encoding="utf-8")
+    with pytest.raises(positioning.PositioningError):
+        positioning.read_data()

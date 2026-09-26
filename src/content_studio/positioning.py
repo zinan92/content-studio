@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -19,7 +20,7 @@ import tempfile
 from .qa import DEFAULT_GUIDE, QA_GUIDE_ENV
 
 FILE_NAME = "positioning.md"
-PAGE_NAME = "positioning.html"
+DATA_NAME = "positioning.json"
 BLOCK_START = "<!-- 工作台维护：Anna 提议 · 开始 -->"
 BLOCK_END = "<!-- 工作台维护：Anna 提议 · 结束 -->"
 HEADING = "## 待拍板（Anna 提议）"
@@ -40,30 +41,28 @@ def positioning_path(path: Path | None = None) -> Path:
     return guide.parent / FILE_NAME
 
 
-def page_path(path: Path | None = None) -> Path:
-    """Park's designed one pager (an Artifact export), kept beside positioning.md so it
-    never enters the public repo. When it exists the 定位 page shows it as-is."""
-    return positioning_path(path).with_name(PAGE_NAME)
+def data_path(path: Path | None = None) -> Path:
+    """The structured one pager (company, three questions, flywheel, pricing…), kept
+    beside positioning.md so it never enters the public repo. The 定位 page draws it
+    with the workbench's own components."""
+    return positioning_path(path).with_name(DATA_NAME)
 
 
-def read_page(path: Path | None = None, *, theme: str = "") -> str | None:
-    """The one pager as a full HTML document, or None when Park has not put one there.
-    The export is a fragment (<title> + <style> + body); wrap it and stamp the workbench's
-    theme on <html> so its tokens follow the workbench instead of the OS."""
-    target = page_path(path)
+def read_data(path: Path | None = None) -> dict | None:
+    target = data_path(path)
     try:
         text = target.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
     except OSError as exc:
-        raise PositioningError(f"读不到定位页：{exc}") from exc
-    stamp = f' data-theme="{theme}"' if theme in ("dark", "light") else ""
-    if text.lstrip().lower().startswith("<!doctype"):
-        return text.replace("<html", f"<html{stamp}", 1) if stamp else text
-    return (f"<!doctype html><html lang=\"zh-CN\"{stamp}><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<style>html{color-scheme:light dark}body{margin:0}</style></head><body>"
-            f"{text}</body></html>")
+        raise PositioningError(f"读不到定位数据：{exc}") from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PositioningError(f"positioning.json 不是合法 JSON：{exc}") from exc
+    if not isinstance(data, dict) or "company" not in data or "questions" not in data:
+        raise PositioningError("positioning.json 缺 company 或 questions")
+    return data
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -77,13 +76,13 @@ def read(path: Path | None = None) -> dict:
     try:
         text = target.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return {"path": str(target), "page": page_path(path).exists(), "exists": False, "markdown": "", "updated": None, "proposals": []}
+        return {"path": str(target), "data": read_data(path), "exists": False, "markdown": "", "updated": None, "proposals": []}
     except OSError as exc:
         raise PositioningError(f"读不到定位文件：{exc}") from exc
     updated = datetime.fromtimestamp(target.stat().st_mtime, tz=timezone.utc).isoformat()
     return {
         "path": str(target),
-        "page": page_path(path).exists(),
+        "data": read_data(path),
         "exists": True,
         "markdown": _strip_frontmatter(text)[:MAX_FILE_CHARS],
         "updated": updated,

@@ -851,11 +851,9 @@ def test_positioning_page_and_anna_proposals(client: TestClient, tmp_path: Path,
     assert chat["label"] == "定位"
     assert "Park 的定位页" in _fake_anna.last_user and "十年交易" in _fake_anna.last_user
 
-    assert client.get("/api/positioning/page").status_code == 404
-    doc.with_name(positioning.PAGE_NAME).write_text("<title>帕克动手</title><div>首页</div>", encoding="utf-8")
-    page = client.get("/api/positioning/page", params={"theme": "dark"})
-    assert page.status_code == 200 and 'data-theme="dark"' in page.text and "首页" in page.text
-    assert client.get("/api/positioning").json()["page"] is True
+    assert client.get("/api/positioning").json()["data"] is None
+    doc.with_name(positioning.DATA_NAME).write_text('{"company": {"name": "帕克动手"}, "questions": []}', encoding="utf-8")
+    assert client.get("/api/positioning").json()["data"]["company"]["name"] == "帕克动手"
 
     posted = client.post("/api/positioning", json={"text": "只对博主，交易者留在私域", "source": "Anna"})
     assert posted.status_code == 200
