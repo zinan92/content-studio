@@ -67,20 +67,24 @@ def test_edits_go_to_the_user_file_and_the_seed_stays_untouched(tmp_path: Path) 
     assert skills.remove("my-frame2", user=user) and not skills.remove("my-frame2", user=user)
 
 
-def test_doc_reads_only_listed_markdown_outside_hidden_folders(tmp_path: Path, monkeypatch) -> None:
+def test_doc_reads_only_listed_markdown_in_skill_folders_or_annas_folder(tmp_path: Path, monkeypatch) -> None:
     import pytest
     from content_studio import skills
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    role_dir = tmp_path / "vault" / "001_role" / "content_editor Anna"
+    (role_dir / "workflows").mkdir(parents=True)
+    (role_dir / "workflows" / "frame.md").write_text("---\nname: f\n---\n# 框架\n正文", encoding="utf-8")
+    monkeypatch.setenv(skills.ANNA_ROLE_ENV, str(role_dir.with_suffix(".md")))
+    (tmp_path / "vault" / "_secrets").mkdir()
+    (tmp_path / "vault" / "_secrets" / "k.md").write_text("不该读到", encoding="utf-8")
     (tmp_path / "notes").mkdir()
-    (tmp_path / "notes" / "frame.md").write_text("---\nname: f\n---\n# 框架\n正文", encoding="utf-8")
-    (tmp_path / ".secret").mkdir()
-    (tmp_path / ".secret" / "k.md").write_text("不该读到", encoding="utf-8")
+    (tmp_path / "notes" / "n.md").write_text("家目录别处也不读", encoding="utf-8")
     user = tmp_path / "skills.json"
-    skills.upsert({"name": "frame", "stage": "plan", "use": "x", "path": "~/notes/frame.md"}, user=user)
-    skills.upsert({"name": "sneaky", "stage": "plan", "use": "x", "path": "~/.secret/k.md"}, user=user)
-    assert "正文" in skills.read_doc("frame", user=user, roots=(tmp_path,))["body"]
-    with pytest.raises(skills.SkillsError):
-        skills.read_doc("sneaky", user=user, roots=(tmp_path,))
-    with pytest.raises(skills.SkillsError):
-        skills.read_doc("not-listed", user=user, roots=(tmp_path,))
+    skills.upsert({"name": "frame", "stage": "plan", "use": "x", "path": "~/vault/001_role/content_editor Anna/workflows/frame.md"}, user=user)
+    skills.upsert({"name": "secret", "stage": "plan", "use": "x", "path": "~/vault/_secrets/k.md"}, user=user)
+    skills.upsert({"name": "elsewhere", "stage": "plan", "use": "x", "path": "~/notes/n.md"}, user=user)
+    assert "正文" in skills.read_doc("frame", user=user, roots=(tmp_path / "skills",))["body"]
+    for name in ("secret", "elsewhere", "not-listed"):
+        with pytest.raises(skills.SkillsError):
+            skills.read_doc(name, user=user, roots=(tmp_path / "skills",))
