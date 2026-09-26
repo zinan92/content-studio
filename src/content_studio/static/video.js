@@ -16,10 +16,27 @@ async function startOutline(topicId) {
   } catch (err) { toast(err.message); }
 }
 
+// 落点：这集落到哪个案例、结尾承接哪个入口。框架（一勾式骨架）只在备注里给了承接时才用，
+// 没给就只收一句判断——所以它是可选的一行备注，不是必填的 CTA。
+const LANDING = /^落点[:：]\s*(.*)$/m;
+function landingOf(memo) { const m = (memo || '').match(LANDING); return m ? m[1].trim() : ''; }
+function withLanding(memo, text) {
+  const rest = (memo || '').split('\n').filter((l) => !LANDING.test(l)).join('\n').trim();
+  return text ? `${rest ? rest + '\n' : ''}落点：${text}` : rest;
+}
+
 function bindOutlineButtons(root) {
   $$('[data-outline]', root).forEach((b) => (b.onclick = async () => {
     if (b.textContent.startsWith('重写') && !confirm('重写会覆盖现在的骨架，继续吗？')) return;
     b.disabled = true;
+    const box = $('#landingIn', root);
+    if (box) {
+      const id = Number(b.dataset.outline);
+      const topics = await api('/api/topics?archived=true');
+      const t = topics.find((x) => x.id === id);
+      const next = withLanding(t && t.memo, box.value.trim());
+      if (t && next !== (t.memo || '')) { try { await api(`/api/topics/${id}`, { method: 'PATCH', body: { memo: next } }); } catch (err) { toast(err.message); } }
+    }
     await startOutline(Number(b.dataset.outline));
   }));
 }
@@ -78,6 +95,8 @@ window.VIDEO_TABS.push({
       el.innerHTML = `<div class="empty"><b>还没有骨架</b>${topic.outline_state === 'failed' ? `<span class="bad">${esc(topic.outline_error || '')}</span>` : ''}
         <span>给你 5–10 条反常识暴论挑一条当开头，把原文拆成论点 + 证据，最后一句收尾。不写成稿。</span>
         ${topic.memo ? `<pre class="memo">${esc(topic.memo)}</pre>` : ''}
+        <label class="landing"><span>落点（可选）：这集是哪个案例，结尾承接什么。填了，结尾就用你这句；不填，只收一句判断。</span>
+          <input id="landingIn" value="${esc(landingOf(topic.memo))}" placeholder="比如：给一位财经博主做付费圈的案例 · 想要的私信动手" autocomplete="off"></label>
         <div class="track-pick"><button class="btn primary" type="button" data-outline="${topic.id}">${BOOKEND_LABEL}</button></div></div>`;
       bindOutlineButtons(el);
       return;
