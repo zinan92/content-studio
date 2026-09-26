@@ -271,8 +271,11 @@ function tile(p, d) {
 }
 
 /* ================= 页面 ================= */
+window.resetDesk = () => { PD.data = null; PD.topicId = S.publishId; const b = $('#publishBody'); if (b) b.dataset.sig = ''; };
+
 window.VIEWS.publish = {
   async render() {
+    if (window.paintPubSubnav) { window.paintPubSubnav(); if (window.refreshBackfillCount && !window.__bfCounted) { window.__bfCounted = true; window.refreshBackfillCount(); } }
     const body = $('#publishBody');
     if (S.publishId && S.publishId !== PD.topicId) { PD.topicId = S.publishId; PD.data = null; }
     let d;

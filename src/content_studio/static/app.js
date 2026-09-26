@@ -128,6 +128,7 @@ const S = {
 
 function railKey(view) {
   if (OUTPUT_FAMILY.includes(view)) return 'output';
+  if (view === 'backfill') return 'publish';
   if (view === 'work') return 'board';
   return view;
 }

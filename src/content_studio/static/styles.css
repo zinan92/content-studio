@@ -1315,7 +1315,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .pos-diff h3{font-family:var(--serif);font-size:17px;margin:4px 0 6px}
 .pos-diff p{margin:0;font-size:14px;color:var(--ink-2)}
 .pos-tbl{overflow-x:auto;padding:4px 10px}
-.pos-tbl table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+.pos-tbl table{width:100%;min-width:640px;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
 .pos-tbl th,.pos-tbl td{text-align:left;padding:11px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
 .pos-tbl tr:last-child td{border-bottom:0}
 .pos-tbl th{font-weight:600;color:var(--ink-3);font-size:12px;letter-spacing:.08em}
@@ -1391,3 +1391,23 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .d-hist-list{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px 16px}
 .d-hist{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 10px;font-size:12.5px;cursor:pointer;font-family:var(--mono)}
 .d-hist.on{border-color:var(--accent);color:var(--accent)}
+
+/* 补发队列 */
+.bf-tbl{overflow-x:auto;padding:4px 10px}
+.bf-tbl table,.bf-done table{width:100%;min-width:0;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
+.bf-tbl th,.bf-tbl td,.bf-done td{padding:10px 6px;border-bottom:1px solid var(--line-soft);vertical-align:middle;text-align:left}
+.bf-tbl th{font-size:12px;color:var(--ink-3);font-weight:600;letter-spacing:.06em}
+.bf-tbl .c,.bf-done .c{text-align:center}
+.bf-tbl .r,.bf-done .r{text-align:right;white-space:nowrap}
+.bf-title b{display:block;font-weight:600}
+.bf-title small{color:var(--ink-3);font-size:12px}
+.bf-dot{width:24px;height:24px;border-radius:50%;border:1px dashed var(--line);background:transparent;color:var(--ink-3);font-size:13px;line-height:22px;display:inline-block;cursor:pointer;padding:0}
+.bf-dot.on{border:1px solid var(--pub);background:var(--pub-soft);color:var(--pub);cursor:default}
+.bf-dot.on.mark{cursor:pointer;border-style:dashed}
+.bf-file{font-size:12px;color:var(--ink-3);display:inline-flex;gap:6px;align-items:center}
+.bf-file.ok{color:var(--out)}
+.bf-file.bad{color:var(--bad, #c0392b)}
+.bf-done summary{cursor:pointer;padding:12px 18px;font-weight:600;font-size:14px}
+.bf-done table{padding:0 10px 8px}
+.bf-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.bf-tbl th.c,.bf-tbl td.c{width:72px}
