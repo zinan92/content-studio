@@ -91,6 +91,20 @@ class StageBody(BaseModel):
     stage: str | None = None  # "outline" = step back to the outline; None = clear the override
 
 
+class SkillBody(BaseModel):
+    name: str
+    title: str = ""
+    stage: str
+    use: str = ""
+    invoke: str = ""
+    author: str | None = None
+    repo: str | None = None
+    dir: str | None = None
+    path: str | None = None
+    own: bool = False
+    previous: str | None = None
+
+
 class BackfillMarkBody(BaseModel):
     platform: str
     done: bool = True
@@ -755,9 +769,46 @@ def create_app(
 
     @app.get("/api/skills")
     def list_skills() -> dict[str, Any]:
-        from .skills import load_skills
+        from . import skills
 
-        return load_skills()
+        return skills.load_skills(user=skills.user_path())
+
+    @app.put("/api/skills")
+    def put_skill(body: SkillBody) -> dict[str, Any]:
+        """加一个或改一个。第一次改的时候把仓库里的种子复制成 Park 自己的清单。"""
+        from . import skills
+
+        entry = skills.upsert(body.model_dump(exclude={"previous"}), user=skills.user_path(), previous=body.previous)
+        return {"skill": entry}
+
+    @app.delete("/api/skills/{name}")
+    def delete_skill(name: str) -> dict[str, Any]:
+        from . import skills
+
+        if not skills.remove(name, user=skills.user_path()):
+            raise ValueError("这个 skill 已经不在清单里了")
+        return {"ok": True}
+
+    @app.get("/api/skills/{name}/doc")
+    def skill_doc(name: str) -> dict[str, Any]:
+        from . import skills
+
+        return skills.read_doc(name, user=skills.user_path())
+
+    @app.get("/api/anna/soul")
+    def anna_soul() -> dict[str, Any]:
+        """Anna 每轮读的文件：角色、knowledge、原则、定位、三点评分。只读列出来。"""
+        home = str(Path.home())
+        return {"files": [{"i": i, "name": Path(p).name, "path": p.replace(home, "~")} for i, p in enumerate(anna_mod.load_soul()["sources"])]}
+
+    @app.get("/api/anna/soul/{index}")
+    def anna_soul_doc(index: int) -> dict[str, Any]:
+        sources = anna_mod.load_soul()["sources"]
+        if not 0 <= index < len(sources):
+            raise ValueError("没有这个文件")
+        path = Path(sources[index])
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return {"name": path.name, "path": str(path).replace(str(Path.home()), "~"), "body": anna_mod._strip_frontmatter(text)[:60000]}
 
     # -- topics & today plan ---------------------------------------------
 

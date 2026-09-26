@@ -40,3 +40,47 @@ def test_no_third_party_skill_files_are_vendored() -> None:
     ignored = {".git", ".venv", "node_modules"}
     found = [p for p in REPO.rglob("SKILL.md") if not ignored & set(p.parts)]
     assert found == []
+
+
+def test_edits_go_to_the_user_file_and_the_seed_stays_untouched(tmp_path: Path) -> None:
+    import pytest
+    from content_studio import skills
+
+    user = tmp_path / "skills.json"
+    seed_before = REGISTRY_PATH.read_text(encoding="utf-8")
+    assert skills.load_skills(user=user, roots=(tmp_path,))["editable"] is True
+    skills.upsert({"name": "my-frame", "title": "我的框架", "stage": "plan", "use": "写提纲用"}, user=user)
+    assert REGISTRY_PATH.read_text(encoding="utf-8") == seed_before
+    names = [s["name"] for s in skills.load_skills(user=user, roots=(tmp_path,))["skills"]]
+    assert "my-frame" in names and "khazix-writer" in names  # the seed was copied, then added to
+    skills.upsert({"name": "my-frame2", "title": "改名", "stage": "write", "use": "x"}, user=user, previous="my-frame")
+    names = [s["name"] for s in skills.load_skills(user=user, roots=(tmp_path,))["skills"]]
+    assert "my-frame" not in names and "my-frame2" in names
+    with pytest.raises(skills.SkillsError):
+        skills.upsert({"name": "bad name!", "stage": "plan", "use": "x"}, user=user)
+    with pytest.raises(skills.SkillsError):
+        skills.upsert({"name": "x", "stage": "nope", "use": "x"}, user=user)
+    with pytest.raises(skills.SkillsError):
+        skills.upsert({"name": "x", "stage": "plan", "use": "x", "repo": "javascript:alert(1)"}, user=user)
+    with pytest.raises(skills.SkillsError):
+        skills.upsert({"name": "khazix-writer", "stage": "plan", "use": "x"}, user=user, previous="my-frame2")
+    assert skills.remove("my-frame2", user=user) and not skills.remove("my-frame2", user=user)
+
+
+def test_doc_reads_only_listed_markdown_outside_hidden_folders(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+    from content_studio import skills
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "frame.md").write_text("---\nname: f\n---\n# 框架\n正文", encoding="utf-8")
+    (tmp_path / ".secret").mkdir()
+    (tmp_path / ".secret" / "k.md").write_text("不该读到", encoding="utf-8")
+    user = tmp_path / "skills.json"
+    skills.upsert({"name": "frame", "stage": "plan", "use": "x", "path": "~/notes/frame.md"}, user=user)
+    skills.upsert({"name": "sneaky", "stage": "plan", "use": "x", "path": "~/.secret/k.md"}, user=user)
+    assert "正文" in skills.read_doc("frame", user=user, roots=(tmp_path,))["body"]
+    with pytest.raises(skills.SkillsError):
+        skills.read_doc("sneaky", user=user, roots=(tmp_path,))
+    with pytest.raises(skills.SkillsError):
+        skills.read_doc("not-listed", user=user, roots=(tmp_path,))

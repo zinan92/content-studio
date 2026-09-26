@@ -44,6 +44,8 @@ class FakeClient:
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(web, "LEGACY_REPORT_DIRS", ())
+    # Park's own editable lists (skills.json …) live in the config dir; tests get their own.
+    monkeypatch.setenv("CONTENT_STUDIO_HOME", str(tmp_path / "cs-home"))
     # 框架是 Obsidian 里的文件，Park 随时会改。测试用自己的副本，不读他的。
     workflows = tmp_path / "workflows"
     workflows.mkdir()
@@ -351,8 +353,16 @@ def test_topics_from_triage_and_today_plan(client: TestClient, tmp_path: Path) -
 
 def test_skills_endpoint_lists_registry(client: TestClient) -> None:
     data = client.get("/api/skills").json()
-    assert [s["key"] for s in data["stages"]] == ["collect", "plan", "make", "ship", "review"]
+    assert [s["key"] for s in data["stages"]] == ["collect", "plan", "write", "video", "design", "ship", "review"]
     assert any(s["name"] == "khazix-writer" and s["author"] == "数字生命卡兹克" for s in data["skills"])
+    assert client.put("/api/skills", json={"name": "my-frame", "title": "我的框架", "stage": "plan", "use": "写提纲"}).status_code == 200
+    assert any(s["name"] == "my-frame" for s in client.get("/api/skills").json()["skills"])
+    assert client.put("/api/skills", json={"name": "bad name", "stage": "plan", "use": "x"}).status_code == 400
+    assert client.delete("/api/skills/my-frame").json()["ok"]
+    assert client.delete("/api/skills/my-frame").status_code == 400
+    files = client.get("/api/anna/soul").json()["files"]
+    assert files and client.get(f"/api/anna/soul/{files[0]['i']}").json()["body"]
+    assert client.get("/api/anna/soul/999").status_code == 400
 
 
 def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
