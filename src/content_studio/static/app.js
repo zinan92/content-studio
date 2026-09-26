@@ -436,7 +436,7 @@ function drawMineTable(videos, median) {
   const na = '<td class="na" title="没有后台数据（后台只保留 90 天）">—</td>';
   const tbl = $('#mineTbl');
   tbl.innerHTML = `<thead><tr>${cols.map(([k, l, c]) => `<th class="${c || ''} ${k === key ? 'sorted' : ''}" data-k="${k}" ${k === 'act' ? 'style="cursor:default"' : ''}>${l}${k === key ? (dir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr></thead>
-  <tbody>${rows.map((v) => `<tr>
+  <tbody>${rows.map((v) => `<tr data-vid="${esc(v.video_id)}">
     <td class="l title">${v.is_top ? '<span class="tag pin">置顶</span>' : ''}${v.is_image_post ? '<span class="tag img">图文</span>' : ''}${v.creator && v.save > 0.6 && v.fans !== null && v.collects && v.fans / v.collects < 0.3 ? '<span class="tag warn" title="每 100 个收藏换不到 30 个粉">收藏≠关注</span>' : ''}<span class="clamp" title="${esc(v.title)}">${esc(cleanTitle(v.title))}</span></td>
     <td>${day(v.published_at)}</td><td>${v.is_image_post ? '—' : mmss(v.duration_seconds)}</td>
     <td>${fmt(v.plays)}<span class="bar" style="width:${Math.max(2, (v.plays || 0) / maxP * 60)}px"></span></td>
@@ -453,6 +453,12 @@ function drawMineTable(videos, median) {
     };
   });
   bindTeardownButtons(tbl);
+  // 从进项「看数据 →」跳过来：把那一条滚到眼前，亮一下。
+  if (S.mineFocus) {
+    const tr = tbl.querySelector(`tr[data-vid="${CSS.escape(S.mineFocus)}"]`);
+    S.mineFocus = null;
+    if (tr) { tr.classList.add('focus'); setTimeout(() => tr.scrollIntoView({ block: 'center' }), 50); setTimeout(() => tr.classList.remove('focus'), 3000); }
+  }
 }
 
 /* ================= RADAR ================= */
