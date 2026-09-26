@@ -1258,3 +1258,12 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .pos-meta code{font-size:11px;overflow-wrap:anywhere}
 .pos-meta .linklike{font-size:11px;color:var(--ink-3);align-self:flex-start}
 @media (max-width:980px){.pos-grid{grid-template-columns:1fr}.pos-side{position:static}}
+
+.pos-frame{width:100%;height:calc(100vh - 120px);min-height:640px;border:1px solid var(--line);border-radius:14px;background:var(--surface);display:block}
+.pos-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12.5px;color:var(--ink-3)}
+.pos-bar-pend{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pos-chip{background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:3px 10px;color:var(--ink-2)}
+.pos-chip .linklike{color:var(--ink-3);font-size:12px;margin-left:6px}
+.pos-bar-meta{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pos-bar-meta code{font-size:11px}
+.pos-bar-meta .linklike{font-size:11px;color:var(--ink-3)}

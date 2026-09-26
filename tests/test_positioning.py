@@ -92,3 +92,17 @@ def test_anna_reads_the_positioning_and_knows_the_action(doc: Path, tmp_path: Pa
     assert "记进定位" in anna.WORKBENCH_RULES
     assert anna.ACTION_KINDS["记进定位"] == "positioning"
     assert anna.SCOPE_LABELS["positioning"] == "定位"
+
+
+def test_designed_page_sits_beside_the_markdown_and_gets_the_theme(doc: Path) -> None:
+    assert positioning.read_page() is None and positioning.read()["page"] is False
+    page = doc.with_name(positioning.PAGE_NAME)
+    page.write_text("<title>帕克动手</title><style>:root{--x:1}</style><div>诊断和交付是同一个人</div>", encoding="utf-8")
+    html = positioning.read_page(theme="dark")
+    assert html.startswith("<!doctype html><html") and 'data-theme="dark"' in html
+    assert "诊断和交付是同一个人" in html and html.rstrip().endswith("</body></html>")
+    assert positioning.read()["page"] is True
+    # a full document is passed through, only stamped
+    page.write_text("<!doctype html><html lang=\"zh-CN\"><body>x</body></html>", encoding="utf-8")
+    assert positioning.read_page(theme="light").startswith('<!doctype html><html data-theme="light" lang="zh-CN">')
+    assert positioning.read_page(theme="weird").count("data-theme") == 0
