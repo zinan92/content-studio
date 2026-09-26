@@ -21,7 +21,7 @@ function syncTabs() {
 }
 const DAY_TABS = [[1, '1 天'], [3, '3 天'], [7, '7 天'], [30, '30 天']];
 
-const C = { tab: 'all', days: 1, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0 };
+const C = { tab: 'all', days: 1, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0, groups: {} };
 
 const tabDef = (key) => TABS.find((t) => t.key === key) || TABS[0];
 
@@ -110,7 +110,9 @@ const hm = (iso) => {
 };
 
 // 这三个状态都是 Park 自己手点的，所以每一个都得能反悔。
-const TRIAGE_LABEL = { shot: '拍过了', ignored: '已忽略', topic: '已入选题池' };
+const TRIAGE_LABEL = { shot: '拍过了', ignored: '暂不拍', topic: '已入选题池' };
+// 标过「拍过了」「暂不拍」的收到列表最下面两组里，默认折起来；点开仍能读原文、仍能捡回来。
+const PARKED = ['ignored', 'shot'];
 
 function rowActions(r) {
   // 唯一没有按钮的情况：它真的在加工中或已发出，那颗 chip 本身就是入口。
@@ -120,8 +122,12 @@ function rowActions(r) {
   }
   const again = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">${r.dropped || r.taken ? '再捡回来' : '入选题池'}</button>`;
   if (r.dropped) return `<span class="chip-state">标过不做了</span>${again}`;
-  // 标过拍过了 / 已忽略：说清楚是哪一种（以前一律写成「已入选题池」，是错的），并留一条回头路。
-  return r.taken ? `<span class="chip-state">${TRIAGE_LABEL[r.taken] || r.taken}</span>${again}` : again;
+  // 标过拍过了 / 暂不拍：说清楚是哪一种，给两条回头路——直接捡回列表，或者干脆入选题池。
+  if (PARKED.includes(r.taken)) return `<span class="chip-state">${TRIAGE_LABEL[r.taken]}</span><button class="btn small" type="button" data-mark="" data-path="${esc(r.path)}">捡回来</button>${again}`;
+  if (r.taken) return `<span class="chip-state">${TRIAGE_LABEL[r.taken] || r.taken}</span>${again}`;
+  // 还没处理的笔记：三个动作。拍过的以后不想再看到，暂不拍的折到最下面。
+  const park = r.path ? `<button class="btn small ghost" type="button" data-mark="shot" data-path="${esc(r.path)}">拍过了</button><button class="btn small ghost" type="button" data-mark="ignored" data-path="${esc(r.path)}">暂不拍</button>` : '';
+  return again + park;
 }
 
 window.VIEWS.input = {
@@ -145,7 +151,7 @@ window.VIEWS.input = {
 
     // 宽屏时右边不留空盒子：自动打开第一条可读的。
     if (!C.open && window.innerWidth > 900) {
-      const first = rows.find((r) => r.path);
+      const first = rows.find((r) => r.path && !PARKED.includes(r.taken)) || rows.find((r) => r.path);
       if (first) { openNote(first.path); return; }
     }
 
@@ -159,14 +165,18 @@ window.VIEWS.input = {
       return 0;
     };
 
-    const list = rows.length ? rows.map((r) => `<div class="in-row ${C.open === r.path ? 'on' : ''} ${r.taken ? 'state-' + r.taken : ''} ${r.hot ? 'blew' : ''}" ${r.path ? `data-note="${esc(r.path)}" role="button" tabindex="0"` : ''}>
+    const rowHtml = (r) => `<div class="in-row ${C.open === r.path ? 'on' : ''} ${r.taken ? 'state-' + r.taken : ''} ${r.hot ? 'blew' : ''}" ${r.path ? `data-note="${esc(r.path)}" role="button" tabindex="0"` : ''}>
         ${r.hot ? `<span class="blew-x" title="${esc(r.hot.account || '')}平时中位 ${fmt(r.hot.median)} 赞，这条 ${fmt(r.hot.likes)}">${r.hot.multiple.toFixed(1)}×</span>` : ''}
         <div class="in-meta"><span class="src">${esc(r.sub)}</span><span class="num">${hm(r.at)}</span></div>
         <b class="clamp">${esc(r.title)}</b>
         ${r.hot ? `<small class="blew-why">爆了 · 平时中位 ${fmt(r.hot.median)} 赞，这条 ${fmt(r.hot.likes)}</small>` : ''}
         ${r.summary ? `<p class="clamp">${esc(r.summary)}</p>` : ''}
         <div class="acts">${rowActions(r)}${r.url ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">去抖音 ↗</a>` : ''}</div>
-      </div>`).join('')
+      </div>`;
+    const active = rows.filter((r) => !PARKED.includes(r.taken));
+    const parked = PARKED.map((k) => [k, rows.filter((r) => r.taken === k)]).filter(([, rs]) => rs.length);
+    const groups = parked.map(([k, rs]) => `<details class="in-group" data-group="${k}" ${C.groups[k] ? 'open' : ''}><summary><span>${TRIAGE_LABEL[k]}</span><b class="num">${rs.length}</b></summary>${rs.map(rowHtml).join('')}</details>`).join('');
+    const list = rows.length ? (active.length ? active.map(rowHtml).join('') : `<div class="empty small"><span>没处理的都处理完了。</span></div>`) + groups
       : `<div class="empty"><b>这里暂时没有东西</b><span>${C.tab === 'benchmark' ? '对标账号发了新视频，工作台会自动下载、转文字，转完就出现在这里。预告、开播这类没内容的不会进来。' : C.tab === 'raw' ? '你写的东西都会出现在这里，不看时间——写过、还没拍的都在。' : def.kind === 'daily' ? '这份日报还没有出过。' : `从 ${hm(C.since)} 起没有新的。换一个时间范围看看。`}</span></div>`;
 
     let reader = `<div class="empty reader-empty"><span>${rows.length ? '点左边任意一条，在这里读原文。' : '这个 tab 暂时没有可读的。'}</span></div>`;
@@ -196,5 +206,17 @@ window.VIEWS.input = {
       if (row) intoPool(row);
     })));
     $$('[data-work]', body).forEach((b) => (b.onclick = stop((el) => openWork(Number(el.dataset.work)))));
+    $$('[data-mark]', body).forEach((b) => (b.onclick = stop((el) => markNote(el.dataset.path, el.dataset.mark || null))));
+    $$('details.in-group', body).forEach((d) => (d.ontoggle = () => { C.groups[d.dataset.group] = d.open; }));
   },
 };
+
+/** 拍过了 / 暂不拍 / 捡回来（status 为空）。只改进项里这一条的状态，不动选题。 */
+async function markNote(path, status) {
+  try {
+    await api('/api/vault/triage', { method: 'PUT', body: { path, status } });
+    toast(status ? `已标${TRIAGE_LABEL[status]}` : '已捡回来');
+    await loadInbox(true);
+    renderView();
+  } catch (err) { toast(err.message); }
+}
