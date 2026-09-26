@@ -1302,3 +1302,41 @@ def test_state_lists_the_configured_dailies_so_the_inbox_tabs_follow_profile(cli
 
     keys = [d["key"] for d in client.get("/api/state").json()["daily_sources"]]
     assert keys == [s.key for s in vault.DAILY_SOURCES] and "ai_daily" in keys
+
+
+def test_daily_issue_item_pick_snapshots_the_original_into_the_topic_not_the_vault(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from content_studio import vault, writer
+
+    root = tmp_path / "vault-daily"
+    folder = root / "006_ai daily newsletter"
+    folder.mkdir(parents=True)
+    (folder / "30-01-02.md").write_text(
+        "# AI Daily Newsletter — 2030-01-02\n## 快讯\n\n### 工具\n\n- **Alpha** | [甲发布](https://x.com/a/status/111)\n  甲的摘要。\n\n"
+        "- **Beta** | [乙发布](https://x.com/b/status/222)\n  乙的摘要。\n", encoding="utf-8")
+    items = tmp_path / "items"
+    (items / "30-01-02" / "alpha").mkdir(parents=True)
+    (items / "30-01-02" / "alpha" / "a.md").write_text("---\nurl: https://twitter.com/a/status/111\n---\n\n甲的原文全文\n", encoding="utf-8")
+    monkeypatch.setattr(vault, "DAILY_SOURCES", (vault.DailySource("ai_daily", "AI 日报", "006_ai daily newsletter", (".md",), str(items)),))
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    before = sorted(p.relative_to(root) for p in root.rglob("*"))
+
+    issue = client.get("/api/vault/daily/issue", params={"key": "ai_daily"}).json()
+    got = issue["sections"][0]["items"]
+    assert [(i["title"], i["has_original"]) for i in got] == [("甲发布", True), ("乙发布", False)]
+    orig = client.get("/api/vault/daily/original", params={"key": "ai_daily", "path": issue["path"], "item": got[0]["id"]}).json()
+    assert orig["quality"] == "原文" and "甲的原文全文" in orig["body"]
+
+    picked = client.post("/api/vault/daily/pick", json={"key": "ai_daily", "path": issue["path"], "item": got[0]["id"]}).json()
+    assert picked.get("quality") == "原文", picked
+    topic = picked["topic"]
+    srcs = writer.topic_sources(str(root), topic, tmp_path / "drafts")
+    assert "甲的原文全文" in srcs[0]["body"] and "乙" not in srcs[0]["body"]  # one item, not the whole issue
+    again = client.post("/api/vault/daily/pick", json={"key": "ai_daily", "path": issue["path"], "item": got[0]["id"]}).json()
+    assert again["again"] and again["topic"]["id"] == topic["id"]
+    thin = client.post("/api/vault/daily/pick", json={"key": "ai_daily", "path": issue["path"], "item": got[1]["id"]}).json()
+    assert thin["quality"] == "只有摘要"
+    assert client.get("/api/vault/daily/issue", params={"key": "ai_daily"}).json()["sections"][0]["items"][0]["topic_id"] == topic["id"]
+    # the vault is untouched
+    assert sorted(p.relative_to(root) for p in root.rglob("*")) == before

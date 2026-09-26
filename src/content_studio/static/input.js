@@ -143,8 +143,9 @@ window.VIEWS.input = {
     if (!C.items) body.innerHTML = '<div class="panel empty"><span class="spin"></span><span>正在读 Obsidian…</span></div>';
     try {
       await loadInbox(false);
-      if (def.kind === 'daily') await loadDaily(C.tab, false);
     } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    // 日报不是笔记列表：一期整页铺开，一条条快讯各自入选题池。
+    if (def.kind === 'daily') { await renderDaily(body); return; }
 
     const rows = rowsFor(C.tab);
     const fresh = (C.items || []).filter((i) => !i.triage && !i.used_by).length;
@@ -220,4 +221,105 @@ async function markNote(path, status) {
     await loadInbox(true);
     renderView();
   } catch (err) { toast(err.message); }
+}
+
+
+/* ================= 日报：今天这一期整页铺开，单条入选题池 ================= */
+const D = { issue: {}, path: {}, open: {}, originals: {}, busy: {} };
+
+function tabBar() {
+  const count = (t) => {
+    if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && !i.triage && !i.used_by).length;
+    if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && !i.triage && !i.used_by).length;
+    return 0;
+  };
+  return `<div class="in-bar"><div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div></div>`;
+}
+
+async function loadIssue(key, path) {
+  const q = `/api/vault/daily/issue?key=${encodeURIComponent(key)}${path ? `&path=${encodeURIComponent(path)}` : ''}`;
+  D.issue[key] = await api(q);
+  D.path[key] = D.issue[key].path;
+}
+
+function dailyItemHtml(key, it) {
+  const open = D.open[it.id];
+  const orig = D.originals[it.id];
+  let action;
+  if (it.topic_id && !it.topic_archived) action = `<button class="chip-state working" type="button" data-work="${it.topic_id}">在选题池 →</button>`;
+  else action = `<button class="btn small primary" type="button" data-dpick="${esc(it.id)}" ${D.busy[it.id] ? 'disabled' : ''}>${it.topic_archived ? '再捡回来' : '入选题池'}</button>`;
+  const badge = it.has_original ? '' : '<span class="d-thin" title="日报管道只留最近几天的原文；这一条入选题池时只能带上摘要">只有摘要</span>';
+  let more = '';
+  if (open) {
+    if (!orig) more = '<div class="d-orig"><span class="spin"></span></div>';
+    else more = `<div class="d-orig">${orig.deep ? `<div class="d-deep"><b>深读</b>${renderMarkdown(orig.deep)}</div>` : ''}${orig.body ? `<div class="md">${renderMarkdown(orig.body)}</div>` : '<p class="d-none">原文已经不在日报管道里了，只有上面的摘要。</p>'}</div>`;
+  }
+  return `<div class="d-item ${open ? 'open' : ''}" data-ditem="${esc(it.id)}">
+    <div class="d-head"><span class="d-src">${esc(it.source)}</span>${badge}</div>
+    <div class="d-title"><button class="linklike" type="button" data-dtoggle="${esc(it.id)}">${esc(it.title)}</button>${it.url ? ` <a class="d-link" href="${esc(it.url)}" target="_blank" rel="noopener">原文 ↗</a>` : ''}</div>
+    ${it.summary ? `<p class="d-sum">${esc(it.summary)}</p>` : ''}
+    <div class="acts">${action}<button class="btn small ghost" type="button" data-dtoggle="${esc(it.id)}">${open ? '收起原文' : '展开原文'}</button></div>
+    ${more}
+  </div>`;
+}
+
+async function renderDaily(body) {
+  const key = C.tab;
+  try { if (!D.issue[key]) await loadIssue(key, D.path[key]); } catch (err) {
+    body.innerHTML = tabBar() + `<div class="panel empty"><b>${esc(err.message)}</b></div>`; bindTabs(body); return;
+  }
+  const iss = D.issue[key];
+  const latest = iss.history[0] && iss.history[0].path === iss.path;
+  const note = latest ? (iss.is_today ? '今天这一期' : `今天的还没出，这是最近一期（${iss.day}）`) : `历史一期 · ${iss.day}`;
+  const sections = iss.sections.map((s) => {
+    if (s.kind === 'markdown') return s.markdown ? `<details class="d-sec md-sec"><summary>${esc(s.name)}</summary><div class="md">${renderMarkdown(s.markdown)}</div></details>` : '';
+    let group = null;
+    const rows = s.items.map((it) => {
+      const head = it.group && it.group !== group ? `<div class="d-group">${esc(it.group)}</div>` : '';
+      group = it.group;
+      return head + dailyItemHtml(key, it);
+    }).join('');
+    return `<section class="d-sec"><h3>${esc(s.name)} <small>${s.items.length} 条</small></h3>${rows}</section>`;
+  }).join('');
+  const hist = iss.history.map((h) => `<button type="button" class="d-hist ${h.path === iss.path ? 'on' : ''}" data-dissue="${esc(h.path)}">${esc(h.day)}</button>`).join('');
+  body.innerHTML = tabBar() + `
+    <div class="panel d-issue">
+      <div class="d-top"><div><div class="d-eyebrow">${esc(note)}</div><h2>${esc(iss.title)}</h2></div>${latest ? '' : `<button class="btn small" type="button" data-dissue="${esc(iss.history[0].path)}">回到最新一期</button>`}</div>
+      <p class="in-note">每条快讯单独入选题池：放进去的是那一条的原文（有深读就带上深读），不是整份日报。</p>
+      ${sections}
+    </div>
+    <details class="panel d-history" ${D.histOpen ? 'open' : ''}><summary>历史日报 <small>${iss.history.length} 期</small></summary><div class="d-hist-list">${hist}</div></details>`;
+  bindTabs(body);
+  $$('[data-dtoggle]', body).forEach((b) => (b.onclick = () => toggleOriginal(key, b.dataset.dtoggle)));
+  $$('[data-dpick]', body).forEach((b) => (b.onclick = () => pickDaily(key, b.dataset.dpick)));
+  $$('[data-work]', body).forEach((b) => (b.onclick = () => openWork(Number(b.dataset.work))));
+  $$('[data-dissue]', body).forEach((b) => (b.onclick = async () => { D.path[key] = b.dataset.dissue; D.issue[key] = null; D.open = {}; D.originals = {}; window.scrollTo(0, 0); renderView(); }));
+  const hd = $('.d-history', body); if (hd) hd.ontoggle = () => { D.histOpen = hd.open; };
+}
+
+function bindTabs(body) {
+  $$('[data-tab]', body).forEach((b) => (b.onclick = () => { C.tab = b.dataset.tab; C.open = null; C.note = null; body.dataset.sig = ''; renderView(); }));
+}
+
+async function toggleOriginal(key, id) {
+  D.open[id] = !D.open[id];
+  renderView();
+  if (D.open[id] && !D.originals[id]) {
+    try { D.originals[id] = await api(`/api/vault/daily/original?key=${encodeURIComponent(key)}&path=${encodeURIComponent(D.path[key])}&item=${encodeURIComponent(id)}`); }
+    catch (err) { D.originals[id] = { body: '', deep: '', error: err.message }; toast(err.message); }
+    renderView();
+  }
+}
+
+async function pickDaily(key, id) {
+  D.busy[id] = true; renderView();
+  try {
+    const r = await api('/api/vault/daily/pick', { method: 'POST', body: { key, path: D.path[key], item: id } });
+    toast(r.again ? '已经在选题池里了' : r.quality === '只有摘要' ? '已入选题池（只找到摘要）' : '已入选题池，带上了原文');
+    D.issue[key] = null;
+    if (window.refreshBoard) window.refreshBoard();
+    if (window.refreshTopics) await window.refreshTopics();
+  } catch (err) { toast(err.message); }
+  D.busy[id] = false;
+  renderView();
 }

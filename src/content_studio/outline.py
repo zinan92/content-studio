@@ -20,7 +20,7 @@ from typing import Any
 
 from .identity import author
 from .judge import JudgeLoginError
-from .writer import ARTICLE_BLOCK, DEFAULT_DRAFTS_DIR, WriteFn, WriterError, cli_write, gather_sources
+from .writer import ARTICLE_BLOCK, DEFAULT_DRAFTS_DIR, WriteFn, WriterError, cli_write, gather_sources, topic_sources
 
 OUTLINE_COMMAND_ENV = "CONTENT_STUDIO_OUTLINE_CMD"
 WORKFLOWS_ENV = "CONTENT_STUDIO_WORKFLOWS"
@@ -137,7 +137,7 @@ def write_outline(
 ) -> dict[str, Any]:
     framework = load_framework(workflows)
     fn = write_fn or (lambda prompt: cli_write(prompt, command=os.environ.get(OUTLINE_COMMAND_ENV) or DEFAULT_OUTLINE_COMMAND, timeout=900))
-    sources = gather_sources(vault_raw, topic.get("note_paths") or [])
+    sources = topic_sources(vault_raw, topic, drafts_dir)
     error: str | None = None
     for _ in range(attempts):
         try:
