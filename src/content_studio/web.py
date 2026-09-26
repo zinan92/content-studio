@@ -451,6 +451,8 @@ def create_app(
                 {k: a[k] for k in ("id", "platform", "nickname", "profile_url", "follower_count")} for a in store.my_accounts()
             ],
             "setup": _setup_state(),
+            # 进项的日报 tab 跟 profile.yaml 的 dailies 走：拿掉一份日报只改配置，不改页面
+            "daily_sources": [{"key": s.key, "label": s.label} for s in vault.DAILY_SOURCES],
             "vault": vault_status(store.settings()["obsidian_vault"]),
             "cookies": cookies,
             "creator_metrics_available": bool(_creator_rows(creator_db)),

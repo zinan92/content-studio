@@ -1295,3 +1295,10 @@ def test_publish_done_takes_the_video_off_the_board_and_can_be_undone(client: Te
 
     client.delete(f"/api/topics/{t['id']}/close")
     assert t["id"] in [c["id"] for c in client.get("/api/board").json()["cards"]]
+
+
+def test_state_lists_the_configured_dailies_so_the_inbox_tabs_follow_profile(client: TestClient) -> None:
+    from content_studio import vault
+
+    keys = [d["key"] for d in client.get("/api/state").json()["daily_sources"]]
+    assert keys == [s.key for s in vault.DAILY_SOURCES] and "ai_daily" in keys
