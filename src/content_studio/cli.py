@@ -190,8 +190,10 @@ def archive_new_videos(store: StudioStore, *, cookie_path: Path, limit: int = 5,
     me = store.self_account()
     if me is None:
         return {"skipped": "还没有连接自己的抖音号"}
-    root = archive.usable_root(store.settings().get("douyin_archive"))
-    return archive.archive_pending(store.videos(me["id"]), root=root, cookie_path=cookie_path, limit=limit, **kwargs)
+    settings = store.settings()
+    root = archive.usable_root(settings.get("douyin_archive"))
+    search = [Path(p).expanduser() for p in settings.get("local_video_roots") or []]
+    return archive.archive_pending(store.videos(me["id"]), root=root, cookie_path=cookie_path, search=search, limit=limit, **kwargs)
 
 
 def run_sync(args: argparse.Namespace) -> int:
