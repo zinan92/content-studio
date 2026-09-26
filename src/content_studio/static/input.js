@@ -4,19 +4,24 @@
 window.VIEWS = window.VIEWS || {};
 
 // tab key → 它从哪来。daily 走 /api/vault/dailies，followed 走对标账号的新作品，其余是 Obsidian 笔记。
-const TABS = [
-  { key: 'all', label: '全部', kind: 'all' },
-  { key: 'ai_daily', label: 'AI 日报', kind: 'daily' },
-  { key: 'finance_daily', label: '财经日报', kind: 'daily' },
-  { key: 'kline_daily', label: 'K 线日报', kind: 'daily' },
+const NOTE_TABS = [
   { key: 'benchmark', label: '对标', kind: 'note' },
   { key: 'raw', label: 'Park 原始输出', kind: 'note' },
   { key: 'saved', label: '我收藏的', kind: 'note' },
   { key: 'clipping', label: 'Clippings', kind: 'note' },
 ];
+// 日报 tab 由 profile.yaml 的 dailies 决定（/api/state.daily_sources）；没配的日报不出现。
+const TABS = [{ key: 'all', label: '全部', kind: 'all' }];
+function syncTabs() {
+  const dailies = (S.state && S.state.daily_sources) || [];
+  TABS.length = 1;
+  dailies.forEach((d) => TABS.push({ key: d.key, label: d.label, kind: 'daily' }));
+  NOTE_TABS.forEach((t) => TABS.push(t));
+  if (!TABS.some((t) => t.key === C.tab)) C.tab = 'all';
+}
 const DAY_TABS = [[1, '1 天'], [3, '3 天'], [7, '7 天'], [30, '30 天']];
 
-const C = { tab: 'all', days: 7, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0 };
+const C = { tab: 'all', days: 1, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0 };
 
 const tabDef = (key) => TABS.find((t) => t.key === key) || TABS[0];
 
@@ -126,6 +131,7 @@ window.VIEWS.input = {
       body.innerHTML = `<div class="panel empty"><b>${esc(S.state.vault.message)}</b><span><button class="btn small" type="button" onclick="go('settings')">去设置</button></span></div>`;
       return;
     }
+    syncTabs();
     const def = tabDef(C.tab);
     if (!C.items) body.innerHTML = '<div class="panel empty"><span class="spin"></span><span>正在读 Obsidian…</span></div>';
     try {
