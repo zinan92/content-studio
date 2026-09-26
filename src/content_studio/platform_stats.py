@@ -31,7 +31,7 @@ XINGQIU = Path("~/work/wechat-xingqiu-shell").expanduser()
 # launchd 的日常同步没有 Homebrew 的 PATH，node 和 tcb 都在那儿。
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
-LABELS = {"bilibili": "B站", "x": "X", "miniprogram": "研习室", "youtube": "YouTube"}
+LABELS = {"bilibili": "B站", "x": "X", "miniprogram": "研习室", "youtube": "YouTube", "xiaohongshu": "小红书"}
 CONTENT_OPS = Path("~/work/content-ops").expanduser()
 
 Post = dict[str, Any]  # {post_id, title, published_at, views}
@@ -166,8 +166,11 @@ def sync(store: StudioStore, fetchers: dict[str, Callable[[], list[Post]]] | Non
                 break
             except StatsError as exc:
                 error = exc
+                if not getattr(fetch, "retry", True):
+                    break
         if isinstance(error, NotConnected):
             out[platform] = {"ok": False, "not_connected": True, "error": str(error)}
+            store.log_event("reach", f"{LABELS.get(platform, platform)} 还没接上：{error}")
             continue
         if error is not None:
             out[platform] = {"ok": False, "error": str(error)}

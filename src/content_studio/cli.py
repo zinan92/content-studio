@@ -181,9 +181,13 @@ def sync_creator_metrics(*, cookie_path: Path, creator_db: Path) -> dict:
 
 
 def run_sync(args: argparse.Namespace) -> int:
+    from . import platform_stats, screen_stats
+
+    # 只有每天早上的这次同步去截小红书：工作台里点「同步」不该突然弹出 Chrome。
+    fetchers = {**platform_stats.FETCHERS, "xiaohongshu": screen_stats.xiaohongshu_posts}
     with _open_store(args.store) as store:
         summary = sync_everything(
-            store, cookie_path=args.cookies, creator_db=args.creator_db, enqueue=not args.no_enqueue
+            store, cookie_path=args.cookies, creator_db=args.creator_db, enqueue=not args.no_enqueue, platform_fetchers=fetchers
         )
     print(json.dumps(summary, ensure_ascii=False))
     return 1 if summary.get("stopped") else 0
