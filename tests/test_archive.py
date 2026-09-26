@@ -55,7 +55,7 @@ def test_downloads_are_checked_serial_and_two_failures_stop(tmp_path: Path) -> N
     lib.mkdir()
     vids = [{"video_id": f"v{i}", "title": f"第{i}条标题足够长的 描述", "published_at": f"2026-09-0{i}", "duration_seconds": 100.0} for i in range(1, 5)]
     fn, calls = _fake_download(fail_on={"v3", "v2"})
-    r = archive.archive_pending(vids, root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(100.0), sleep=lambda _s: None)
+    r = archive.archive_pending(vids, root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(100.0), sleep=lambda _s: None, download=True)
     assert calls == ["v4", "v3", "v2"] and r["done"] == ["v4"] and r["stopped"]
     assert archive.video_file(lib, "v4").name == archive.DOWNLOAD_NAME
     assert json.loads((lib / archive.INDEX_FILE).read_text(encoding="utf-8"))["v4"]["source"] == "douyin"
@@ -67,7 +67,7 @@ def test_a_short_download_is_thrown_away(tmp_path: Path) -> None:
     lib.mkdir()
     fn, _ = _fake_download()
     v = {"video_id": "long", "title": "很长的一条视频标题 x", "published_at": "2026-09-12", "duration_seconds": 758.7}
-    r = archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(30.0))
+    r = archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(30.0), download=True)
     assert r["done"] == [] and "只有 30 秒" in r["failed"][0]["error"]
     assert archive.video_file(lib, "long") is None
 
@@ -76,3 +76,12 @@ def test_no_root_means_nothing_happens(tmp_path: Path) -> None:
     fn, calls = _fake_download()
     r = archive.archive_pending([{"video_id": "a"}], root=None, cookie_path=tmp_path, download_fn=fn)
     assert calls == [] and r["skipped"]
+
+
+def test_by_default_nothing_is_downloaded_missing_ones_are_listed(tmp_path: Path) -> None:
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    fn, calls = _fake_download()
+    v = {"video_id": "gone", "title": "在另一台电脑上的一条 x", "published_at": "2026-03-01", "duration_seconds": 900.0}
+    r = archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(900.0))
+    assert calls == [] and r["missing"] == ["gone"] and r["done"] == []
