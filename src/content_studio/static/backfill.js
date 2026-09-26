@@ -30,6 +30,7 @@ function bfNext(v) {
   const has = v.video === 'master' || v.video === 'download';
   const d = v.download;
   if (!has && d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下成片…</span>';
+  if (!has && BF.archive && BF.archive.progress && BF.archive.progress.state === 'downloading') return '<span class="bf-file">排队存档中</span>';
   if (!has) {
     const failed = d && d.state === 'failed' ? `<span class="bf-file bad" title="${esc(d.error || '')}">上次没下成</span>` : '';
     return `<span class="bf-file">没有成片</span>${failed}<button class="btn small primary" type="button" data-bfdl="${esc(v.video_id)}">${failed ? '重新下' : '先下成片'}</button>`;
@@ -63,7 +64,7 @@ window.VIEWS.backfill = {
     if (!a.path) strip = '<span>还没设抖音成片存档目录。去「设置」填一个（建议放在外接硬盘上）。</span>';
     else if (!a.available) strip = `<span class="bad">存档目录所在的硬盘没插：${esc(a.path)}</span>`;
     else strip = `<span>本机存档 <b>${a.archived}</b> / ${a.total} 条 · <code>${esc(a.path)}</code></span>
-      ${running ? `<span><span class="spin"></span> 正在存第 ${p.index || 1} / ${p.total || a.pending} 条</span>`
+      ${running ? `<span><span class="spin"></span> 正在存：这一轮 ${p.total || '…'} 条，已存 ${p.done || 0} 条（每条之间停 20 秒）</span>`
         : a.pending ? `<button class="btn small primary" type="button" id="bfArchiveAll">把没存的 ${a.pending} 条都存下来</button>` : '<span class="bf-file ok">都存好了</span>'}
       ${p.state === 'failed' && p.failed ? `<span class="bad" title="${esc(p.failed.error || '')}">上一轮停在一条下载失败上，可能是抖音风控；过一会儿再点</span>` : ''}
       <small>以后每次同步发现新视频，会自动存一份。</small>`;
