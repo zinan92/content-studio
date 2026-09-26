@@ -47,11 +47,15 @@ const noteRow = (i) => ({
   taken: (i.used_by && i.used_by.dropped) ? '' : (i.triage || (i.used_by ? 'topic' : '')),
   topicId: i.used_by ? i.used_by.topic_id : null, shipped: i.used_by ? i.used_by.shipped : false,
   dropped: Boolean(i.used_by && i.used_by.dropped),
+  // 主窗口只放现在要看的。发出去的就是拍过了；标过不做了就是暂不拍。
+  park: (i.triage === 'shot' || (i.used_by && i.used_by.shipped)) ? 'shot'
+    : (i.triage === 'ignored' || (i.used_by && i.used_by.dropped)) ? 'ignored' : '',
+  source: i.source,
   url: i.url || null, hot: i.breakout || null,
 });
 const dailyRow = (d) => ({
   id: 'd:' + d.path, path: d.path, title: d.title, sub: d.label, at: d.day || d.modified_at, summary: '',
-  taken: '', topicId: null, shipped: false, external: d.kind === 'html' ? d.path : null,
+  taken: '', topicId: null, shipped: false, park: '', source: 'daily', external: d.kind === 'html' ? d.path : null,
 });
 
 // 爆的排前面，其余保持时间顺序（sort 是稳定的）。时间窗仍然由上面的 3/7/30 决定——
@@ -115,19 +119,16 @@ const TRIAGE_LABEL = { shot: '拍过了', ignored: '暂不拍', topic: '已入�
 const PARKED = ['ignored', 'shot'];
 
 function rowActions(r) {
-  // 唯一没有按钮的情况：它真的在加工中或已发出，那颗 chip 本身就是入口。
-  if (r.taken === 'topic' && r.topicId) {
-    return r.shipped ? '<span class="chip-state shipped">已发出</span>'
-      : `<button class="chip-state working" type="button" data-work="${r.topicId}">在加工中 →</button>`;
-  }
-  const again = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">${r.dropped || r.taken ? '再捡回来' : '入选题池'}</button>`;
-  if (r.dropped) return `<span class="chip-state">标过不做了</span>${again}`;
-  // 标过拍过了 / 暂不拍：说清楚是哪一种，给两条回头路——直接捡回列表，或者干脆入选题池。
-  if (PARKED.includes(r.taken)) return `<span class="chip-state">${TRIAGE_LABEL[r.taken]}</span><button class="btn small" type="button" data-mark="" data-path="${esc(r.path)}">捡回来</button>${again}`;
-  if (r.taken) return `<span class="chip-state">${TRIAGE_LABEL[r.taken] || r.taken}</span>${again}`;
-  // 还没处理的笔记：三个动作。拍过的以后不想再看到，暂不拍的折到最下面。
+  // 在加工中：那颗 chip 本身就是入口。
+  if (r.taken === 'topic' && r.topicId && !r.park) return `<button class="chip-state working" type="button" data-work="${r.topicId}">在加工中 →</button>`;
+  // 底部两组。发出去的没有回头路（它已经是视频了）；其余都能捡回来。
+  if (r.park === 'shot') return r.shipped ? `<span class="chip-state shipped">已发出</span><button class="chip-state working" type="button" data-work="${r.topicId}">看这条 →</button>`
+    : `<span class="chip-state">拍过了</span><button class="btn small" type="button" data-mark="" data-path="${esc(r.path)}">捡回来</button>`;
+  if (r.park === 'ignored') return `<span class="chip-state">暂不拍</span>${r.dropped ? '' : `<button class="btn small" type="button" data-mark="" data-path="${esc(r.path)}">捡回来</button>`}<button class="btn small primary" type="button" data-pool="${esc(r.id)}">入选题池</button>`;
+  // 还没处理的笔记：三个动作。
+  const pool = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">入选题池</button>`;
   const park = r.path ? `<button class="btn small ghost" type="button" data-mark="shot" data-path="${esc(r.path)}">拍过了</button><button class="btn small ghost" type="button" data-mark="ignored" data-path="${esc(r.path)}">暂不拍</button>` : '';
-  return again + park;
+  return pool + park;
 }
 
 window.VIEWS.input = {
@@ -151,7 +152,7 @@ window.VIEWS.input = {
 
     // 宽屏时右边不留空盒子：自动打开第一条可读的。
     if (!C.open && window.innerWidth > 900) {
-      const first = rows.find((r) => r.path && !PARKED.includes(r.taken)) || rows.find((r) => r.path);
+      const first = rows.find((r) => r.path && !r.park) || rows.find((r) => r.path);
       if (first) { openNote(first.path); return; }
     }
 
@@ -165,17 +166,17 @@ window.VIEWS.input = {
       return 0;
     };
 
-    const rowHtml = (r) => `<div class="in-row ${C.open === r.path ? 'on' : ''} ${r.taken ? 'state-' + r.taken : ''} ${r.hot ? 'blew' : ''}" ${r.path ? `data-note="${esc(r.path)}" role="button" tabindex="0"` : ''}>
+    const rowHtml = (r) => `<div class="in-row ${C.open === r.path ? 'on' : ''} ${r.park ? 'state-' + r.park : r.taken ? 'state-' + r.taken : ''} ${r.hot ? 'blew' : ''}" ${r.path ? `data-note="${esc(r.path)}" role="button" tabindex="0"` : ''}>
         ${r.hot ? `<span class="blew-x" title="${esc(r.hot.account || '')}平时中位 ${fmt(r.hot.median)} 赞，这条 ${fmt(r.hot.likes)}">${r.hot.multiple.toFixed(1)}×</span>` : ''}
         <div class="in-meta"><span class="src">${esc(r.sub)}</span><span class="num">${hm(r.at)}</span></div>
         <b class="clamp">${esc(r.title)}</b>
         ${r.hot ? `<small class="blew-why">爆了 · 平时中位 ${fmt(r.hot.median)} 赞，这条 ${fmt(r.hot.likes)}</small>` : ''}
         ${r.summary ? `<p class="clamp">${esc(r.summary)}</p>` : ''}
-        <div class="acts">${rowActions(r)}${r.url ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">去抖音 ↗</a>` : ''}</div>
+        <div class="acts">${rowActions(r)}${r.url && r.source === 'benchmark' ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">去抖音 ↗</a>` : r.url && (r.source === 'saved' || r.source === 'clipping') ? `<a class="btn small ghost" href="${esc(r.url)}" target="_blank" rel="noopener">原文 ↗</a>` : ''}</div>
       </div>`;
-    const active = rows.filter((r) => !PARKED.includes(r.taken));
-    const parked = PARKED.map((k) => [k, rows.filter((r) => r.taken === k)]).filter(([, rs]) => rs.length);
-    const groups = parked.map(([k, rs]) => `<details class="in-group" data-group="${k}" ${C.groups[k] ? 'open' : ''}><summary><span>${TRIAGE_LABEL[k]}</span><b class="num">${rs.length}</b></summary>${rs.map(rowHtml).join('')}</details>`).join('');
+    const active = rows.filter((r) => !r.park);
+    const parked = PARKED.map((k) => [k, rows.filter((r) => r.park === k)]).filter(([, rs]) => rs.length);
+    const groups = parked.map(([k, rs]) => `<details class="in-group" data-group="${k}" ${C.groups[k] ? 'open' : ''}><summary><span>${k === 'shot' ? '拍过了 · 已发出' : '暂不拍'}</span><b class="num">${rs.length}</b></summary>${rs.map(rowHtml).join('')}</details>`).join('');
     const list = rows.length ? (active.length ? active.map(rowHtml).join('') : `<div class="empty small"><span>没处理的都处理完了。</span></div>`) + groups
       : `<div class="empty"><b>这里暂时没有东西</b><span>${C.tab === 'benchmark' ? '对标账号发了新视频，工作台会自动下载、转文字，转完就出现在这里。预告、开播这类没内容的不会进来。' : C.tab === 'raw' ? '你写的东西都会出现在这里，不看时间——写过、还没拍的都在。' : def.kind === 'daily' ? '这份日报还没有出过。' : `从 ${hm(C.since)} 起没有新的。换一个时间范围看看。`}</span></div>`;
 
