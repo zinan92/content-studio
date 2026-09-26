@@ -66,26 +66,42 @@ def _description(skill_md: Path) -> str | None:
     return (meta.get("description") or None) and meta["description"][:300]
 
 
-HIDDEN_OK = {".claude", ".agents", ".codex"}
+ANNA_ROLE_ENV = "CONTENT_STUDIO_ANNA_ROLE"
+WORKFLOWS_ENV = "CONTENT_STUDIO_WORKFLOWS"
 
 
-def safe_doc_path(raw: str) -> Path | None:
-    """A Markdown file under the home folder, outside hidden folders (skill folders excepted)."""
-    home = Path.home().resolve()
+def doc_roots(roots: tuple[Path, ...] = SKILL_ROOTS) -> list[Path]:
+    """Where a card's Markdown may come from: the skill folders, and Anna's own folder
+    (her knowledge and the writing frameworks). Nothing else — the vault holds _secrets,
+    and the site is reachable with a password."""
+    out = [r.expanduser() for r in roots]
+    role = os.environ.get(ANNA_ROLE_ENV)
+    if role:
+        out.append(Path(role).expanduser().with_suffix(""))
+    wf = os.environ.get(WORKFLOWS_ENV)
+    if wf:
+        out.append(Path(wf).expanduser())
+    return out
+
+
+def safe_doc_path(raw: str, roots: tuple[Path, ...] = SKILL_ROOTS) -> Path | None:
     try:
         p = Path(raw).expanduser().resolve()
-        rel = p.relative_to(home)
-    except (OSError, ValueError):
+    except OSError:
         return None
-    if any(part.startswith(".") and part not in HIDDEN_OK for part in rel.parts[:-1]):
-        return None
-    return p if p.is_file() and p.suffix.lower() == ".md" else None
+    for base in doc_roots(roots):
+        try:
+            p.relative_to(base.resolve())
+        except (OSError, ValueError):
+            continue
+        return p if p.is_file() and p.suffix.lower() == ".md" else None
+    return None
 
 
 def _local_doc(entry: dict[str, Any], roots: tuple[Path, ...]) -> Path | None:
     """The Markdown a card shows: a framework file the entry points at, else the skill's SKILL.md."""
     if entry.get("path"):
-        return safe_doc_path(entry["path"])
+        return safe_doc_path(entry["path"], roots)
     if entry.get("dir"):
         for root in roots:
             candidate = root.expanduser() / entry["dir"] / "SKILL.md"

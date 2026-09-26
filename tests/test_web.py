@@ -1351,6 +1351,26 @@ def test_daily_issue_item_pick_snapshots_the_original_into_the_topic_not_the_vau
     # the vault is untouched
     assert sorted(p.relative_to(root) for p in root.rglob("*")) == before
 
+    # Through the real routes, the outline prompt and Anna both get the original, not the summary.
+    seen: list[str] = []
+    monkeypatch.setattr(outline, "extract_outline", lambda text: (seen.append(text), "# 标题\n")[1])
+    import content_studio.outline as outline_mod
+    real_prompt = outline_mod.build_prompt
+    monkeypatch.setattr(outline_mod, "build_prompt", lambda *a, **k: (seen.append(real_prompt(*a, **k)), seen[-1])[1])
+    started = client.post(f"/api/topics/{topic['id']}/outline")
+    assert started.status_code == 200, started.text
+    for _ in range(200):
+        if client.get("/api/topics?archived=true").json() and any(seen):
+            break
+        time.sleep(0.02)
+    assert any("甲的原文全文" in text for text in seen), "outline prompt did not include the snapshot"
+    client.post("/api/anna", json={"scope": f"work:{topic['id']}", "message": "这条素材够吗"})
+    for _ in range(200):
+        if not client.get("/api/anna", params={"scope": f"work:{topic['id']}"}).json()["busy"]:
+            break
+        time.sleep(0.02)
+    assert "甲的原文全文" in _fake_anna.last_user
+
 
 def test_backfill_queue_mark_and_take_never_download_or_publish(client: TestClient, tmp_path: Path) -> None:
     client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
