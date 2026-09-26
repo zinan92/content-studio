@@ -31,10 +31,8 @@ function bfNext(v) {
   const d = v.download;
   if (!has && d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下成片…</span>';
   if (!has && BF.archive && BF.archive.progress && BF.archive.progress.state === 'downloading') return '<span class="bf-file">排队存档中</span>';
-  if (!has) {
-    const failed = d && d.state === 'failed' ? `<span class="bf-file bad" title="${esc(d.error || '')}">上次没下成</span>` : '';
-    return `<span class="bf-file">没有成片</span>${failed}<button class="btn small primary" type="button" data-bfdl="${esc(v.video_id)}">${failed ? '重新下' : '先下成片'}</button>`;
-  }
+  // 没有成片：原片在另一台电脑上。拷进作品库里这条的「1 成片」（或 SSD 视频目录的任何地方），点顶上「在本机再找一遍」。
+  if (!has) return '<span class="bf-file" title="原片在另一台电脑上：拷进作品库这条的「1 成片」，再点顶上「在本机再找一遍」">作品库缺成片 · 在另一台电脑上</span>';
   const note = v.video === 'master' ? '有成片' : '作品库里有成片';
   return `<span class="bf-file ok">${note}</span><button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>拿去补发</button>`;
 }
@@ -65,9 +63,9 @@ window.VIEWS.backfill = {
     else if (!a.available) strip = `<span class="bad">作品库所在的硬盘没插：${esc(a.path)}</span>`;
     else strip = `<span>作品库有成片 <b>${a.archived}</b> / ${a.total} 条（本机原片 ${a.local}，其余是抖音下载版） · <code>${esc(a.path)}</code></span>
       ${running ? `<span><span class="spin"></span> 正在存：这一轮 ${p.total || '…'} 条，已存 ${p.done || 0} 条（每条之间停 20 秒）</span>`
-        : a.pending ? `<button class="btn small primary" type="button" id="bfArchiveAll">给缺成片的 ${a.pending} 条找一找</button>` : '<span class="bf-file ok">都有成片了</span>'}
+        : a.pending ? `<button class="btn small" type="button" id="bfArchiveAll">在本机再找一遍（缺 ${a.pending} 条）</button>` : '<span class="bf-file ok">都有成片了</span>'}
       ${p.state === 'failed' && p.failed ? `<span class="bad" title="${esc(p.failed.error || '')}">上一轮停在一条下载失败上，可能是抖音风控；过一会儿再点</span>` : ''}
-      <small>先在本机按时长找原片，找不到才从抖音下。以后每次同步发现新视频，自动放进作品库。</small>`;
+      <small>按时长和日期在本机找原片，不从抖音下。以后每次同步发现新视频，也只在本机找。</small>`;
     body.innerHTML = `
       <div class="panel bf-archive">${strip}</div>
       <p class="in-note">没东西拍的那天，从上往下挑一条，点它唯一的那个按钮：没有成片就「先下成片」（从抖音下回来，一次一条），下好了按钮变成「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。公众号、研习室、X 要另写文字版，不算缺口。</p>
@@ -94,7 +92,7 @@ window.VIEWS.backfill = {
     }));
     const all = $('#bfArchiveAll');
     if (all) all.onclick = async () => {
-      if (!confirm(`给缺成片的 ${a.pending} 条找成片？先在本机按时长找，找不到的从抖音下，一次一条、每条之间停 20 秒。连着两条下失败就停。`)) return;
+      if (!confirm(`按时长和日期在本机再找一遍这 ${a.pending} 条的原片？不会从抖音下。`)) return;
       try { await api('/api/archive/run', { method: 'POST' }); toast('开始存了'); } catch (err) { toast(err.message); }
       await loadBackfill(); renderView();
     };

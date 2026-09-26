@@ -16,8 +16,10 @@ Park：视频本身应该存在本地；大部分原片本机本来就有，按�
 同步发现新视频时：
 1. 先在本机按时长找原片（差 1.5 秒以内、文件日期在发布前后 30 天内），找到就硬链接进
    「1 成片」——同一块盘上不占双倍空间，原位置照样能用；
-2. 找不到才从抖音下，存成「1 成片/抖音下载版.mp4」。一次一条、有超时；时长对不上就删掉报错
-   （下载器有时只拿到三十秒的片段）。
+2. 找不到就标「缺」。Park 的原片不在这台电脑就在另一台电脑（不然他怎么传到抖音的），
+   所以默认不从抖音下：9/26 实测抖音下载会截断、会下成别的视频、还会撞 403 风控。
+   从抖音下（存成「1 成片/抖音下载版.mp4」）只在显式传 download=True 时才做，一次一条、
+   有超时，时长对不上就删掉报错。
 
 作品库通常在外接硬盘上。硬盘没插的时候整件事跳过，不往内部硬盘写。
 """
@@ -238,7 +240,7 @@ def douyin_download(url: str, cookies: Path, out: Path, timeout: int = DOWNLOAD_
         raise RuntimeError(f"下载失败（退出码 {done.returncode}）{('：' + tail[-1][:160]) if tail else ''}")
 
 
-def download(video: dict[str, Any], *, root: Path, cookie_path: Path, index: dict[str, dict[str, Any]],
+def fetch(video: dict[str, Any], *, root: Path, cookie_path: Path, index: dict[str, dict[str, Any]],
              download_fn: DownloadFn | None = None, probe: ProbeFn = ffprobe_duration) -> Path:
     vid = video["video_id"]
     tmp = root / ".downloading" / vid
@@ -264,6 +266,7 @@ def download(video: dict[str, Any], *, root: Path, cookie_path: Path, index: dic
 
 def archive_pending(videos: list[dict[str, Any]], *, root: Path | None, cookie_path: Path, search: list[Path] | None = None,
                     limit: int | None = None, delay: float = DEFAULT_DELAY_SECONDS, download_fn: DownloadFn | None = None,
+                    download: bool = False,
                     probe: ProbeFn = ffprobe_duration, on_progress: Callable[[dict[str, Any]], None] | None = None,
                     sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """Local originals first; download only the rest, one at a time. A failed download is
@@ -290,6 +293,9 @@ def archive_pending(videos: list[dict[str, Any]], *, root: Path | None, cookie_p
             result["local"].append(v["video_id"])
         write_index(root, index)
         todo = [v for v in todo if v["video_id"] not in result["local"]]
+    if not download:
+        result["missing"] = [v["video_id"] for v in todo]
+        todo = []
     if limit is not None:
         todo = todo[:limit]
     result["todo"] = len(todo)
@@ -299,7 +305,7 @@ def archive_pending(videos: list[dict[str, Any]], *, root: Path | None, cookie_p
             on_progress({"state": "downloading", "video_id": v["video_id"], "index": i + 1, "total": len(todo),
                          "done": len(result["done"]), "local": len(result["local"])})
         try:
-            dest = download(v, root=root, cookie_path=cookie_path, index=index, download_fn=download_fn, probe=probe)
+            dest = fetch(v, root=root, cookie_path=cookie_path, index=index, download_fn=download_fn, probe=probe)
             index[v["video_id"]] = {"folder": str(dest.parent.parent), "path": str(dest), "source": "douyin"}
             write_index(root, index)
             write_info(dest.parent.parent, v, "成片：从抖音下的备份（码率低于原片）")
