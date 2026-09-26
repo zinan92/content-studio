@@ -28,6 +28,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "obsidian_vault": "",
     "yanxishi_admin_url": "",
     "video_projects_root": "",
+    # 抖音成片存档：自己发过的每条抖音视频本机留一份（通常在外接硬盘上）。
+    "douyin_archive": "",
     # {platform: {"on": bool, "handle": str}} — which platforms Park has opened accounts on.
     "platform_accounts": {},
 }

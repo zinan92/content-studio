@@ -183,11 +183,24 @@ def sync_creator_metrics(*, cookie_path: Path, creator_db: Path) -> dict:
         return {"status": "failed", "error": str(exc)}
 
 
+def archive_new_videos(store: StudioStore, *, cookie_path: Path, limit: int = 5, **kwargs) -> dict:
+    """同步完顺手把新发的抖音视频存一份到本机。一次最多几条：平常一天就一条新的。"""
+    from . import archive
+
+    me = store.self_account()
+    if me is None:
+        return {"skipped": "还没有连接自己的抖音号"}
+    root = archive.usable_root(store.settings().get("douyin_archive"))
+    return archive.archive_pending(store.videos(me["id"]), root=root, cookie_path=cookie_path, limit=limit, **kwargs)
+
+
 def run_sync(args: argparse.Namespace) -> int:
     with _open_store(args.store) as store:
         summary = sync_everything(
             store, cookie_path=args.cookies, creator_db=args.creator_db, enqueue=not args.no_enqueue
         )
+        if not summary.get("stopped"):
+            summary["archive"] = archive_new_videos(store, cookie_path=args.cookies)
     print(json.dumps(summary, ensure_ascii=False))
     return 1 if summary.get("stopped") else 0
 

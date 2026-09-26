@@ -4,7 +4,7 @@ window.VIEWS = window.VIEWS || {};
 
 const BF = { data: null, busy: {}, poll: null };
 
-async function loadBackfill() { BF.data = await api('/api/backfill'); }
+async function loadBackfill() { [BF.data, BF.archive] = await Promise.all([api('/api/backfill'), api('/api/archive')]); }
 window.refreshBackfillCount = async () => { try { await loadBackfill(); } catch (_) { /* ignore */ } paintPubSubnav(); };
 
 function paintPubSubnav() {
@@ -56,7 +56,19 @@ window.VIEWS.backfill = {
       ${cols.map((p) => `<td class="c">${bfCell(v, p)}</td>`).join('')}
     </tr>`;
     const head = `<tr><th>抖音发过的</th>${cols.map((p) => `<th class="c">${esc(p.label)}</th>`).join('')}</tr>`;
+    const a = BF.archive || {};
+    const p = a.progress || {};
+    const running = p.state === 'downloading';
+    let strip;
+    if (!a.path) strip = '<span>还没设抖音成片存档目录。去「设置」填一个（建议放在外接硬盘上）。</span>';
+    else if (!a.available) strip = `<span class="bad">存档目录所在的硬盘没插：${esc(a.path)}</span>`;
+    else strip = `<span>本机存档 <b>${a.archived}</b> / ${a.total} 条 · <code>${esc(a.path)}</code></span>
+      ${running ? `<span><span class="spin"></span> 正在存第 ${p.index || 1} / ${p.total || a.pending} 条</span>`
+        : a.pending ? `<button class="btn small primary" type="button" id="bfArchiveAll">把没存的 ${a.pending} 条都存下来</button>` : '<span class="bf-file ok">都存好了</span>'}
+      ${p.state === 'failed' && p.failed ? `<span class="bad" title="${esc(p.failed.error || '')}">上一轮停在一条下载失败上，可能是抖音风控；过一会儿再点</span>` : ''}
+      <small>以后每次同步发现新视频，会自动存一份。</small>`;
     body.innerHTML = `
+      <div class="panel bf-archive">${strip}</div>
       <p class="in-note">没东西拍的那天，从上往下挑一条，点它唯一的那个按钮：没有成片就「先下成片」（从抖音下回来，一次一条），下好了按钮变成「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。公众号、研习室、X 要另写文字版，不算缺口。</p>
       <div class="panel bf-tbl"><table><thead>${head}</thead><tbody>${todo.map(row).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">都补齐了。</td></tr>`}</tbody></table></div>
       ${done.length ? `<details class="panel bf-done"><summary>已经补齐 <span class="num">${done.length}</span></summary><table><tbody>${done.map(row).join('')}</tbody></table></details>` : ''}`;
@@ -79,7 +91,13 @@ window.VIEWS.backfill = {
       try { await api(`/api/backfill/${b.dataset.bfdl}/download`, { method: 'POST' }); toast('开始下了'); } catch (err) { toast(err.message); }
       await loadBackfill(); renderView();
     }));
+    const all = $('#bfArchiveAll');
+    if (all) all.onclick = async () => {
+      if (!confirm(`把没存的 ${a.pending} 条抖音视频都存到本机？一次一条，每条之间停 20 秒，大约 ${Math.ceil(a.pending * 50 / 60)} 分钟。中途哪条失败就停。`)) return;
+      try { await api('/api/archive/run', { method: 'POST' }); toast('开始存了'); } catch (err) { toast(err.message); }
+      await loadBackfill(); renderView();
+    };
     clearTimeout(BF.poll);
-    if (d.videos.some((v) => v.download && v.download.state === 'downloading')) BF.poll = setTimeout(() => { if (S.view === 'backfill') renderView(); }, 3000);
+    if (running || d.videos.some((v) => v.download && v.download.state === 'downloading')) BF.poll = setTimeout(() => { if (S.view === 'backfill') renderView(); }, 3000);
   },
 };

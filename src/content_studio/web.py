@@ -178,6 +178,7 @@ class SettingsBody(BaseModel):
     obsidian_vault: str | None = None
     yanxishi_admin_url: str | None = None
     video_projects_root: str | None = None
+    douyin_archive: str | None = None
     platform_accounts: dict[str, dict[str, Any]] | None = None
 
 
@@ -269,6 +270,9 @@ def _apply_profile(store: StudioStore, data: dict[str, Any] | None) -> None:
     root = str(data.get("video_projects_root") or "").strip()
     if root and not current.get("video_projects_root"):
         patch["video_projects_root"] = root
+    archive_cfg = str(data.get("douyin_archive") or "").strip()
+    if archive_cfg and not current.get("douyin_archive"):
+        patch["douyin_archive"] = archive_cfg
     # Anna 的角色文件和提纲框架：profile 指到哪就读哪；环境变量已设的不动（那是显式覆盖）。
     anna_cfg = data.get("anna") or {}
     if isinstance(anna_cfg, dict):
@@ -369,6 +373,8 @@ def create_app(
                 has_report=lambda vid: report_file(vid) is not None,
             )
         worker.notify()
+        if not result.get("stopped"):
+            start_archive(limit=5)
         return result
 
     stop_auto = threading.Event()
@@ -2184,16 +2190,32 @@ def create_app(
 
     backfill_root = data_dir / "backfill"
 
+    def archive_root() -> Path | None:
+        from . import archive
+
+        return archive.usable_root(store.settings().get("douyin_archive"))
+
     def final_video_path(topic: dict[str, Any]) -> Path | None:
         if not topic.get("video_project"):
-            # 补发的旧视频：从抖音下回来的那一份，只认 backfill 目录里的文件。
+            # 补发的旧视频：抖音成片存档里的那一份（或早先 backfill 目录里的）。只认这两个目录。
+            from . import archive
+
+            vid = topic.get("published_video_id")
+            if vid:
+                found = archive.video_file(archive_root(), vid)
+                if found is not None:
+                    return found
             if topic.get("video_file"):
                 try:
                     path = Path(topic["video_file"]).resolve()
-                    path.relative_to(backfill_root.resolve())
-                except (OSError, ValueError):
+                except OSError:
                     return None
-                return path if path.is_file() else None
+                for base in [b for b in (archive_root(), backfill_root) if b is not None]:
+                    try:
+                        path.relative_to(base.resolve())
+                    except (OSError, ValueError):
+                        continue
+                    return path if path.is_file() else None
             return None
         try:
             root = video_root()
@@ -2642,11 +2664,62 @@ def create_app(
     backfill_lock = threading.Lock()
 
     def _backfill_file(video_id: str) -> Path | None:
-        folder = backfill_root / video_id
-        if not folder.is_dir():
-            return None
-        found = sorted(folder.rglob("*.mp4"), key=lambda p: p.stat().st_size, reverse=True)
-        return found[0] if found else None
+        from . import archive
+
+        return archive.video_file(archive_root(), video_id) or archive.video_file(backfill_root if backfill_root.is_dir() else None, video_id)
+
+    archive_state: dict[str, Any] = {}
+    archive_lock = threading.Lock()
+
+    def start_archive(limit: int | None = None) -> bool:
+        """后台把没存的抖音视频存下来，一次一条。已经在跑就不再起一个。"""
+        from .cli import archive_new_videos
+
+        with archive_lock:
+            if archive_state.get("state") == "downloading":
+                return False
+            if archive_root() is None:
+                return False
+            archive_state.clear()
+            archive_state.update({"state": "downloading", "done": 0, "total": None})
+
+        def progress(p: dict[str, Any]) -> None:
+            with archive_lock:
+                archive_state.update(p)
+
+        def run() -> None:
+            try:
+                archive_new_videos(store, cookie_path=cookie_path, limit=limit, on_progress=progress)
+            except Exception as exc:  # noqa: BLE001 - shown on the queue
+                logger.warning("archive failed: %s", exc)
+                with archive_lock:
+                    archive_state.update({"state": "failed", "failed": {"error": str(exc)[:200]}})
+
+        threading.Thread(target=run, name="douyin-archive", daemon=True).start()
+        return True
+
+    @app.get("/api/archive")
+    def get_archive() -> dict[str, Any]:
+        from . import archive
+
+        raw = store.settings().get("douyin_archive") or ""
+        root = archive_root()
+        me = store.self_account()
+        videos = [v for v in (store.videos(me["id"]) if me else []) if not v["is_image_post"]]
+        missing = archive.pending(videos, root)
+        with archive_lock:
+            progress = dict(archive_state)
+        return {"path": raw, "available": root is not None, "total": len(videos),
+                "archived": len(videos) - len(missing) if root is not None else 0, "pending": len(missing), "progress": progress or None}
+
+    @app.post("/api/archive/run")
+    def run_archive() -> dict[str, Any]:
+        """把没存的全部存下来（第一次补齐用）。之后每次同步会自己补新的。"""
+        if archive_root() is None:
+            raise ValueError("存档目录没配置，或者那块硬盘没插")
+        if not start_archive(limit=None):
+            raise ValueError("正在存，等这一轮存完")
+        return {"started": True}
 
     def _backfill_state() -> tuple[list[dict[str, Any]], dict[str, int], dict[int, dict[str, Any]]]:
         from . import backfill, copypack, publish_desk
@@ -2732,15 +2805,13 @@ def create_app(
         return {"topic_id": tid, "has_video": final_video_path(store.topic(tid)) is not None}
 
     def _run_backfill_download(video_id: str) -> None:
-        from .pipeline import _download_one
+        from . import archive
 
         try:
-            target = backfill_root / video_id
-            target.mkdir(parents=True, exist_ok=True)
-            _download_one(f"https://www.douyin.com/video/{video_id}", cookie_path, target)
-            f = _backfill_file(video_id)
-            if f is None:
-                raise RuntimeError("下载完了，但没找到视频文件")
+            root = archive_root()
+            if root is None:
+                raise RuntimeError("存档目录没配置，或者那块硬盘没插")
+            f = archive.download(video_id, root=root, cookie_path=cookie_path)
             for t in store.topics(include_archived=True):
                 if t.get("published_video_id") == video_id and not t.get("video_project"):
                     store.update_topic(t["id"], video_file=str(f))
