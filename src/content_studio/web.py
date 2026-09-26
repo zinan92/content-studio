@@ -91,6 +91,11 @@ class StageBody(BaseModel):
     stage: str | None = None  # "outline" = step back to the outline; None = clear the override
 
 
+class BackfillMarkBody(BaseModel):
+    platform: str
+    done: bool = True
+
+
 class DailyPickBody(BaseModel):
     key: str
     path: str
@@ -2119,8 +2124,18 @@ def create_app(
             return None
         return {"project": topic["video_project"], **release.find_release(base)}
 
+    backfill_root = data_dir / "backfill"
+
     def final_video_path(topic: dict[str, Any]) -> Path | None:
         if not topic.get("video_project"):
+            # 补发的旧视频：从抖音下回来的那一份，只认 backfill 目录里的文件。
+            if topic.get("video_file"):
+                try:
+                    path = Path(topic["video_file"]).resolve()
+                    path.relative_to(backfill_root.resolve())
+                except (OSError, ValueError):
+                    return None
+                return path if path.is_file() else None
             return None
         try:
             root = video_root()
@@ -2133,6 +2148,8 @@ def create_app(
 
     def _cover_target(topic_id: int) -> tuple[dict[str, Any], Path, Path]:
         topic = store.topic(topic_id)
+        if not topic.get("video_project"):
+            raise HTTPException(status_code=400, detail="补发的旧视频没有项目目录，封面先用平台自动截的那一帧")
         video = final_video_path(topic)
         if video is None:
             raise HTTPException(status_code=400, detail="这一条还没有成片，封面要从成片里取人像")
@@ -2560,6 +2577,133 @@ def create_app(
         items = vault.daily_history(vault_path(), key, limit)
         checked = {d: True for d in store.checked_days(key)}
         return {"key": key, "items": [{**i, "checked": bool(checked.get(i["day"]))} for i in items]}
+
+    # -- 补发队列：抖音发过、别的平台还没发的旧视频 ------------------------------
+
+    backfill_dl: dict[str, dict[str, Any]] = {}
+    backfill_lock = threading.Lock()
+
+    def _backfill_file(video_id: str) -> Path | None:
+        folder = backfill_root / video_id
+        if not folder.is_dir():
+            return None
+        found = sorted(folder.rglob("*.mp4"), key=lambda p: p.stat().st_size, reverse=True)
+        return found[0] if found else None
+
+    def _backfill_state() -> tuple[list[dict[str, Any]], dict[str, int], dict[int, dict[str, Any]]]:
+        from . import backfill, copypack, publish_desk
+
+        me = store.self_account()
+        if me is None:
+            return [], {}, {}
+        videos = [v for v in store.videos(me["id"]) if not v["is_image_post"]]
+        topics = store.topics(include_archived=True)
+        records = {t["id"]: store.publish_records(t["id"]) for t in topics}
+        copies = {}
+        for t in topics:
+            entry = publish_desk.shared_entry(copypack.read_copy(drafts_root, t["id"]))
+            if entry["title"]:
+                copies[t["id"]] = entry["title"]
+        links = backfill.link_topics(videos, topics, records, copies)
+        return videos, links, records
+
+    @app.get("/api/backfill")
+    def get_backfill() -> dict[str, Any]:
+        from . import backfill, copypack
+
+        videos, links, records = _backfill_state()
+        me = store.self_account()
+        median = store.account_median(me["id"]) if me else None
+        rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median)
+        topics = {t["id"]: t for t in store.topics(include_archived=True)}
+        for r in rows:
+            t = topics.get(r["topic_id"]) if r["topic_id"] else None
+            has_master = bool(t and final_video_path(t))
+            with backfill_lock:
+                dl = dict(backfill_dl.get(r["video_id"]) or {})
+            r["video"] = "master" if has_master and t.get("video_project") else "download" if (has_master or _backfill_file(r["video_id"])) else None
+            r["download"] = dl or None
+        label = {k: copypack.PLATFORMS[k].get("label", k) for k in (*backfill.VIDEO_PLATFORMS, *backfill.TEXT_PLATFORMS) if k in copypack.PLATFORMS}
+        return {
+            "platforms": [{"key": k, "label": label.get(k, k), "missing": sum(1 for r in rows if k in r["missing"])} for k in backfill.VIDEO_PLATFORMS],
+            "text_platforms": [{"key": k, "label": label.get(k, k)} for k in backfill.TEXT_PLATFORMS],
+            "videos": rows,
+            "order": "还有缺口的在前；缺口里抖音点赞高的在前",
+        }
+
+    @app.post("/api/backfill/{video_id}/mark")
+    def mark_backfill(video_id: str, body: BackfillMarkBody) -> dict[str, Any]:
+        """Park 在工作台之外已经发过这个平台：记一笔，不建选题。"""
+        from . import backfill
+
+        if body.platform not in (*backfill.VIDEO_PLATFORMS, *backfill.TEXT_PLATFORMS):
+            raise ValueError("没有这个平台")
+        if store.video(video_id) is None:
+            raise ValueError("找不到这条抖音视频")
+        store.set_backfill_mark(video_id, body.platform, body.done)
+        return {"ok": True}
+
+    @app.post("/api/backfill/{video_id}/take")
+    def take_backfill(video_id: str) -> dict[str, Any]:
+        """拿这条旧视频去补发：接上（或新建）选题、种一份文案、接上成片，然后交给发布台。
+        不发布任何东西——每个平台照旧在发布台上点确认。"""
+        from . import backfill, copypack
+
+        video = store.video(video_id)
+        if video is None:
+            raise ValueError("找不到这条抖音视频")
+        _, links, _ = _backfill_state()
+        tid = links.get(video_id)
+        split = backfill.split_douyin_title(video.get("title") or "")
+        me = store.self_account()
+        if tid is None:
+            topic = store.create_topic(split["title"] or "抖音旧视频", account_id=me["id"] if me else None, memo="补发：抖音发过的旧视频")
+            tid = topic["id"]
+            store.log_event("pool", f"《{topic['title'][:30]}》拿去补发", tid)
+        topic = store.topic(tid)
+        if not topic.get("published_video_id"):
+            topic = store.update_topic(tid, published_video_id=video_id)
+        if "douyin" not in store.publish_records(tid):
+            store.set_publish_record(tid, "douyin", published=True, url=f"https://www.douyin.com/video/{video_id}")
+        if copypack.read_copy(drafts_root, tid) is None:
+            copypack.save_copy(drafts_root, tid, {"douyin": {"title": split["title"], "body": split["body"], "tags": split["tags"]}})
+        if final_video_path(topic) is None:
+            f = _backfill_file(video_id)
+            if f is not None:
+                topic = store.update_topic(tid, video_file=str(f))
+        return {"topic_id": tid, "has_video": final_video_path(store.topic(tid)) is not None}
+
+    def _run_backfill_download(video_id: str) -> None:
+        from .pipeline import _download_one
+
+        try:
+            target = backfill_root / video_id
+            target.mkdir(parents=True, exist_ok=True)
+            _download_one(f"https://www.douyin.com/video/{video_id}", cookie_path, target)
+            f = _backfill_file(video_id)
+            if f is None:
+                raise RuntimeError("下载完了，但没找到视频文件")
+            for t in store.topics(include_archived=True):
+                if t.get("published_video_id") == video_id and not t.get("video_project"):
+                    store.update_topic(t["id"], video_file=str(f))
+            with backfill_lock:
+                backfill_dl[video_id] = {"state": "done"}
+        except Exception as exc:  # noqa: BLE001 - shown on the queue
+            logger.warning("backfill download %s failed: %s", video_id, exc)
+            with backfill_lock:
+                backfill_dl[video_id] = {"state": "failed", "error": str(exc)[:200] or type(exc).__name__}
+
+    @app.post("/api/backfill/{video_id}/download")
+    def download_backfill(video_id: str) -> dict[str, Any]:
+        """Park 点了才下，一次只下一条：抖音风控的时候不能一口气抓一串。"""
+        if store.video(video_id) is None:
+            raise ValueError("找不到这条抖音视频")
+        with backfill_lock:
+            if any(v.get("state") == "downloading" for v in backfill_dl.values()):
+                raise ValueError("正在下另一条，等它下完")
+            backfill_dl[video_id] = {"state": "downloading"}
+        threading.Thread(target=_run_backfill_download, args=(video_id,), name=f"backfill-{video_id}", daemon=True).start()
+        return {"started": True}
 
     # -- 日报：一期一条条看，单条入选题池 ---------------------------------------
 

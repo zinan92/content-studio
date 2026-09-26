@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS daily_checks (
     checked_at TEXT NOT NULL,
     PRIMARY KEY (day, key)
 );
+CREATE TABLE IF NOT EXISTS backfill_marks (
+    video_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    marked_at TEXT NOT NULL,
+    PRIMARY KEY (video_id, platform)
+);
 CREATE TABLE IF NOT EXISTS daily_picks (
     item_key TEXT PRIMARY KEY,
     topic_id INTEGER NOT NULL,
@@ -249,7 +255,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT"}}
+        wanted = {"accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -407,6 +413,19 @@ class StudioStore:
 
     def triage(self) -> dict[str, dict[str, str]]:
         return {row["path"]: dict(row) for row in self._rows("SELECT path, status, updated_at FROM inbox_triage")}
+
+    def backfill_marks(self) -> dict[str, set[str]]:
+        out: dict[str, set[str]] = {}
+        for r in self._rows("SELECT video_id, platform FROM backfill_marks"):
+            out.setdefault(r["video_id"], set()).add(r["platform"])
+        return out
+
+    def set_backfill_mark(self, video_id: str, platform: str, done: bool) -> None:
+        with self.tx() as conn:
+            if done:
+                conn.execute("INSERT OR REPLACE INTO backfill_marks(video_id, platform, marked_at) VALUES (?, ?, ?)", (video_id, platform, now_iso()))
+            else:
+                conn.execute("DELETE FROM backfill_marks WHERE video_id = ? AND platform = ?", (video_id, platform))
 
     def daily_picks(self) -> dict[str, int]:
         return {r["item_key"]: r["topic_id"] for r in self._rows("SELECT item_key, topic_id FROM daily_picks")}
@@ -588,7 +607,7 @@ class StudioStore:
         return self.topic(topic_id)
 
     def update_topic(self, topic_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id", "copy_state", "copy_error", "is_focus", "snoozed_until", "manual_stage", "closed_at"}
+        allowed = {"title", "formats", "status", "memo", "article_path", "published_url", "account_id", "archived_at", "note_paths", "write_state", "write_error", "outline_path", "outline_state", "outline_error", "video_project", "published_video_id", "copy_state", "copy_error", "is_focus", "snoozed_until", "manual_stage", "closed_at", "video_file"}
         unknown = set(fields) - allowed
         if unknown:
             raise StoreError(f"不可更新的选题字段：{sorted(unknown)}")

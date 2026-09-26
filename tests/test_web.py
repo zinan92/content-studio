@@ -1340,3 +1340,30 @@ def test_daily_issue_item_pick_snapshots_the_original_into_the_topic_not_the_vau
     assert client.get("/api/vault/daily/issue", params={"key": "ai_daily"}).json()["sections"][0]["items"][0]["topic_id"] == topic["id"]
     # the vault is untouched
     assert sorted(p.relative_to(root) for p in root.rglob("*")) == before
+
+
+def test_backfill_queue_mark_and_take_never_download_or_publish(client: TestClient, tmp_path: Path) -> None:
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+    _wait_sync(client)
+    q = client.get("/api/backfill").json()
+    assert {p["key"] for p in q["platforms"]} == {"channels", "xiaohongshu", "bilibili", "youtube"}
+    first = q["videos"][0]
+    assert first["missing"] == ["channels", "xiaohongshu", "bilibili", "youtube"] and first["video"] is None
+
+    assert client.post(f"/api/backfill/{first['video_id']}/mark", json={"platform": "youtube"}).json()["ok"]
+    assert client.post(f"/api/backfill/{first['video_id']}/mark", json={"platform": "nope"}).status_code == 400
+    again = next(v for v in client.get("/api/backfill").json()["videos"] if v["video_id"] == first["video_id"])
+    assert again["done"]["youtube"] == "mark" and "youtube" not in again["missing"] and again["topic_id"] is None  # no topic for a mark
+
+    took = client.post(f"/api/backfill/{first['video_id']}/take").json()
+    assert took["has_video"] is False  # nothing was downloaded
+    topic = client.get("/api/topics?archived=true").json()
+    t = next(x for x in topic if x["id"] == took["topic_id"])
+    assert t["published_video_id"] == first["video_id"]
+    desk = client.get("/api/publish/desk", params={"topic_id": took["topic_id"]}).json()
+    assert desk["has_copy"] and desk["video"] is None
+    shipped = {p["key"] for p in desk["platforms"] if p["shipped"]}
+    assert shipped == {"douyin"}  # only the record Douyin already had; nothing got published
+    # taking it again reuses the same topic
+    assert client.post(f"/api/backfill/{first['video_id']}/take").json()["topic_id"] == took["topic_id"]
+    assert not (tmp_path / "data" / "backfill").exists()
