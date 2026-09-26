@@ -832,3 +832,9 @@
 - B站：投稿存下的登录（content-toolkit `bilibili_creator.json`）读创作中心稿件列表；X：开发者密钥读最近 100 条推文的 impression_count（GET 签名加了 query 参数）；研习室：工作台钥匙调 `content.list`（zinan92/wechat-xingqiu#341，列表不带正文），钥匙走环境变量。
 - 不做的：视频号、小红书没有开放接口（抓后台有风控风险、登录几天就掉）；公众号没认证，datacube 返回 48001；YouTube 现有授权只有上传权限，要 Park 重新授权加只读才能接。
 - 读失败再试一次；还失败就记一条事件，别的平台照常。
+
+## 小红书触达：用 Park 自己的 Chrome 截图读（2026-09-26）
+- 决定：每天 9:25 launchd 用 `open -g` 启动「内容工作台读数」小 App（`scripts/screen-reach-app.applescript`，`scripts/install-screen-reach.sh` 安装），App 调 `content_studio screen-reach`：Chrome 新开「笔记数据」页 → 等加载 → 核对还是我们的标签页、Chrome 在最前、没跳登录 → 只截 Chrome 窗口 → claude（只给 Read）认出每篇「观看」→ 删截图、关我们开的标签页。任何一步不对就不写。
+- 为什么这样：Park 问截图会不会触发小红书风控。截图在浏览器外，网站看不到；自动化浏览器（Playwright）才会被识别。这里只让真 Chrome 打开网址，不碰登录。
+- 为什么是 App：launchd 下的 Python 去控制 Chrome，系统授权框弹不出来，osascript 一直挂着；App 自己先 `tell Chrome` 一次就会弹框，Park 点了允许、在系统设置里开了录屏。重建 App 会换签名，可能要重新授权。
+- 视频号不做：视频号助手的登录只活在登录的那个标签页里，新开标签页、刷新一下都跳登录页（试的时候把 Park 刚登录的那页刷掉了）。继续手填。

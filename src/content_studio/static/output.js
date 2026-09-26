@@ -155,7 +155,7 @@ function reachBlock(r) {
   }).join('');
   return `<section class="reach">
     <div class="reach-hero">
-      <div class="reach-big"><span>今天触达 ${q(`今天各平台播放的合计。\n抖音：今天同步的播放数 − 上次同步的播放数，逐条视频相加（老视频第一次同步只当基线，不算）。\nB站、X、研习室：每天 9:30 自动读一次每条内容的累计播放（X 是曝光、研习室是阅读），同样按两次之间的差算，第一次读只当基线。\n视频号、小红书、公众号：你手填的今天播放。\n今天包含：${r.platforms.filter((p) => p.today).map((p) => `${p.label} ${fmt(p.today)}`).join('、') || '还没有数'}`)}</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>
+      <div class="reach-big"><span>今天触达 ${q(`今天各平台播放的合计。\n抖音：今天同步的播放数 − 上次同步的播放数，逐条视频相加（老视频第一次同步只当基线，不算）。\nB站、X、研习室、YouTube：每天 9:30 自动读一次每条内容的累计播放（X 是曝光、研习室是阅读），同样按两次之间的差算，第一次读只当基线。\n小红书：每天 9:25 用你的 Chrome 打开数据页截图读「观看」，算法同上。\n视频号、公众号：你手填的今天播放。\n今天包含：${r.platforms.filter((p) => p.today).map((p) => `${p.label} ${fmt(p.today)}`).join('、') || '还没有数'}`)}</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>
       <div class="reach-side">
         <div><span>近 7 天日均 ${q('最近 7 天每天触达的平均值（没同步的日子算 0，所以偏低）。')}</span><b class="num">${fmt(r.avg7)}</b></div>
         <div><span>按这个节奏 30 天 ${q('近 7 天日均 × 30。不是预测，是照现在的节奏一个月能到多少。')}</span><b class="num">${fmt(r.pace30)}</b></div>
