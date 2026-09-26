@@ -38,18 +38,35 @@ async function loadDaily(key, force) {
   C.dailies[key] = (await api(`/api/vault/dailies?key=${key}&limit=40`)).items;
 }
 
+/* ---- 一条进项的生命周期：只有五种状态 ----
+ *   fresh    还没处理   → 入选题池（往前） / 拍过了 / 暂不拍（放到底下）
+ *   working  在加工中   （在看板上，从那边管）
+ *   shipped  已发出     （变成了视频，去已发出看数据）
+ *   shot     拍过了     → 捡回来
+ *   ignored  暂不拍     → 捡回来（标过「不做了」的选题也在这里）
+ * 从底下两组只能捡回来，不能一步跳进选题池。 */
+function noteState(i) {
+  const u = i.used_by;
+  if (u && u.shipped) return 'shipped';
+  if (u && !u.dropped) return 'working';
+  if (i.triage === 'shot') return 'shot';
+  if (i.triage === 'ignored') return 'ignored';
+  if (i.triage === 'back') return 'fresh';
+  if (u && u.dropped) return 'ignored';
+  return 'fresh';
+}
+
 /* ---- 把三种来源归一成同一种行 ---- */
 const noteRow = (i) => ({
   // 对标转录显示博主的名字；其余笔记显示它来自哪个文件夹。
   id: 'n:' + i.path, path: i.path, title: i.title, sub: i.author || i.source_label,
   at: i.is_new ? i.created_at : i.modified_at, summary: i.summary,
-  // 标过「不做了」的选题不算「已拿走」——那篇笔记重新是可选的。
-  taken: (i.used_by && i.used_by.dropped) ? '' : (i.triage || (i.used_by ? 'topic' : '')),
-  topicId: i.used_by ? i.used_by.topic_id : null, shipped: i.used_by ? i.used_by.shipped : false,
-  dropped: Boolean(i.used_by && i.used_by.dropped),
-  // 主窗口只放现在要看的。发出去的就是拍过了；标过不做了就是暂不拍。
-  park: (i.triage === 'shot' || (i.used_by && i.used_by.shipped)) ? 'shot'
-    : (i.triage === 'ignored' || (i.used_by && i.used_by.dropped)) ? 'ignored' : '',
+  state: noteState(i),
+  taken: noteState(i) === 'working' ? 'topic' : '',
+  topicId: i.used_by ? i.used_by.topic_id : null, shipped: noteState(i) === 'shipped',
+  videoId: i.used_by ? i.used_by.video_id : null,
+  // 主窗口只放现在要看的。发出去的和拍过了在一组，标过不做了和暂不拍在一组。
+  park: ['shipped', 'shot'].includes(noteState(i)) ? 'shot' : noteState(i) === 'ignored' ? 'ignored' : '',
   source: i.source,
   url: i.url || null, hot: i.breakout || null,
 });
@@ -82,15 +99,18 @@ function renderMarkdown(md) {
 }
 
 async function openNote(path) {
+  const here = S.view === 'input';
   C.open = path;
   C.note = null;
-  if (S.view !== 'input') go('input');
+  C.keepScroll = here;
+  if (!here) go('input');
   else renderView();
   try {
     C.note = await api(`/api/vault/note?path=${encodeURIComponent(path)}`);
   } catch (err) {
     C.note = { error: err.message };
   }
+  C.keepScroll = true;
   if (S.view === 'input') renderView();
 }
 
@@ -114,17 +134,16 @@ const hm = (iso) => {
 };
 
 // 这三个状态都是 Park 自己手点的，所以每一个都得能反悔。
-const TRIAGE_LABEL = { shot: '拍过了', ignored: '暂不拍', topic: '已入选题池' };
+const TRIAGE_LABEL = { shot: '拍过了', ignored: '暂不拍', topic: '已入选题池', back: '捡回来' };
 // 标过「拍过了」「暂不拍」的收到列表最下面两组里，默认折起来；点开仍能读原文、仍能捡回来。
 const PARKED = ['ignored', 'shot'];
 
 function rowActions(r) {
-  // 在加工中：那颗 chip 本身就是入口。
-  if (r.taken === 'topic' && r.topicId && !r.park) return `<button class="chip-state working" type="button" data-work="${r.topicId}">在加工中 →</button>`;
-  // 底部两组。发出去的没有回头路（它已经是视频了）；其余都能捡回来。
-  if (r.park === 'shot') return r.shipped ? `<span class="chip-state shipped">已发出</span><button class="chip-state working" type="button" data-work="${r.topicId}">看这条 →</button>`
-    : `<span class="chip-state">拍过了</span><button class="btn small" type="button" data-mark="" data-path="${esc(r.path)}">捡回来</button>`;
-  if (r.park === 'ignored') return `<span class="chip-state">暂不拍</span>${r.dropped ? '' : `<button class="btn small" type="button" data-mark="" data-path="${esc(r.path)}">捡回来</button>`}<button class="btn small primary" type="button" data-pool="${esc(r.id)}">入选题池</button>`;
+  if (r.state === 'working') return `<button class="chip-state working" type="button" data-work="${r.topicId}">在加工中 →</button>`;
+  // 已经是视频了：去已发出看它的数据，不回加工中。
+  if (r.state === 'shipped') return `<span class="chip-state shipped">已发出</span><button class="chip-state working" type="button" data-shipped="${esc(r.videoId || '')}">看数据 →</button>`;
+  // 底下两组只有一个动作：捡回来，回到还没处理。
+  if (r.state === 'shot' || r.state === 'ignored') return `<span class="chip-state">${r.state === 'shot' ? '拍过了' : '暂不拍'}</span><button class="btn small" type="button" data-mark="back" data-path="${esc(r.path)}">捡回来</button>`;
   // 还没处理的笔记：三个动作。
   const pool = `<button class="btn small primary" type="button" data-pool="${esc(r.id)}">入选题池</button>`;
   const park = r.path ? `<button class="btn small ghost" type="button" data-mark="shot" data-path="${esc(r.path)}">拍过了</button><button class="btn small ghost" type="button" data-mark="ignored" data-path="${esc(r.path)}">暂不拍</button>` : '';
@@ -148,7 +167,7 @@ window.VIEWS.input = {
     if (def.kind === 'daily') { await renderDaily(body); return; }
 
     const rows = rowsFor(C.tab);
-    const fresh = (C.items || []).filter((i) => !i.triage && !i.used_by).length;
+    const fresh = (C.items || []).filter((i) => noteState(i) === 'fresh').length;
     $('#navIn').textContent = fresh || '';
 
     // 宽屏时右边不留空盒子：自动打开第一条可读的。
@@ -162,8 +181,8 @@ window.VIEWS.input = {
     body.dataset.sig = sig;
 
     const count = (t) => {
-      if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && !i.triage && !i.used_by).length;
-      if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && !i.triage && !i.used_by).length;
+      if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && noteState(i) === 'fresh').length;
+      if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && noteState(i) === 'fresh').length;
       return 0;
     };
 
@@ -189,6 +208,9 @@ window.VIEWS.input = {
       else reader = `<div class="reader-h"><h2>${esc(n.title)}</h2><div class="acts">${n.meta && (n.meta.source || n.meta.url) ? `<a class="btn small" href="${esc(n.meta.source || n.meta.url)}" target="_blank" rel="noopener">原文 ↗</a>` : ''}</div><small>${esc(n.path)}</small></div><article class="md">${renderMarkdown(n.body || '')}</article>`;
     }
 
+    // 点「暂不拍 / 捡回来」或点开一条读原文，列表停在原地；换 tab、换时间段才回到顶上。
+    const keep = C.keepScroll ? { list: ($('.in-list', body) || {}).scrollTop || 0, win: window.scrollY } : null;
+    C.keepScroll = false;
     body.innerHTML = `<div class="in-bar">
         <div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div>
         ${def.kind === 'daily' ? '' : `<div class="seg-toggle" role="group" aria-label="时间">${DAY_TABS.map(([d, l]) => `<button type="button" class="${C.days === d ? 'on' : ''}" data-days="${d}">${l}</button>`).join('')}</div>`}
@@ -196,6 +218,7 @@ window.VIEWS.input = {
       <p class="in-note">${C.tab === 'raw' ? '你写的东西不看时间：写过、还没拍的都在这儿等着 · 只读 Obsidian' : '数字是还没入选题池的条数 · 收藏的 / Clippings 按你加进去的时间算，对标按作者发布时间算 · 只读 Obsidian'}</p>
       <div class="in-grid"><div class="panel in-list">${list}</div><div class="panel reader">${reader}</div></div>`;
 
+    if (keep) { const l = $('.in-list', body); if (l) l.scrollTop = keep.list; window.scrollTo(0, keep.win); }
     $$('[data-tab]', body).forEach((b) => (b.onclick = () => { C.tab = b.dataset.tab; C.open = null; C.note = null; renderView(); }));
     $$('[data-days]', body).forEach((b) => (b.onclick = () => { C.days = Number(b.dataset.days); C.items = null; C.open = null; C.note = null; renderView(); }));
     $$('[data-note]', body).forEach((row) => {
@@ -209,6 +232,7 @@ window.VIEWS.input = {
     })));
     $$('[data-work]', body).forEach((b) => (b.onclick = stop((el) => openWork(Number(el.dataset.work)))));
     $$('[data-mark]', body).forEach((b) => (b.onclick = stop((el) => markNote(el.dataset.path, el.dataset.mark || null))));
+    $$('[data-shipped]', body).forEach((b) => (b.onclick = stop((el) => { S.mineFocus = el.dataset.shipped || null; go('mine'); })));
     $$('details.in-group', body).forEach((d) => (d.ontoggle = () => { C.groups[d.dataset.group] = d.open; }));
   },
 };
@@ -217,7 +241,8 @@ window.VIEWS.input = {
 async function markNote(path, status) {
   try {
     await api('/api/vault/triage', { method: 'PUT', body: { path, status } });
-    toast(status ? `已标${TRIAGE_LABEL[status]}` : '已捡回来');
+    C.keepScroll = true;
+    toast(status === 'back' ? '已捡回来' : `已标${TRIAGE_LABEL[status]}`);
     await loadInbox(true);
     renderView();
   } catch (err) { toast(err.message); }
@@ -229,8 +254,8 @@ const D = { issue: {}, path: {}, open: {}, originals: {}, busy: {} };
 
 function tabBar() {
   const count = (t) => {
-    if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && !i.triage && !i.used_by).length;
-    if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && !i.triage && !i.used_by).length;
+    if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && noteState(i) === 'fresh').length;
+    if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && noteState(i) === 'fresh').length;
     return 0;
   };
   return `<div class="in-bar"><div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div></div>`;

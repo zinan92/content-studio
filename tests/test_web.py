@@ -1397,3 +1397,15 @@ def test_backfill_queue_mark_and_take_never_download_or_publish(client: TestClie
     # taking it again reuses the same topic
     assert client.post(f"/api/backfill/{first['video_id']}/take").json()["topic_id"] == took["topic_id"]
     assert not (tmp_path / "data" / "backfill").exists()
+
+
+def test_triage_back_is_a_real_state_and_the_log_names_it(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "vault-back"
+    (root / "003_park原始输出").mkdir(parents=True)
+    (root / "003_park原始输出" / "n.md").write_text("# 一条想法\n正文", encoding="utf-8")
+    client.put("/api/settings", json={"obsidian_vault": str(root)})
+    for status in ("ignored", "back", "shot", "back"):
+        assert client.put("/api/vault/triage", json={"path": "003_park原始输出/n.md", "status": status}).status_code == 200
+    item = next(i for i in client.get("/api/vault/inbox", params={"days": 30}).json()["items"] if i["path"].endswith("n.md"))
+    assert item["triage"] == "back" and item["used_by"] is None
+    assert client.put("/api/vault/triage", json={"path": "003_park原始输出/n.md", "status": "nope"}).status_code == 400

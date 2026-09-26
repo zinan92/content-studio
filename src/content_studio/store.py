@@ -436,8 +436,10 @@ class StudioStore:
                          (item_key, topic_id, issue, now_iso()))
 
     def set_triage(self, path: str, status: str | None) -> None:
-        if status not in (None, "topic", "ignored", "shot"):
-            raise StoreError("处理状态只能是 拿来做、拍过了 或 忽略")
+        # back = 捡回来：从「暂不拍 / 拍过了」回到还没处理。标过「不做了」的选题占着这篇笔记时，
+        # 光清掉状态它还会落回暂不拍，所以要一个明确的「捡回来」。
+        if status not in (None, "topic", "ignored", "shot", "back"):
+            raise StoreError("处理状态只能是 拿来做、拍过了、暂不拍 或 捡回来")
         with self.tx() as conn:
             if status is None:
                 conn.execute("DELETE FROM inbox_triage WHERE path = ?", (path,))

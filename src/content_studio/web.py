@@ -725,11 +725,18 @@ def create_app(
         items = vault.inbox(vault_path(), since=since, sources=(source,) if source else None)
         # A note that already became a video should not look like fresh material.
         used: dict[str, dict[str, Any]] = {}
+        video_of: dict[int, str] = {}
+        try:
+            _, links, _ = _backfill_state()
+            video_of = {tid: vid for vid, tid in links.items()}
+        except Exception:  # noqa: BLE001 - the jump target is a nicety, never block 进项
+            pass
         for topic in store.topics(include_archived=True):
             shipped = board.is_shipped(topic)
             dropped = bool(topic.get("archived_at")) and not shipped
             for path in topic["note_paths"]:
-                row = {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped, "dropped": dropped}
+                row = {"topic_id": topic["id"], "title": topic["title"], "shipped": shipped, "dropped": dropped,
+                       "video_id": topic.get("published_video_id") or video_of.get(topic["id"])}
                 # 还在做的优先；标过「不做了」的，只在没别的选题占着这篇时才显示。
                 if path not in used or (used[path]["dropped"] and not dropped):
                     used[path] = row
@@ -762,7 +769,7 @@ def create_app(
             else:
                 store.log_event("pool", f"《{topic['title'][:30]}》从进项进了选题池", topic["id"])
         elif body.status:
-            store.log_event("triage", f"进项里「{body.path.split('/')[-1][:30]}」标成了{ {'shot': '拍过了', 'ignored': '忽略'}.get(body.status, body.status) }")
+            store.log_event("triage", f"进项里「{body.path.split('/')[-1][:30]}」标成了{ {'shot': '拍过了', 'ignored': '暂不拍', 'back': '捡回来'}.get(body.status, body.status) }")
         return {"path": body.path, "triage": body.status, "topic": topic}
 
     # -- skills -----------------------------------------------------------
@@ -1602,7 +1609,7 @@ def create_app(
             items = vault.inbox(vault_path(), since=vault.window_start(7))
             by_source: dict[str, int] = {}
             for i in items:
-                if not i.get("triage") and not i.get("used_by"):
+                if i.get("triage") in (None, "back") and not i.get("used_by"):
                     by_source[i["source_label"]] = by_source.get(i["source_label"], 0) + 1
             out.append("- 进项近 7 天还没处理：" + ("；".join(f"{k} {v}" for k, v in by_source.items()) or "没有"))
         except Exception:  # noqa: BLE001
@@ -1657,7 +1664,7 @@ def create_app(
             items = vault.inbox(vault_path(), since=vault.window_start(7))[:30]  # vault.inbox compares against naive local mtimes
             rows = []
             for i in items:
-                state = "已进加工中" if i["path"] in used else {"topic": "已拿来做", "shot": "拍过了", "ignored": "已忽略"}.get((triage.get(i["path"]) or {}).get("status"), "还没处理")
+                state = "已进加工中" if i["path"] in used else {"topic": "已拿来做", "shot": "拍过了", "ignored": "暂不拍"}.get((triage.get(i["path"]) or {}).get("status"), "还没处理")
                 rows.append(f"- [{i['source_label']}] {i['title']}（{state}）{'：' + i['summary'][:80] if i.get('summary') else ''}")
             lines.append("## 近 7 天进来的（Clippings / 我收藏的 / 我写的）\n" + ("\n".join(rows) or "没有新东西"))
             if note_path:
