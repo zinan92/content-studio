@@ -24,13 +24,18 @@ function bfCell(v, p) {
   return `<button class="bf-dot" type="button" data-bfmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：还没发。在工作台外面发过的，点一下标成已发">·</button>`;
 }
 
-function bfVideo(v) {
-  if (v.video === 'master') return '<span class="bf-file ok">有成片</span>';
-  if (v.video === 'download') return '<span class="bf-file ok" title="从抖音下回来的版本，发之前看一眼有没有抖音水印">已下载</span>';
+/* 每条只有一个按钮，永远是下一步：没有成片 → 先下成片；正在下 → 等；有了 → 拿去补发。 */
+function bfNext(v) {
+  if (!v.missing.length) return v.topic_id ? `<button class="linklike" type="button" data-bfopen="${v.topic_id}">看发布台 →</button>` : '';
+  const has = v.video === 'master' || v.video === 'download';
   const d = v.download;
-  if (d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下</span>';
-  if (d && d.state === 'failed') return `<span class="bf-file bad" title="${esc(d.error || '')}">下载失败</span><button class="linklike" type="button" data-bfdl="${esc(v.video_id)}">重试</button>`;
-  return `<button class="btn small ghost" type="button" data-bfdl="${esc(v.video_id)}" title="从抖音把成片下回来。一次只下一条；抖音风控时先别点">下成片</button>`;
+  if (!has && d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下成片…</span>';
+  if (!has) {
+    const failed = d && d.state === 'failed' ? `<span class="bf-file bad" title="${esc(d.error || '')}">上次没下成</span>` : '';
+    return `<span class="bf-file">没有成片</span>${failed}<button class="btn small primary" type="button" data-bfdl="${esc(v.video_id)}">${failed ? '重新下' : '先下成片'}</button>`;
+  }
+  const note = v.video === 'master' ? '有成片' : '成片已下好 · 发前看一眼有没有水印';
+  return `<span class="bf-file ok">${note}</span><button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>拿去补发</button>`;
 }
 
 window.VIEWS.backfill = {
@@ -47,12 +52,12 @@ window.VIEWS.backfill = {
     $('#backfillFigs').innerHTML = `<div class="pub-figs">${cols.map((p) => `<span>${esc(p.label)} 缺 <b>${p.missing}</b></span>`).join('')}</div>`;
     const row = (v) => `<tr>
       <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${esc((v.published_at || '').slice(0, 10))} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
-        <div class="bf-acts">${v.missing.length ? `<button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>拿去补发</button>` : (v.topic_id ? `<button class="linklike" type="button" data-bfopen="${v.topic_id}">看发布台 →</button>` : '')}${bfVideo(v)}</div></td>
+        <div class="bf-acts">${bfNext(v)}</div></td>
       ${cols.map((p) => `<td class="c">${bfCell(v, p)}</td>`).join('')}
     </tr>`;
     const head = `<tr><th>抖音发过的</th>${cols.map((p) => `<th class="c">${esc(p.label)}</th>`).join('')}</tr>`;
     body.innerHTML = `
-      <p class="in-note">没东西拍的那天，从上往下挑一条：「拿去补发」会接上它的选题、种好文案，然后打开发布台，每个平台照旧你点确认才发。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。公众号、研习室、X 要另写文字版，不算缺口。</p>
+      <p class="in-note">没东西拍的那天，从上往下挑一条，点它唯一的那个按钮：没有成片就「先下成片」（从抖音下回来，一次一条），下好了按钮变成「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。公众号、研习室、X 要另写文字版，不算缺口。</p>
       <div class="panel bf-tbl"><table><thead>${head}</thead><tbody>${todo.map(row).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">都补齐了。</td></tr>`}</tbody></table></div>
       ${done.length ? `<details class="panel bf-done"><summary>已经补齐 <span class="num">${done.length}</span></summary><table><tbody>${done.map(row).join('')}</tbody></table></details>` : ''}`;
     const mark = async (vid, p, doneFlag) => { try { await api(`/api/backfill/${vid}/mark`, { method: 'POST', body: { platform: p, done: doneFlag } }); await loadBackfill(); renderView(); } catch (err) { toast(err.message); } };
@@ -70,7 +75,7 @@ window.VIEWS.backfill = {
       BF.busy[vid] = false; await loadBackfill(); renderView();
     }));
     $$('[data-bfdl]', body).forEach((b) => (b.onclick = async () => {
-      if (!confirm('从抖音把这条视频下回来？一次只下一条。抖音在风控的话先别点。')) return;
+      if (!confirm('从抖音把这条视频下回来？一次只下一条，大概一两分钟。')) return;
       try { await api(`/api/backfill/${b.dataset.bfdl}/download`, { method: 'POST' }); toast('开始下了'); } catch (err) { toast(err.message); }
       await loadBackfill(); renderView();
     }));
