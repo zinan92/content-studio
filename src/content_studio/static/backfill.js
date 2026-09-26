@@ -49,12 +49,14 @@ window.VIEWS.backfill = {
     const todo = d.videos.filter((v) => v.missing.length);
     const done = d.videos.filter((v) => !v.missing.length);
     $('#backfillFigs').innerHTML = `<div class="pub-figs">${cols.map((p) => `<span>${esc(p.label)} 缺 <b>${p.missing}</b></span>`).join('')}</div>`;
+    const kinds = []; cols.forEach((p) => { const last = kinds[kinds.length - 1]; if (last && last.kind === p.kind) last.n += 1; else kinds.push({ kind: p.kind, n: 1 }); });
     const row = (v) => `<tr>
       <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${esc((v.published_at || '').slice(0, 10))} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
         <div class="bf-acts">${bfNext(v)}</div></td>
       ${cols.map((p) => `<td class="c">${bfCell(v, p)}</td>`).join('')}
     </tr>`;
-    const head = `<tr><th>抖音发过的</th>${cols.map((p) => `<th class="c">${esc(p.label)}</th>`).join('')}</tr>`;
+    const head = `<tr class="bf-kinds"><th></th>${kinds.map((k) => `<th class="c kind" colspan="${k.n}">${esc(k.kind)}</th>`).join('')}</tr>
+      <tr><th>抖音发过的</th>${cols.map((p) => `<th class="c">${esc(p.label)}</th>`).join('')}</tr>`;
     const a = BF.archive || {};
     const p = a.progress || {};
     const running = p.state === 'downloading';
@@ -68,8 +70,8 @@ window.VIEWS.backfill = {
       <small>按时长和日期在本机找原片，不从抖音下。以后每次同步发现新视频，也只在本机找。</small>`;
     body.innerHTML = `
       <div class="panel bf-archive">${strip}</div>
-      <p class="in-note">没东西拍的那天，从上往下挑一条，点它唯一的那个按钮：没有成片就「先下成片」（从抖音下回来，一次一条），下好了按钮变成「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。公众号、研习室、X 要另写文字版，不算缺口。</p>
-      <div class="panel bf-tbl"><table><thead>${head}</thead><tbody>${todo.map(row).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">都补齐了。</td></tr>`}</tbody></table></div>
+      <p class="in-note">没东西拍的那天，从上往下挑一条：作品库里有成片的，点「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。缺成片的在另一台电脑上，拷进来后点上面「在本机再找一遍」。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。文字平台发文章版，发布台「写文章」会用这条视频的逐字稿；小宇宙发音频。</p>
+      <div class="panel bf-tbl"><table><colgroup><col>${cols.map(() => '<col class="bf-pcol">').join('')}</colgroup><thead>${head}</thead><tbody>${todo.map(row).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">都补齐了。</td></tr>`}</tbody></table></div>
       ${done.length ? `<details class="panel bf-done"><summary>已经补齐 <span class="num">${done.length}</span></summary><table><tbody>${done.map(row).join('')}</tbody></table></details>` : ''}`;
     const mark = async (vid, p, doneFlag) => { try { await api(`/api/backfill/${vid}/mark`, { method: 'POST', body: { platform: p, done: doneFlag } }); await loadBackfill(); renderView(); } catch (err) { toast(err.message); } };
     $$('[data-bfmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfmark, b.dataset.p, true)));

@@ -1410,7 +1410,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .bf-done summary{cursor:pointer;padding:12px 18px;font-weight:600;font-size:14px}
 .bf-done table{padding:0 10px 8px}
 .bf-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
-.bf-tbl th.c,.bf-tbl td.c{width:72px}
+.bf-tbl th.c,.bf-tbl td.c{width:52px;padding-left:2px;padding-right:2px}
 
 /* Skills 可配置 */
 .skill-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
@@ -1438,3 +1438,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .bf-archive small{color:var(--ink-3);font-size:12px}
 .bf-archive code{font-size:11.5px;color:var(--ink-3)}
 .bf-archive .bad{color:var(--bad,#c0392b)}
+.bf-tbl tr.bf-kinds th{font-size:11px;letter-spacing:.14em;border-bottom:0;padding-bottom:0;color:var(--ink-3)}
+.bf-tbl th.kind{border-bottom:1px solid var(--line-soft)}
+.bf-tbl col.bf-pcol{width:54px}
+.bf-tbl thead th.c{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

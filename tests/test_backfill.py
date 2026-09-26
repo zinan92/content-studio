@@ -20,12 +20,13 @@ def test_link_prefers_published_video_id_then_a_similar_titled_topic_with_a_douy
     assert links == {"v1": 1, "v3": 3}
 
 
-def test_queue_counts_gaps_on_video_platforms_only_and_puts_best_first() -> None:
+def test_queue_counts_gaps_on_every_platform_and_puts_best_first() -> None:
     videos = [{"video_id": "a", "title": "a", "likes": 10}, {"video_id": "b", "title": "b", "likes": 500}, {"video_id": "c", "title": "c", "likes": 900}]
-    records = {7: {"douyin": {}, "channels": {}, "xiaohongshu": {}, "bilibili": {}, "youtube": {}}}
+    records = {7: {k: {} for k in ("douyin", *b.PLATFORMS)}}
     rows = b.queue(videos, links={"c": 7}, records=records, marks={"b": {"youtube", "x"}}, median=100)
     assert [r["video_id"] for r in rows] == ["b", "a", "c"]  # c is complete, so last
     b_row = rows[0]
     assert b_row["done"]["youtube"] == "mark" and b_row["done"]["x"] == "mark" and "youtube" not in b_row["missing"]
-    assert b_row["missing"] == ["channels", "xiaohongshu", "bilibili"] and b_row["multiple"] == 5.0
+    assert b_row["missing"] == ["channels", "xiaohongshu", "bilibili", "wechat_mp", "miniprogram", "xiaoyuzhou"] and b_row["multiple"] == 5.0
+    assert set(b.KIND) == set(b.PLATFORMS)
     assert rows[-1]["missing"] == []

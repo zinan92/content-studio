@@ -1275,6 +1275,14 @@ def create_app(
         from . import koubo, titles
 
         if not topic.get("video_project"):
+            # 补发的旧视频没有视频项目：用拆解时转写的逐字稿（downloads/douyin/<作者>/<视频>/text.txt）。
+            vid = topic.get("published_video_id")
+            if vid and str(vid).isdigit():
+                for path in sorted((downloads_dir / "douyin").glob(f"*/{vid}/text.txt")):
+                    try:
+                        return path.read_text(encoding="utf-8", errors="replace").strip()
+                    except OSError:
+                        continue
             return ""
         try:
             base = video_project.project_dir(video_root(), topic["video_project"])
@@ -2750,7 +2758,10 @@ def create_app(
         videos, links, records = _backfill_state()
         me = store.self_account()
         median = store.account_median(me["id"]) if me else None
-        rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median)
+        rows_all = {p["key"]: p for p in _platform_rows()}
+        on = {k: p for k, p in rows_all.items() if p.get("on") and k != "douyin"} or rows_all  # 除抖音外一个都没标开通时，全部列出
+        keys = tuple(k for k in backfill.PLATFORMS if k in on)
+        rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median, platforms=keys)
         topics = {t["id"]: t for t in store.topics(include_archived=True)}
         for r in rows:
             t = topics.get(r["topic_id"]) if r["topic_id"] else None
@@ -2759,10 +2770,8 @@ def create_app(
                 dl = dict(backfill_dl.get(r["video_id"]) or {})
             r["video"] = "master" if has_master and t.get("video_project") else "download" if (has_master or _backfill_file(r["video_id"])) else None
             r["download"] = dl or None
-        label = {k: copypack.PLATFORMS[k].get("label", k) for k in (*backfill.VIDEO_PLATFORMS, *backfill.TEXT_PLATFORMS) if k in copypack.PLATFORMS}
         return {
-            "platforms": [{"key": k, "label": label.get(k, k), "missing": sum(1 for r in rows if k in r["missing"])} for k in backfill.VIDEO_PLATFORMS],
-            "text_platforms": [{"key": k, "label": label.get(k, k)} for k in backfill.TEXT_PLATFORMS],
+            "platforms": [{"key": k, "label": on[k].get("label", k), "kind": backfill.KIND[k], "missing": sum(1 for r in rows if k in r["missing"])} for k in keys],
             "videos": rows,
             "order": "还有缺口的在前；缺口里抖音点赞高的在前",
         }
@@ -2772,7 +2781,7 @@ def create_app(
         """Park 在工作台之外已经发过这个平台：记一笔，不建选题。"""
         from . import backfill
 
-        if body.platform not in (*backfill.VIDEO_PLATFORMS, *backfill.TEXT_PLATFORMS):
+        if body.platform not in backfill.PLATFORMS:
             raise ValueError("没有这个平台")
         if store.video(video_id) is None:
             raise ValueError("找不到这条抖音视频")

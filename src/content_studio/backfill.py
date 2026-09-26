@@ -14,10 +14,11 @@ from difflib import SequenceMatcher
 import re
 from typing import Any
 
-# 缺口只算视频平台：旧视频拿去发，这几个平台收的就是这条视频本身。
-# 公众号、研习室、X 要另写文字版，列出来但不算缺口。
-VIDEO_PLATFORMS = ("channels", "xiaohongshu", "bilibili", "youtube")
-TEXT_PLATFORMS = ("wechat_mp", "yanxishi", "x")
+# 全量分发：抖音以外的每个平台都算缺口（Park 9/26：只算四个视频平台不对）。
+# 视频平台直接发这条视频；文字平台发它的文章版（写文章用这条视频的逐字稿）；小宇宙发音频。
+PLATFORMS = ("channels", "xiaohongshu", "bilibili", "youtube", "wechat_mp", "miniprogram", "x", "xiaoyuzhou")
+KIND = {"channels": "视频", "xiaohongshu": "视频", "bilibili": "视频", "youtube": "视频",
+        "wechat_mp": "文字", "miniprogram": "文字", "x": "文字", "xiaoyuzhou": "音频"}
 # 抖音的活动话题，搬到别的平台没有意义。
 ACTIVITY_WORDS = ("计划", "大赏", "征稿", "大会", "挑战赛", "活动", "新星")
 TAG = re.compile(r"#\s*([^\s#]+)")
@@ -91,7 +92,7 @@ def link_topics(videos: list[dict[str, Any]], topics: list[dict[str, Any]],
 
 
 def queue(videos: list[dict[str, Any]], *, links: dict[str, int], records: dict[int, dict[str, Any]],
-          marks: dict[str, set[str]], median: float | None) -> list[dict[str, Any]]:
+          marks: dict[str, set[str]], median: float | None, platforms: tuple[str, ...] = PLATFORMS) -> list[dict[str, Any]]:
     """每条视频在每个平台的状态。排序：还有缺口的在前，缺口里点赞高的在前——同样一条旧视频，
     在抖音上验证过的先拿去别的平台。"""
     rows = []
@@ -99,9 +100,9 @@ def queue(videos: list[dict[str, Any]], *, links: dict[str, int], records: dict[
         tid = links.get(v["video_id"])
         rec = records.get(tid) or {} if tid else {}
         done = {}
-        for p in (*VIDEO_PLATFORMS, *TEXT_PLATFORMS):
+        for p in platforms:
             done[p] = "record" if p in rec else "mark" if p in marks.get(v["video_id"], set()) else None
-        missing = [p for p in VIDEO_PLATFORMS if not done[p]]
+        missing = [p for p in platforms if not done[p]]
         likes = v.get("likes")
         rows.append({
             "video_id": v["video_id"], "title": v.get("title") or "", "headline": split_douyin_title(v.get("title") or "")["title"],
