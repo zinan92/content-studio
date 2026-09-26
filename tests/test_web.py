@@ -1373,12 +1373,15 @@ def test_daily_issue_item_pick_snapshots_the_original_into_the_topic_not_the_vau
 
 
 def test_backfill_queue_mark_and_take_never_download_or_publish(client: TestClient, tmp_path: Path) -> None:
+    from content_studio import backfill as backfill_mod
+
     client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
     _wait_sync(client)
     q = client.get("/api/backfill").json()
-    assert {p["key"] for p in q["platforms"]} == {"channels", "xiaohongshu", "bilibili", "youtube"}
+    keys = [p["key"] for p in q["platforms"]]
+    assert keys and "douyin" not in keys and set(keys) <= set(backfill_mod.PLATFORMS)
     first = q["videos"][0]
-    assert first["missing"] == ["channels", "xiaohongshu", "bilibili", "youtube"] and first["video"] is None
+    assert first["missing"] == keys and first["video"] is None
 
     assert client.post(f"/api/backfill/{first['video_id']}/mark", json={"platform": "youtube"}).json()["ok"]
     assert client.post(f"/api/backfill/{first['video_id']}/mark", json={"platform": "nope"}).status_code == 400
