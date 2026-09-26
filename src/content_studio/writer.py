@@ -53,6 +53,21 @@ def gather_sources(vault_raw: str, note_paths: list[str]) -> list[dict[str, Any]
     return sources
 
 
+def topic_sources(vault_raw: str, topic: dict[str, Any], drafts_dir: Path) -> list[dict[str, Any]]:
+    """Everything a topic was built from: snapshots stored with it (a 快讯 picked from the
+    daily), then its vault notes, under one character budget."""
+    from .newsletter import attached_sources
+
+    out, used = [], 0
+    for src in [*attached_sources(drafts_dir, topic["id"]), *gather_sources(vault_raw, topic.get("note_paths") or [])]:
+        if used >= MAX_SOURCE_CHARS:
+            break
+        body = src["body"][: min(MAX_NOTE_CHARS, MAX_SOURCE_CHARS - used)]
+        used += len(body)
+        out.append({**src, "body": body})
+    return out
+
+
 TRANSCRIPT_TITLE = "视频原话（转写）"
 VIDEO_RULE = """
 - 这篇是 Park 那条视频的文字版。**观点、例子和先后顺序以「视频原话」为准**：把口语整理成书面语，
@@ -124,7 +139,7 @@ def write_article(
     now: datetime | None = None,
     transcript: str = "",
 ) -> dict[str, Any]:
-    sources = gather_sources(vault_raw, topic.get("note_paths") or [])
+    sources = topic_sources(vault_raw, topic, drafts_dir)
     if transcript.strip():
         # 视频拍完了：原话排第一，不占笔记的字数额度。
         sources = [{"path": "视频项目", "title": TRANSCRIPT_TITLE, "url": None, "body": transcript.strip()[:MAX_SOURCE_CHARS]}, *sources]

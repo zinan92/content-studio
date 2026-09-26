@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS daily_checks (
     checked_at TEXT NOT NULL,
     PRIMARY KEY (day, key)
 );
+CREATE TABLE IF NOT EXISTS daily_picks (
+    item_key TEXT PRIMARY KEY,
+    topic_id INTEGER NOT NULL,
+    issue TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS inbox_triage (
     path TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -401,6 +407,14 @@ class StudioStore:
 
     def triage(self) -> dict[str, dict[str, str]]:
         return {row["path"]: dict(row) for row in self._rows("SELECT path, status, updated_at FROM inbox_triage")}
+
+    def daily_picks(self) -> dict[str, int]:
+        return {r["item_key"]: r["topic_id"] for r in self._rows("SELECT item_key, topic_id FROM daily_picks")}
+
+    def add_daily_pick(self, item_key: str, topic_id: int, issue: str) -> None:
+        with self.tx() as conn:
+            conn.execute("INSERT OR REPLACE INTO daily_picks(item_key, topic_id, issue, created_at) VALUES (?, ?, ?, ?)",
+                         (item_key, topic_id, issue, now_iso()))
 
     def set_triage(self, path: str, status: str | None) -> None:
         if status not in (None, "topic", "ignored", "shot"):

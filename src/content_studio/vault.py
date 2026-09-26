@@ -18,6 +18,9 @@ class DailySource:
     label: str
     folder: str
     suffixes: tuple[str, ...]
+    # Where the newsletter pipeline keeps each item's full text (<items>/<YY-MM-DD>/…/*.md).
+    # Only then can Park take a single 快讯 into 选题池 with its original text.
+    items: str | None = None
 
 
 @dataclass(frozen=True)
@@ -38,7 +41,7 @@ class InboxSource:
 # Park reads all three dailies in the morning (2026-09-19: he asked for 财经 and K 线 back).
 # 晨报 is a digest of these three, so it stays out to avoid showing the same thing twice.
 DAILY_SOURCES = (
-    DailySource("ai_daily", "AI 日报", "006_ai daily newsletter", (".md",)),
+    DailySource("ai_daily", "AI 日报", "006_ai daily newsletter", (".md",), "~/park-io/_inbox/processed"),
     DailySource("finance_daily", "财经日报", "007_finance daily newsletter", (".md",)),
     DailySource("kline_daily", "K 线日报", "007_kline daily newsletter", (".md",)),
 )
@@ -86,7 +89,7 @@ def configure(vault_cfg: dict | None) -> None:
     dailies = vault_cfg.get("dailies")
     if isinstance(dailies, list) and dailies:
         DAILY_SOURCES = tuple(
-            DailySource(str(d["key"]), str(d.get("label") or d["key"]), str(d["folder"]), (".md",))
+            DailySource(str(d["key"]), str(d.get("label") or d["key"]), str(d["folder"]), (".md",), str(d["items"]) if d.get("items") else None)
             for d in dailies if isinstance(d, dict) and d.get("key") and d.get("folder")
         )
 

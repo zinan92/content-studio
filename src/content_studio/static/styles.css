@@ -1358,3 +1358,36 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .in-group summary .num{font-size:11px;color:var(--ink-3)}
 .in-group .in-row{opacity:.8}
 .empty.small{padding:16px 18px;font-size:13px}
+
+/* 日报：一期整页 */
+.d-issue{padding:18px 22px 10px;display:flex;flex-direction:column;gap:6px}
+.d-top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.d-top h2{font-family:var(--serif);font-size:22px;margin:2px 0 0}
+.d-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--accent)}
+.d-sec{margin-top:14px}
+.d-sec h3{font-family:var(--serif);font-size:17px;margin:0 0 4px}
+.d-sec h3 small{font-family:inherit;font-weight:400;font-size:12px;color:var(--ink-3)}
+.d-group{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--ink-3);margin:14px 0 2px;text-transform:uppercase}
+.d-item{padding:12px 0;border-bottom:1px solid var(--line-soft);display:flex;flex-direction:column;gap:4px}
+.d-item:last-child{border-bottom:0}
+.d-head{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-3)}
+.d-thin{font-size:11px;border:1px dashed var(--line);border-radius:6px;padding:0 6px}
+.d-title{font-weight:600;font-size:15px;line-height:1.5}
+.d-title .linklike{font-weight:600;text-align:left}
+.d-title .linklike:hover{color:var(--accent)}
+.d-link{font-size:12px;color:var(--ink-3);font-weight:400;white-space:nowrap}
+.d-sum{margin:0;color:var(--ink-2);font-size:13.5px;white-space:pre-line}
+.d-item .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.d-orig{margin-top:6px;border-left:3px solid var(--accent);padding:4px 0 4px 14px;background:var(--sunk);border-radius:0 8px 8px 0}
+.d-orig .md{padding:6px 10px 10px;max-width:72ch}
+.d-deep{padding:8px 10px 0;font-size:13.5px;color:var(--ink-2)}
+.d-deep b{display:block;font-size:11px;letter-spacing:.12em;color:var(--accent);margin-bottom:2px}
+.d-none{margin:8px 10px;color:var(--ink-3);font-size:13px}
+.md-sec summary{cursor:pointer;font-family:var(--serif);font-size:16px;font-weight:700;padding:6px 0}
+.md-sec .md{padding:4px 0 10px}
+.d-history{margin-top:12px}
+.d-history summary{cursor:pointer;padding:12px 18px;font-weight:600;font-size:14px}
+.d-history summary small{color:var(--ink-3);font-weight:400;margin-left:6px}
+.d-hist-list{display:flex;flex-wrap:wrap;gap:6px;padding:0 18px 16px}
+.d-hist{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 10px;font-size:12.5px;cursor:pointer;font-family:var(--mono)}
+.d-hist.on{border-color:var(--accent);color:var(--accent)}
