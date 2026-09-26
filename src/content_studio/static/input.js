@@ -14,7 +14,7 @@ const TABS = [
   { key: 'saved', label: '我收藏的', kind: 'note' },
   { key: 'clipping', label: 'Clippings', kind: 'note' },
 ];
-const DAY_TABS = [[3, '3 天'], [7, '7 天'], [30, '30 天']];
+const DAY_TABS = [[1, '1 天'], [3, '3 天'], [7, '7 天'], [30, '30 天']];
 
 const C = { tab: 'all', days: 7, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0 };
 

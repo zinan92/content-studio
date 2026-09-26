@@ -307,6 +307,10 @@ def read_note(raw_root: str, relative: str) -> dict[str, Any]:
 
 
 def window_start(days: int, now: datetime | None = None) -> datetime:
-    """Start of the window: `days` = 1 means since yesterday 00:00."""
+    """Start of the window. `days` = 1 is the last 24 hours, on the clock — Park asked for
+    「1 天」 to mean exactly that, not "since yesterday 00:00" (which is up to 48 h at night).
+    Longer windows keep starting at midnight so a "7 天" list does not shift mid-day."""
     now = now or datetime.now()
-    return datetime.combine(now.date() - timedelta(days=max(1, days)), datetime.min.time())
+    if days <= 1:
+        return now - timedelta(hours=24)
+    return datetime.combine(now.date() - timedelta(days=days), datetime.min.time())

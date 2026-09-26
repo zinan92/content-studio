@@ -73,8 +73,12 @@ def test_read_note_and_missing_vault(root: Path) -> None:
         vault.inbox(str(root / "nope"), since=datetime(2026, 9, 1))
 
 
-def test_window_start_is_midnight() -> None:
-    assert vault.window_start(1, datetime(2026, 9, 14, 15)) == datetime(2026, 9, 13)
+def test_window_start_one_day_is_24_hours_and_longer_windows_start_at_midnight() -> None:
+    # 「1 天」 is the last 24 hours on the clock; 3/7/30 start at midnight so the list is stable all day.
+    assert vault.window_start(1, datetime(2026, 9, 14, 15)) == datetime(2026, 9, 13, 15)
+    assert vault.window_start(0, datetime(2026, 9, 14, 15)) == datetime(2026, 9, 13, 15)
+    assert vault.window_start(3, datetime(2026, 9, 14, 15)) == datetime(2026, 9, 11)
+    assert vault.window_start(7, datetime(2026, 9, 14, 15)) == datetime(2026, 9, 7)
 
 
 def test_inbox_carries_the_author_so_进项_can_show_the_blogger(tmp_path) -> None:
