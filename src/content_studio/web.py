@@ -179,6 +179,7 @@ class SettingsBody(BaseModel):
     yanxishi_admin_url: str | None = None
     video_projects_root: str | None = None
     douyin_archive: str | None = None
+    local_video_roots: list[str] | None = None
     platform_accounts: dict[str, dict[str, Any]] | None = None
 
 
@@ -271,8 +272,11 @@ def _apply_profile(store: StudioStore, data: dict[str, Any] | None) -> None:
     if root and not current.get("video_projects_root"):
         patch["video_projects_root"] = root
     archive_cfg = str(data.get("douyin_archive") or "").strip()
-    if archive_cfg and not current.get("douyin_archive"):
+    if archive_cfg and current.get("douyin_archive") != archive_cfg:
         patch["douyin_archive"] = archive_cfg
+    roots_cfg = [str(r) for r in (data.get("local_video_roots") or []) if str(r).strip()]
+    if roots_cfg and current.get("local_video_roots") != roots_cfg:
+        patch["local_video_roots"] = roots_cfg
     # Anna 的角色文件和提纲框架：profile 指到哪就读哪；环境变量已设的不动（那是显式覆盖）。
     anna_cfg = data.get("anna") or {}
     if isinstance(anna_cfg, dict):
@@ -2666,7 +2670,7 @@ def create_app(
     def _backfill_file(video_id: str) -> Path | None:
         from . import archive
 
-        return archive.video_file(archive_root(), video_id) or archive.video_file(backfill_root if backfill_root.is_dir() else None, video_id)
+        return archive.video_file(archive_root(), video_id)
 
     archive_state: dict[str, Any] = {}
     archive_lock = threading.Lock()
@@ -2709,14 +2713,15 @@ def create_app(
         missing = archive.pending(videos, root)
         with archive_lock:
             progress = dict(archive_state)
-        return {"path": raw, "available": root is not None, "total": len(videos),
+        local = sum(1 for v in videos if archive.source_of(root, v["video_id"]) == "local") if root is not None else 0
+        return {"path": raw, "available": root is not None, "total": len(videos), "local": local,
                 "archived": len(videos) - len(missing) if root is not None else 0, "pending": len(missing), "progress": progress or None}
 
     @app.post("/api/archive/run")
     def run_archive() -> dict[str, Any]:
         """把没存的全部存下来（第一次补齐用）。之后每次同步会自己补新的。"""
         if archive_root() is None:
-            raise ValueError("存档目录没配置，或者那块硬盘没插")
+            raise ValueError("作品库没配置，或者那块硬盘没插")
         if not start_archive(limit=None):
             raise ValueError("正在存，等这一轮存完")
         return {"started": True}
@@ -2810,8 +2815,14 @@ def create_app(
         try:
             root = archive_root()
             if root is None:
-                raise RuntimeError("存档目录没配置，或者那块硬盘没插")
-            f = archive.download(video_id, root=root, cookie_path=cookie_path)
+                raise RuntimeError("作品库没配置，或者那块硬盘没插")
+            search = [Path(p).expanduser() for p in store.settings().get("local_video_roots") or []]
+            r = archive.archive_pending([store.video(video_id)], root=root, cookie_path=cookie_path, search=search, delay=0)
+            if r["failed"]:
+                raise RuntimeError(r["failed"][0]["error"])
+            f = archive.video_file(root, video_id)
+            if f is None:
+                raise RuntimeError("没找到这条的成片")
             for t in store.topics(include_archived=True):
                 if t.get("published_video_id") == video_id and not t.get("video_project"):
                     store.update_topic(t["id"], video_file=str(f))
