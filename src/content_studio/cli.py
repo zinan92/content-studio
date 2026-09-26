@@ -77,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
     sync_all.add_argument("--creator-db", type=Path, default=DEFAULT_DB_PATH)
     sync_all.add_argument("--no-enqueue", action="store_true")
 
+    screen = commands.add_parser("screen-reach", help="read 小红书 views from a screenshot of Park's own Chrome")
+    screen.add_argument("--store", type=Path, default=DEFAULT_STORE_PATH)
+
     work = commands.add_parser("work", help="process queued teardown jobs and exit")
     work.add_argument("--store", type=Path, default=DEFAULT_STORE_PATH)
     work.add_argument("--cookies", type=Path, default=DEFAULT_COOKIE_PATH)
@@ -181,16 +184,23 @@ def sync_creator_metrics(*, cookie_path: Path, creator_db: Path) -> dict:
 
 
 def run_sync(args: argparse.Namespace) -> int:
-    from . import platform_stats, screen_stats
-
-    # 只有每天早上的这次同步去截小红书：工作台里点「同步」不该突然弹出 Chrome。
-    fetchers = {**platform_stats.FETCHERS, "xiaohongshu": screen_stats.xiaohongshu_posts}
     with _open_store(args.store) as store:
         summary = sync_everything(
-            store, cookie_path=args.cookies, creator_db=args.creator_db, enqueue=not args.no_enqueue, platform_fetchers=fetchers
+            store, cookie_path=args.cookies, creator_db=args.creator_db, enqueue=not args.no_enqueue
         )
     print(json.dumps(summary, ensure_ascii=False))
     return 1 if summary.get("stopped") else 0
+
+
+def run_screen_reach(args: argparse.Namespace) -> int:
+    """小红书触达：用 Park 的 Chrome 截数据页读。由「内容工作台读数」小 App 每天早上调用——
+    后台 launchd 进程弹不出「允许控制 Chrome / 录屏」的授权框，App 可以。"""
+    from . import platform_stats, screen_stats
+
+    with _open_store(args.store) as store:
+        summary = platform_stats.sync(store, {"xiaohongshu": screen_stats.xiaohongshu_posts})
+    print(json.dumps(summary, ensure_ascii=False))
+    return 0 if all(v.get("ok") for v in summary.values()) else 1
 
 
 def run_work(args: argparse.Namespace) -> int:
@@ -384,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         handlers = {
             "add-account": run_add_account,
             "sync": run_sync,
+            "screen-reach": run_screen_reach,
             "work": run_work,
             "serve": run_serve,
             "check": run_check,
