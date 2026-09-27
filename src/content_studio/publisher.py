@@ -210,7 +210,9 @@ def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[st
     text_only = bool(spec.get("no_video"))
     if not text_only and (video is None or not video.is_file()):
         raise PublishError("找不到成片文件")
-    entry = (copy or {}).get(spec["copy_key"]) or {}
+    # 这个平台没单独写，就用共用的那份（补发的旧视频只种了抖音的标题和话题）
+    entry = (copy or {}).get(spec["copy_key"]) or next(
+        (e for e in (copy or {}).values() if isinstance(e, dict) and (e.get("title") or e.get("body"))), {})
     title = str(entry.get("title") or "").strip()
     body = str(entry.get("body") or "").strip()
     tags = [str(t).strip() for t in entry.get("tags") or [] if str(t).strip()]

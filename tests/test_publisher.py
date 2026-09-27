@@ -41,6 +41,15 @@ def test_payload_requires_video_copy_and_known_mode(tmp_path: Path) -> None:
     assert payload["title"] == "标题" and payload["tags"] == ["AI"] and pub.command_for(payload, specs)[-4:] == [str(video), "标题", "正文", "AI"]
 
 
+def test_platform_without_its_own_copy_uses_the_shared_one(tmp_path: Path) -> None:
+    """补发的旧视频只种了抖音的标题：B 站、YouTube 点发布不该卡在「先写好标题」。"""
+    specs = _specs(tmp_path, "")
+    video = tmp_path / "final.mp4"
+    video.write_bytes(b"0" * 2048)
+    payload = pub.build_payload("channels", "draft", video=video, copy={"douyin": {"title": "看懂加息", "body": "", "tags": ["金融"]}}, publishers=specs)
+    assert payload["title"] == "看懂加息" and payload["tags"] == ["金融"]
+
+
 def test_confirm_window_and_state() -> None:
     now = datetime.now(timezone.utc)
     pub.confirmable({"state": "awaiting_confirm", "created_at": now.isoformat()}, now=now)
