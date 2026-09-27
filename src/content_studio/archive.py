@@ -33,7 +33,7 @@ Park：视频本身应该存在本地；大部分原片本机本来就有，按�
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -145,12 +145,27 @@ def pending(videos: list[dict[str, Any]], root: Path | None) -> list[dict[str, A
     return [v for v in own if video_file(root, v["video_id"]) is None]
 
 
+BEIJING = timezone(timedelta(hours=8))
+
+
+def publish_day(video: dict[str, Any]) -> str:
+    """发布日期按北京时间：库里存的是 UTC，凌晨发的会差一天（9/12 00:01 发的 FDE 被记成 9/11）。"""
+    raw = str(video.get("published_at") or "")
+    try:
+        at = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw[:10]
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return at.astimezone(BEIJING).date().isoformat()
+
+
 def folder_name(video: dict[str, Any]) -> str:
     from .backfill import split_douyin_title
 
     title = split_douyin_title(video.get("title") or "")["title"] or video["video_id"]
     title = "".join(c for c in title if c not in '/:\\?*"<>|').strip()[:40]
-    return f"{str(video.get('published_at') or '')[:10]} {title}".strip()
+    return f"{publish_day(video)} {title}".strip()
 
 
 def video_folder(root: Path, video: dict[str, Any], index: dict[str, dict[str, Any]]) -> Path:
@@ -245,7 +260,7 @@ def scan_local(dirs: list[Path], *, root: Path, probe: ProbeFn = ffprobe_duratio
 
 def _published(video: dict[str, Any]) -> date | None:
     try:
-        return date.fromisoformat(str(video.get("published_at") or "")[:10])
+        return date.fromisoformat(publish_day(video))
     except ValueError:
         return None
 

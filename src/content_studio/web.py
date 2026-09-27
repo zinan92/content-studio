@@ -2717,7 +2717,7 @@ def create_app(
         raw = store.settings().get("douyin_archive") or ""
         root = archive_root()
         me = store.self_account()
-        videos = [v for v in (store.videos(me["id"]) if me else []) if not v["is_image_post"]]
+        videos = [v for v in (store.public_videos(me["id"]) if me else []) if not v["is_image_post"]]
         missing = archive.pending(videos, root)
         with archive_lock:
             progress = dict(archive_state)
@@ -2740,7 +2740,7 @@ def create_app(
         me = store.self_account()
         if me is None:
             return [], {}, {}
-        videos = [v for v in store.videos(me["id"]) if not v["is_image_post"]]
+        videos = [v for v in store.public_videos(me["id"]) if not v["is_image_post"]]
         topics = store.topics(include_archived=True)
         records = {t["id"]: store.publish_records(t["id"]) for t in topics}
         copies = {}
@@ -2827,7 +2827,7 @@ def create_app(
                 raise RuntimeError("作品库没配置，或者那块硬盘没插")
             search = [Path(p).expanduser() for p in store.settings().get("local_video_roots") or []]
             me = store.self_account()
-            own = store.videos(me["id"]) if me else [store.video(video_id)]
+            own = store.public_videos(me["id"]) if me else [store.video(video_id)]
             r = archive.archive_pending(own, root=root, cookie_path=cookie_path, search=search, delay=0, download=True, only={video_id})
             if r["failed"]:
                 raise RuntimeError(r["failed"][0]["error"])
