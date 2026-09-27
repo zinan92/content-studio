@@ -63,6 +63,8 @@ const R = {
   btn: (label, cls = '') => `<span class="rc-btn ${cls}">${label}</span>`,
   bar: (pct) => `<div class="rc-bar"><i style="--w:${pct}%"></i></div>`,
   count: (s, cap) => `${(s || '').length}/${cap}`,
+  // 真的文章正文：只露前几段，后面淡出（全文在右边「点开看全文」）
+  doc: (text, lines = 8) => `<div class="rc-doc" style="--lines:${lines}">${esc(text).split('\n\n').map((t) => `<p>${t}</p>`).join('')}</div>`,
 };
 
 function progressState(ctx) {
@@ -171,7 +173,7 @@ const REPLICA = {
         <span class="rc-avatar" style="width:40px;height:40px"></span>
         <div class="rc-v" style="flex:1;gap:10px">
           <div class="rc-chip outline" style="align-self:flex-start;border-radius:999px;color:var(--p);border-color:var(--p)">Everyone ⌄</div>
-          <div style="font-size:17px;line-height:1.45;min-height:90px;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;word-break:break-all">${text ? esc(text) : '<span class="rc-ph">What is happening?!</span>'}</div>
+          ${c.article ? `<b style="font-size:19px">${esc(c.article.title)}</b>${R.doc(c.article.text, 7)}` : `<div style="font-size:17px;line-height:1.45;min-height:90px;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;word-break:break-all">${text ? esc(text) : '<span class="rc-ph">What is happening?!</span>'}</div>`}
           <div class="rc-mini" style="color:var(--p)">🌐 Everyone can reply</div>
           <div class="rc-row" style="border-top:1px solid #E5E7EB;padding-top:10px"><span class="rc-icons">🖼 GIF ☰ ☺ 📅 📍</span><span class="spacer" style="flex:1"></span><span class="rc-ring"></span>${R.btn('Post', 'pill')}</div>
         </div>
@@ -179,16 +181,17 @@ const REPLICA = {
     </div>`;
   },
   wechat_mp(c) {
+    const a = c.article;
     return `${R.top('公众平台', ['图文消息', '素材库', '发表记录'], R.me(c.handle))}
     <div class="rc-body" style="grid-template-columns:1fr 200px">
       <div class="rc-card" style="gap:8px">
-        ${R.input(c.fill.title, '请在这里输入标题', '', 'big')}
+        ${R.input(a ? a.title : c.fill.title, '请在这里输入标题', '', 'big')}
         <div class="rc-row"><span class="rc-mini">作者</span>${R.input(c.handle || 'Park', '请输入作者', '', '')}</div>
         <div class="rc-tools"><i>B</i><i>I</i><i>U</i><i>|</i><i>H1</i><i>H2</i><i>|</i><i>≡</i><i>⁝≡</i><i>|</i><i>🖼</i><i>🔗</i><i>❝</i></div>
-        ${R.area(c.fill.body, '从这里开始写正文', '', 6, 'white')}
+        ${a ? R.doc(a.text, 11) : R.area(c.fill.body, '从这里开始写正文', '', 6, 'white')}
       </div>
       <div class="rc-v" style="gap:10px">
-        <div class="rc-card" style="gap:8px"><b style="font-size:12px">封面和摘要</b>${R.cover('拖拽或选择封面 2.35:1', 168, 72, c.shipped ? 'pic' : 'light')}${R.area(c.fill.body.slice(0, 60), '选填，不填会默认抓取正文前 54 字', '', 3)}</div>
+        <div class="rc-card" style="gap:8px"><b style="font-size:12px">封面和摘要</b>${R.cover('拖拽或选择封面 2.35:1', 168, 72, c.shipped ? 'pic' : 'light')}${R.area(a ? a.summary.slice(0, 54) : c.fill.body.slice(0, 60), '选填，不填会默认抓取正文前 54 字', '', 3)}</div>
         <div class="rc-card" style="gap:8px"><div class="rc-row" style="justify-content:space-between"><b style="font-size:12px">原创声明</b><span class="rc-tg on"></span></div><div class="rc-row" style="justify-content:space-between"><b style="font-size:12px">赞赏</b><span class="rc-tg"></span></div></div>
       </div>
     </div>
@@ -199,11 +202,10 @@ const REPLICA = {
     <div class="rc-body" style="grid-template-columns:1fr 240px">
       <div class="rc-card">
         ${R.f('标题', R.input(c.fill.title, '推送标题', R.count(c.fill.title, c.caps.title)))}
-        ${R.f('摘要', R.area(c.fill.body, '一句话说清这条讲什么', R.count(c.fill.body, c.caps.body), 3))}
-        ${R.f('推送到', R.sel('全部订阅用户'))}
-        ${R.f('跳转', R.sel('本条视频详情页'))}
+        ${R.f('摘要', R.area(c.article ? c.article.summary : c.fill.body, '一句话说清这条讲什么', R.count(c.article ? c.article.summary : c.fill.body, c.caps.body), 3))}
+        ${c.article ? R.f('正文', R.doc(c.article.text, 6)) : `${R.f('推送到', R.sel('全部订阅用户'))}${R.f('跳转', R.sel('本条视频详情页'))}`}
       </div>
-      <div class="rc-card" style="gap:8px"><b style="font-size:11px;color:#6B7280">卡片预览</b>${R.cover('', 208, 96, 'pic')}<b style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.fill.title || '标题会显示在这里')}</b><div class="rc-mini" style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden">${esc(c.fill.body || '摘要会显示在这里')}</div></div>
+      <div class="rc-card" style="gap:8px"><b style="font-size:11px;color:#6B7280">卡片预览</b>${R.cover('', 208, 96, 'pic')}<b style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((c.article && c.article.title) || c.fill.title || '标题会显示在这里')}</b><div class="rc-mini" style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden">${esc((c.article && c.article.summary) || c.fill.body || '摘要会显示在这里')}</div></div>
     </div>
     <div class="rc-foot">${R.btn('推送')}${R.btn('先存着', 'ghost')}</div>`;
   },
@@ -224,9 +226,9 @@ const REPLICA = {
 };
 
 function replica(p, d) {
-  const ctx = { ...p, video: d.video, live: p.job && p.job.state === 'running', shipped: p.shipped };
+  const ctx = { ...p, video: d.video, live: p.job && p.job.state === 'running', shipped: p.shipped, article: p.needs_article ? d.article : null };
   const draw = REPLICA[p.key] || REPLICA.miniprogram;
-  return `<div class="rc" style="--p:${esc(p.hue)}">${draw(ctx)}</div>`;
+  return `<div class="rc" style="--p:${esc(p.hue)}">${draw(ctx)}</div><span class="rc-badge">预览 · 这里点不了，在右边操作</span>`;
 }
 
 function fitReplicas(root) {
