@@ -226,18 +226,34 @@ def publish_article(article: Path, *, cover: Path, publish: bool = False, author
     wide = wide_cover(cover, article.parent / "公众号封面.jpg")
     token = get_token(creds or load_credentials(), send)
     thumb = upload_cover(wide, token, send)
-    draft = _post("draft/add", token, {"articles": [{
-        "title": title, "author": author or "", "digest": digest, "content": body,
-        "thumb_media_id": thumb, "need_open_comment": 1, "only_fans_can_comment": 0,
-    }]}, send)
-    media_id = str(draft.get("media_id") or "")
+    item = {"title": title, "author": author or "", "digest": digest, "content": body,
+            "thumb_media_id": thumb, "need_open_comment": 1, "only_fans_can_comment": 0}
+    # 同一篇文章再存：更新上次那份草稿，不再新建一份（9/27 草稿箱里攒了 3 份一样的）。
+    # 上次那份在后台被删了、或者已经发出去了，更新会失败，那就新建。
+    saved = article.parent / DRAFT_FILE
+    media_id, updated = "", False
+    try:
+        previous = str(json.loads(saved.read_text(encoding="utf-8")).get("media_id") or "")
+    except (OSError, ValueError):
+        previous = ""
+    if previous:
+        try:
+            _post("draft/update", token, {"media_id": previous, "index": 0, "articles": item}, send)
+            media_id, updated = previous, True
+        except WechatError:
+            media_id = ""
+    if not media_id:
+        draft = _post("draft/add", token, {"articles": [item]}, send)
+        media_id = str(draft.get("media_id") or "")
     if not media_id:
         raise WechatError("微信没返回草稿 id")
+    saved.write_text(json.dumps({"media_id": media_id}, ensure_ascii=False), encoding="utf-8")
     got = _post("draft/get", token, {"media_id": media_id}, send).get("news_item") or [{}]
     if (got[0] or {}).get("title") != title:
         raise WechatError("草稿建了，但读回来标题对不上：去草稿箱看一眼")
     result: dict[str, Any] = {"media_id": media_id, "title": title, "published": False, "layout": "gzh" if styled else "basic",
-                              "url": "https://mp.weixin.qq.com/", "message": "已存进公众号草稿箱" + ("（gzh 排版）" if styled else "（基础排版：还没用 gzh 排，或文章改过）")}
+                              "updated": updated,
+                              "url": "https://mp.weixin.qq.com/", "message": ("已更新草稿箱里原来那份" if updated else "已存进公众号草稿箱") + ("（gzh 排版）" if styled else "（基础排版：还没用 gzh 排，或文章改过）")}
     if not publish:
         return result
     try:
@@ -255,6 +271,9 @@ def publish_article(article: Path, *, cover: Path, publish: bool = False, author
         if code not in (1, None):
             return {**result, "publish_id": publish_id, "message": f"已存进草稿箱，发布没成功（状态 {code}）：去后台看看"}
     return {**result, "publish_id": publish_id, "message": "已提交发布，微信还在处理：过几分钟去公众号主页看"}
+
+
+DRAFT_FILE = "wechat-draft.json"
 
 
 def main() -> int:
