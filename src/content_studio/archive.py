@@ -15,7 +15,10 @@ Park：视频本身应该存在本地；大部分原片本机本来就有，按�
 
 同步发现新视频时：
 1. 先在本机按时长找原片（差 1.5 秒以内、文件日期在发布前后 30 天内），找到就硬链接进
-   「1 成片」——同一块盘上不占双倍空间，原位置照样能用；
+   「1 成片」——同一块盘上不占双倍空间，原位置照样能用。一个文件只给一条视频：它离谁的
+   时长最近就是谁的，已经当过成片的（包括别处的同一份拷贝）不再给别人。从抖音下回来的
+   文件（路径里有抖音作品号、或者旁边有 content_item.json）不算原片。只有抖音下载版的
+   视频，本机出现原片时也会换上原片；
 2. 找不到就标「缺」。Park 的原片不在这台电脑就在另一台电脑（不然他怎么传到抖音的），
    所以默认不从抖音下：9/26 实测抖音下载会截断、会下成别的视频、还会撞 403 风控。
    从抖音下（存成「1 成片/抖音下载版.mp4」）只在显式传 download=True 时才做，一次一条、
@@ -50,6 +53,9 @@ DOWNLOAD_NAME = "抖音下载版.mp4"
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv"}
 FINAL_HINTS = re.compile(r"上传版|剪映导出|抖音视频|final|成片|导出", re.IGNORECASE)
 MIN_BYTES = 3 * 1024 * 1024
+AWEME_ID = re.compile(r"^\d{19}$")
+DOWNLOADER_SIDECARS = ("content_item.json", "metadata.json")
+SKIP_DIRS = {"node_modules", "__pycache__"}
 
 
 def usable_root(raw: str | None) -> Path | None:
@@ -156,8 +162,21 @@ def ffprobe_duration(path: Path) -> float | None:
         return None
 
 
+def douyin_id_of(path: Path) -> str | None:
+    """A file that came from a Douyin download: the aweme id in its path, or "?" when only the
+    downloader's sidecar files give it away. None for everything else."""
+    for part in reversed(path.parts[:-1]):
+        if AWEME_ID.match(part):
+            return part
+    for folder in (path.parent, path.parent.parent):
+        if any((folder / name).is_file() for name in DOWNLOADER_SIDECARS):
+            return "?"
+    return None
+
+
 def scan_local(dirs: list[Path], *, root: Path, probe: ProbeFn = ffprobe_duration) -> list[dict[str, Any]]:
-    """Every video under the search folders (outside the library) with its duration, cached."""
+    """Every video under the search folders (outside the library) with its duration, cached.
+    Copies of a Douyin download elsewhere (same size and length) are marked as downloads too."""
     cache_path = root / SCAN_CACHE
     try:
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -169,50 +188,90 @@ def scan_local(dirs: list[Path], *, root: Path, probe: ProbeFn = ffprobe_duratio
         base = base.expanduser()
         if not base.is_dir():
             continue
-        for p in base.rglob("*"):
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS]
+            folder = Path(dirpath)
             try:
-                if p.suffix.lower() not in VIDEO_SUFFIXES or any(part.startswith(".") for part in p.parts):
+                if folder.resolve() == root_r or root_r in folder.resolve().parents:
+                    dirnames[:] = []
                     continue
-                if root_r in p.resolve().parents:
-                    continue
-                st = p.stat()
             except OSError:
                 continue
-            if st.st_size < MIN_BYTES:
-                continue
-            key = f"{p}|{st.st_size}|{int(st.st_mtime)}"
-            dur = cache[key] if key in cache else probe(p)
-            fresh[key] = dur
-            if dur:
-                out.append({"path": str(p), "dur": dur, "size": st.st_size, "mtime": st.st_mtime})
+            for name in filenames:
+                p = folder / name
+                if name.startswith(".") or p.suffix.lower() not in VIDEO_SUFFIXES:
+                    continue
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                if st.st_size < MIN_BYTES:
+                    continue
+                key = f"{p}|{st.st_size}|{int(st.st_mtime)}"
+                dur = cache[key] if key in cache else probe(p)
+                fresh[key] = dur
+                if dur:
+                    out.append({"path": str(p), "dur": dur, "size": st.st_size, "mtime": st.st_mtime, "douyin": douyin_id_of(p)})
     try:
         cache_path.write_text(json.dumps(fresh, ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
+    downloads = {(f["size"], round(f["dur"], 2)): f["douyin"] for f in out if f["douyin"]}
+    for f in out:
+        f["douyin"] = f["douyin"] or downloads.get((f["size"], round(f["dur"], 2)))
     return out
 
 
-def match_local(video: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _published(video: dict[str, Any]) -> date | None:
+    try:
+        return date.fromisoformat(str(video.get("published_at") or "")[:10])
+    except ValueError:
+        return None
+
+
+def _fits(video: dict[str, Any], f: dict[str, Any], seconds: float = MATCH_SECONDS) -> float | None:
+    """How far this file's length is from the video's, or None when it cannot be this video."""
     dur = video.get("duration_seconds")
     if not dur:
         return None
-    try:
-        published = date.fromisoformat(str(video.get("published_at") or "")[:10])
-    except ValueError:
-        published = None
+    diff = abs(f["dur"] - dur)
+    if diff > seconds:
+        return None
+    published = _published(video)
+    if published is not None and abs((datetime.fromtimestamp(f["mtime"]).date() - published).days) > DATE_WINDOW_DAYS:
+        return None
+    return diff
+
+
+def match_local(video: dict[str, Any], files: list[dict[str, Any]], *, rivals: list[dict[str, Any]] | None = None,
+                taken: set[int] | None = None) -> dict[str, Any] | None:
+    """The best local original for one video. A file only counts when this video is the one its
+    length is closest to (among `rivals`, the other own videos) and nobody has it yet (`taken`:
+    sizes of files already used as a final, so a copy elsewhere is the same file). Douyin
+    downloads never count as originals."""
     hits = []
     for f in files:
-        diff = abs(f["dur"] - dur)
-        if diff > MATCH_SECONDS:
+        if f.get("douyin") or (taken and f["size"] in taken):
             continue
-        if published is not None and abs((datetime.fromtimestamp(f["mtime"]).date() - published).days) > DATE_WINDOW_DAYS:
+        diff = _fits(video, f)
+        if diff is None:
+            continue
+        if any(r["video_id"] != video["video_id"] and (d := _fits(r, f)) is not None and d < diff for r in rivals or []):
             continue
         hits.append((0 if FINAL_HINTS.search(f["path"]) else 1, -(f["size"] / max(f["dur"], 1)), diff, f))
     if not hits:
         return None
     hits.sort(key=lambda h: h[:3])
     best = hits[0][3]
-    return {"path": best["path"], "diff": round(abs(best["dur"] - dur), 2), "candidates": len(hits)}
+    return {"path": best["path"], "size": best["size"], "diff": round(hits[0][2], 2), "candidates": len(hits)}
+
+
+def match_download(video: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A Douyin download of this very video that is already on disk somewhere."""
+    for f in files:
+        if f.get("douyin") == video["video_id"] and _fits(video, f, DOWNLOAD_TOLERANCE_SECONDS) is not None:
+            return f
+    return None
 
 
 def link_or_copy(src: Path, dest: Path) -> None:
@@ -266,30 +325,56 @@ def fetch(video: dict[str, Any], *, root: Path, cookie_path: Path, index: dict[s
 
 def archive_pending(videos: list[dict[str, Any]], *, root: Path | None, cookie_path: Path, search: list[Path] | None = None,
                     limit: int | None = None, delay: float = DEFAULT_DELAY_SECONDS, download_fn: DownloadFn | None = None,
-                    download: bool = False,
+                    download: bool = False, only: set[str] | None = None,
                     probe: ProbeFn = ffprobe_duration, on_progress: Callable[[dict[str, Any]], None] | None = None,
                     sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """Local originals first; download only the rest, one at a time. A failed download is
-    recorded and skipped; two failures in a row stop the run (it looks like risk control)."""
+    recorded and skipped; two failures in a row stop the run (it looks like risk control).
+    `videos` is every own video (who a file belongs to depends on all of them); `only` limits
+    which ones this run fills in."""
     result: dict[str, Any] = {"root": str(root) if root else None, "local": [], "done": [], "failed": []}
     if root is None:
         result["skipped"] = "作品库没配置，或者那块硬盘没插"
         return result
+    own = [v for v in videos if not v.get("is_image_post")]
     todo = pending(videos, root)
     index = read_index(root)
-    if search and todo:
+    upgrades = [v for v in own if v not in todo and source_of(root, v["video_id"]) == "douyin"]
+    if only is not None:
+        todo = [v for v in todo if v["video_id"] in only]
+        upgrades = [v for v in upgrades if v["video_id"] in only]
+    result["upgraded"] = []
+    if search and (todo or upgrades):
         if on_progress:
             on_progress({"state": "scanning", "total": len(todo)})
         files = scan_local(search, root=root, probe=probe)
-        for v in list(todo):
-            hit = match_local(v, files)
+        taken = {f.stat().st_size for vid in index if (f := video_file(root, vid)) is not None}
+        for v in todo + upgrades:
+            hit = match_local(v, files, rivals=own, taken=taken)
             if not hit:
                 continue
+            taken.add(hit["size"])
             folder = video_folder(root, v, index)
             dest = folder / FINAL_DIR / Path(hit["path"]).name
             link_or_copy(Path(hit["path"]), dest)
             index[v["video_id"]] = {"folder": str(folder), "path": str(dest), "source": "local"}
-            write_info(folder, v, f"成片：本机原片 {hit['path']}（时长差 {hit['diff']} 秒，{hit['candidates']} 个候选里挑的）")
+            if v in upgrades:
+                write_info(folder, v, f"成片：换成原片 {hit['path']}（时长差 {hit['diff']} 秒）；抖音下载版留着当备份")
+                result["upgraded"].append(v["video_id"])
+            else:
+                write_info(folder, v, f"成片：本机原片 {hit['path']}（时长差 {hit['diff']} 秒，{hit['candidates']} 个候选里挑的）")
+                result["local"].append(v["video_id"])
+        for v in todo:
+            if v["video_id"] in result["local"]:
+                continue
+            got = match_download(v, files)
+            if got is None:
+                continue
+            folder = video_folder(root, v, index)
+            dest = folder / FINAL_DIR / DOWNLOAD_NAME
+            link_or_copy(Path(got["path"]), dest)
+            index[v["video_id"]] = {"folder": str(folder), "path": str(dest), "source": "douyin"}
+            write_info(folder, v, f"成片：抖音下载版 {got['path']}（本机已有的抖音下载，码率低于原片）")
             result["local"].append(v["video_id"])
         write_index(root, index)
         todo = [v for v in todo if v["video_id"] not in result["local"]]
