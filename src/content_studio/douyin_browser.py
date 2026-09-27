@@ -75,9 +75,12 @@ async def user_posts(sec_uid: str, cookies: dict[str, str], *, pages: int, settl
             except asyncio.TimeoutError:
                 return got
             idle = 0
-            while got.pages < pages and got.has_more and idle < 2:
+            while got.pages < pages and got.has_more and idle < 4:
                 arrived.clear()
+                # 滚到底才会要下一页；页面有时还没排好，滚轮和 End 键都来一下，没来就再滚
+                await page.mouse.move(640, 600)
                 await page.mouse.wheel(0, 20000)
+                await page.keyboard.press("End")
                 try:
                     await asyncio.wait_for(arrived.wait(), timeout=settle * 3)
                     idle = 0
