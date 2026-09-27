@@ -172,13 +172,21 @@ def _explain(payload: dict[str, Any]) -> str:
     return MORE_ERRORS.get(code, f"微信返回 {code} {payload.get('errmsg', '')}")
 
 
-def _call(request: urllib.request.Request, send: Send | None) -> dict[str, Any]:
+NET_TRIES = 4
+
+
+def _call(request: urllib.request.Request, send: Send | None, *, pause: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    """网络断一下（9/28 VPN 下 SSL EOF）就等一会儿重试，最多 4 次；微信回了错误码不重试。"""
     opener = send or (lambda r: urllib.request.urlopen(r, timeout=60))
-    try:
-        with opener(request) as response:
-            payload = json.loads(response.read().decode() or "{}")
-    except OSError as exc:
-        raise WechatError(f"连不上微信：{exc}") from exc
+    for attempt in range(NET_TRIES):
+        try:
+            with opener(request) as response:
+                payload = json.loads(response.read().decode() or "{}")
+            break
+        except OSError as exc:
+            if attempt == NET_TRIES - 1:
+                raise WechatError(f"连不上微信（试了 {NET_TRIES} 次）：{exc}") from exc
+            pause(2 ** attempt)
     if payload.get("errcode"):
         raise WechatError(_explain(payload))
     return payload

@@ -169,3 +169,20 @@ def test_article_illustrations_are_uploaded_into_the_body(tmp_path: Path) -> Non
     assert steps.count("uploadimg") == 1
     content = json.loads(fake.calls[steps.index("add")][1].decode("utf-8"))["articles"][0]["content"]
     assert 'src="https://mmbiz.qpic.cn/pic1"' in content and "illustrations/01-a.png" not in content
+
+
+def test_flaky_network_is_retried_but_wechat_errors_are_not() -> None:
+    import urllib.request as ur
+
+    calls = []
+
+    def flaky(request):
+        calls.append(1)
+        if len(calls) < 3:
+            raise OSError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
+        return io.BytesIO(b'{"url": "https://mmbiz.qpic.cn/x"}')
+
+    assert wx._call(ur.Request("https://api.weixin.qq.com/x"), flaky, pause=lambda s: None)["url"].startswith("https://")
+    assert len(calls) == 3
+    with pytest.raises(wx.WechatError, match="试了 4 次"):
+        wx._call(ur.Request("https://api.weixin.qq.com/x"), lambda r: (_ for _ in ()).throw(OSError("eof")), pause=lambda s: None)
