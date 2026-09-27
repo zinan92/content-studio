@@ -398,7 +398,8 @@ function articleBlock(p, d) {
   const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台改 →</button>`;
   if (d.has_article) {
     return `<details class="pdl-art" id="pdlArtPrev"><summary>✓ 文章已经写好 · <b>点开看全文</b></summary><div class="md pdl-art-body"><span class="spin"></span></div></details>
-      <p class="pdl-note">${p.key === 'wechat_mp' ? '发的时候自动排版成公众号样式。' : ''}想改：${back}</p>`;
+      ${p.key === 'wechat_mp' ? `<div class="pdl-acts"><button class="btn" type="button" id="pdlWxPreview">看公众号里的样子</button><button class="btn ghost" type="button" id="pdlGzh" title="用 gzh-design 排成橄榄手记样式，5–10 分钟">用 gzh 排版</button></div>` : ''}
+      <p class="pdl-note">想改：${back}</p>`;
   }
   if (t.write_state === 'running') return `<p class="pdl-note"><span class="spin"></span> 正在写文章，一般 1–5 分钟，写完这里自动变。</p>`;
   const why = p.key === 'xiaohongshu' ? '小红书图文是把研习室那篇文章排成图' : `${esc(p.label)}发的是研习室那篇文章`;
@@ -666,6 +667,18 @@ function renderDialog() {
     try { toast((await api(`/api/topics/${t.id}/write`, { method: 'POST' })).message); await refresh(); } catch (err) { toast(err.message); art.disabled = false; }
   };
   $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => { dlg.close(); openWork(t.id, 'article'); }));
+  const wx = $('#pdlWxPreview', dlg);
+  if (wx) wx.onclick = () => {
+    const box = document.createElement('dialog');
+    box.className = 'wx-prev';
+    box.innerHTML = `<div class="wx-prev-h"><b>公众号里的样子</b><button class="btn small" type="button">关掉</button></div><iframe src="/api/topics/${t.id}/wechat-preview.html?t=${Date.now()}" title="公众号预览"></iframe>`;
+    document.body.appendChild(box);
+    box.querySelector('button').onclick = () => box.close();
+    box.onclose = () => box.remove();
+    box.showModal();
+  };
+  const gzh = $('#pdlGzh', dlg);
+  if (gzh) gzh.onclick = async () => { gzh.disabled = true; try { toast((await api(`/api/topics/${t.id}/layout`, { method: 'POST' })).message); } catch (err) { toast(err.message); gzh.disabled = false; } };
   const prev = $('#pdlArtPrev', dlg);
   if (prev) prev.addEventListener('toggle', async () => {
     const box = $('.pdl-art-body', prev);
