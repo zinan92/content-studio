@@ -1405,6 +1405,30 @@ def create_app(
             running = 50_000 + topic_id in writing
         return {"running": running, "error": layout_errors.get(topic_id), **gzh_layout.state(_article_path(topic))}
 
+    @app.get("/api/topics/{topic_id}/wechat-preview.html")
+    def wechat_preview(topic_id: int) -> Response:
+        """公众号里会是什么样：和发布时用的是同一份正文（有 gzh 排版用 gzh 的，没有用基础排版），手机宽度。"""
+        import html as html_mod
+
+        from . import gzh_layout, wechat_publish
+
+        article = _article_path(store.topic(topic_id))
+        if article is None or not article.is_file():
+            raise HTTPException(status_code=404, detail="还没写文章")
+        title, digest_text, body = wechat_publish.render_html(article.read_text(encoding="utf-8"))
+        styled = gzh_layout.current(article)
+        if styled is not None:
+            body = styled.read_text(encoding="utf-8")
+        kind = "gzh 排版（橄榄手记）" if styled is not None else "基础排版（还没用 gzh 排）"
+        doc = ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
+               '<body style="margin:0;background:#ededed;font-family:-apple-system,PingFang SC,sans-serif">'
+               f'<div style="max-width:390px;margin:0 auto;background:#fff;min-height:100vh;padding:20px 16px 40px;box-sizing:border-box">'
+               f'<div style="font-size:12px;color:#999;margin-bottom:10px">预览 · {html_mod.escape(kind)}</div>'
+               f'<h1 style="font-size:22px;line-height:1.4;margin:0 0 8px;color:#111">{html_mod.escape(title)}</h1>'
+               f'<div style="font-size:14px;color:#576b95;margin-bottom:18px">Park的AI世界</div>{body}</div></body></html>')
+        return Response(content=doc, media_type="text/html; charset=utf-8",
+                        headers={"Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
     @app.get("/api/topics/{topic_id}/layout.html")
     def layout_html(topic_id: int) -> Response:
         """排版预览。放进隔离的源：页面是模型生成的，不许碰工作台接口。"""

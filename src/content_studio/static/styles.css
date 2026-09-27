@@ -1473,3 +1473,9 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .pdl-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}
 .pdl-flow.quiet{margin:12px 0 0}
 .pub-shot .rc-badge{display:none}
+
+/* 公众号预览：手机宽度 */
+.wx-prev{border:0;border-radius:12px;padding:0;width:440px;max-width:95vw;height:88vh;overflow:hidden}
+.wx-prev::backdrop{background:rgba(0,0,0,.45)}
+.wx-prev-h{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #eee}
+.wx-prev iframe{width:100%;height:calc(88vh - 50px);border:0;display:block}
