@@ -91,3 +91,11 @@ def test_video_transcript_leads_the_material(tmp_path: Path) -> None:
     assert result["sources"][0]["title"] == writer.TRANSCRIPT_TITLE
     writer.write_article(_topic(), vault_raw=str(tmp_path), drafts_dir=tmp_path / "d", write_fn=fake)
     assert "视频原话" not in prompts[1]
+
+
+def test_prompt_forbids_crosspost_intro_and_hides_backfill_memo() -> None:
+    """Park 9/27：文字版第一句「这是我之前抖音的视频，整理成文字」对其他平台有引流嫌疑。"""
+    topic = {**_topic(), "memo": "补发：抖音发过的旧视频\n重点讲加息的逻辑"}
+    prompt = writer.build_prompt(topic, [])
+    assert "补发：抖音发过的旧视频" not in prompt and "重点讲加息的逻辑" in prompt
+    assert "不要写「之前在抖音发过」" in prompt
