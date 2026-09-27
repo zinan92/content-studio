@@ -360,8 +360,11 @@ function copyAll(p) {
    所以文章就地写（用这条视频的逐字稿），写好了也能跳回加工台去改。 */
 function articleBlock(p, d) {
   const t = d.topic;
-  const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台看、改这篇文章 →</button>`;
-  if (d.has_article) return `<p class="pdl-note">✓ 文章已经写好。${back}</p>`;
+  const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台改 →</button>`;
+  if (d.has_article) {
+    return `<details class="pdl-art" id="pdlArtPrev"><summary>✓ 文章已经写好 · <b>点开看全文</b></summary><div class="md pdl-art-body"><span class="spin"></span></div></details>
+      <p class="pdl-note">${p.key === 'wechat_mp' ? '发的时候自动排版成公众号样式。' : ''}想改：${back}</p>`;
+  }
   if (t.write_state === 'running') return `<p class="pdl-note"><span class="spin"></span> 正在写文章，一般 1–5 分钟，写完这里自动变。</p>`;
   const why = p.key === 'xiaohongshu' ? '小红书图文是把研习室那篇文章排成图' : `${esc(p.label)}发的是研习室那篇文章`;
   return `<p class="pdl-note">${why}，这条还没写。${t.video_project || t.published_video_id ? '会以这条视频的原话为主写。' : ''}</p>
@@ -369,7 +372,13 @@ function articleBlock(p, d) {
     <div class="pdl-acts"><button class="btn primary" type="button" id="pdlArticle">${t.write_state === 'failed' ? '重写文章' : '写文章'}</button></div>`;
 }
 
+/* 文字平台和小红书：不管在哪一步，最上面都能看到那篇文章（没写就能就地写） */
 function sideFor(p, d) {
+  const core = sideCore(p, d);
+  return (p.needs_article || p.key === 'xiaohongshu') && !p.shipped ? articleBlock(p, d) + core : core;
+}
+
+function sideCore(p, d) {
   const t = d.topic;
   const field = (label, value, hint) => value
     ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-copy="${esc(value)}">复制</button></div>` : '';
@@ -396,7 +405,7 @@ function sideFor(p, d) {
   if (p.job && p.job.state === 'awaiting_confirm') {
     const pl = p.job.payload || {};
     return `<div class="pn-confirm"><b>确认发布到${esc(pl.platform_label || p.label)}：${esc(pl.mode_label || '')}</b>
-        <dl><dt>标题</dt><dd>${esc(pl.title || '（无）')}</dd><dt>正文</dt><dd>${esc(pl.body || '（空）')}</dd><dt>话题</dt><dd>${esc((pl.tags || []).map((x) => '#' + x).join(' ') || '（无）')}</dd>${pl.video ? `<dt>视频</dt><dd>${esc(String(pl.video).split('/').pop())} · ${pl.video_mb} MB</dd>` : ''}</dl>
+        <dl><dt>标题</dt><dd>${esc(pl.title || '（无）')}</dd><dt>正文</dt><dd>${p.needs_article ? '研习室那篇文章全文（上面「点开看全文」）' : esc(pl.body || '（空）')}</dd><dt>话题</dt><dd>${esc((pl.tags || []).map((x) => '#' + x).join(' ') || '（无）')}</dd>${pl.video ? `<dt>视频</dt><dd>${esc(String(pl.video).split('/').pop())} · ${pl.video_mb} MB</dd>` : ''}</dl>
         <div class="acts"><button class="btn primary" type="button" data-pj-confirm="${p.job.id}">确认发布</button><button class="btn ghost" type="button" data-pj-cancel="${p.job.id}">取消</button></div></div>
       <p class="pdl-note">每次发布都要你看过上面的内容再点。发布后这张页会变成彩色。</p>`;
   }
@@ -423,7 +432,7 @@ function sideFor(p, d) {
     } else if (p.state === 'setup') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>${esc(p.login_hint)}</p>${manual}`;
     } else if (p.needs_article && !d.has_article) {
-      block = articleBlock(p, d);
+      block = '';
     } else if (!p.needs_article && !d.has_copy) {
       block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
     } else if (!d.video && !p.no_video) {
@@ -431,7 +440,7 @@ function sideFor(p, d) {
     } else if (ready) {
       block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? ({ x: '。发的是研习室那篇文章，封面按标题单独出一张纯文字的（不带人脸）；需要 X Premium', wechat_mp: '。发的是研习室那篇文章，自动排版（橄榄手记）+ 公众号封面；「发布」不推送粉丝', miniprogram: '。发的是「研习室文章」那一篇，排版和网页后台导入一样；再发一次会更新同一篇' }[p.key] || '') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
-        <p class="pdl-note">点了之后先看摘要，再由你确认。</p>${p.needs_article ? articleBlock(p, d) : ''}`;
+        <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
     } else {
       block = `<p class="pdl-note">${esc(p.note)}</p>${manual}`;
     }
@@ -439,7 +448,7 @@ function sideFor(p, d) {
   }
   return `<h4>${esc(p.treatment_label)}</h4>
     ${p.key === 'xiaohongshu'
-      ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${articleBlock(p, d)}${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
+      ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
 }
@@ -605,6 +614,16 @@ function renderDialog() {
     try { toast((await api(`/api/topics/${t.id}/write`, { method: 'POST' })).message); await refresh(); } catch (err) { toast(err.message); art.disabled = false; }
   };
   $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => { dlg.close(); openWork(t.id, 'article'); }));
+  const prev = $('#pdlArtPrev', dlg);
+  if (prev) prev.addEventListener('toggle', async () => {
+    const box = $('.pdl-art-body', prev);
+    if (!prev.open || box.dataset.loaded) return;
+    try {
+      const a = await api(`/api/topics/${t.id}/article`);
+      box.innerHTML = `<small>${a.markdown.replace(/\s/g, '').length} 字</small>${renderMarkdown(a.markdown)}`;
+      box.dataset.loaded = '1';
+    } catch (err) { box.innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+  });
   if (t.write_state === 'running') setTimeout(() => { if (dlg.open && PD.open === p.key) refresh(); }, 8000);
   // 小红书上传页要选图：点「打开小红书上传」时顺手在访达里打开图片文件夹，不用去后台找
   const xhsOpen = $('[data-xhs-open]', dlg);
