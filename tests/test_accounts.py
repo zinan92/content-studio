@@ -310,3 +310,38 @@ def test_public_videos_drops_ones_the_latest_sync_no_longer_saw(store: StudioSto
         conn.execute("UPDATE videos SET fetched_at = '2026-09-15T08:18:12+00:00' WHERE video_id = 'gone'")
         conn.execute("UPDATE videos SET fetched_at = '2026-09-26T01:53:54+00:00' WHERE video_id = 'kept'")
     assert [v["video_id"] for v in store.public_videos(acct["id"])] == ["kept"]
+
+
+class RefusedListClient(FakeClient):
+    """9/27：资料接口能读（作品 62 条），作品列表接口被拒，回来的是空页。"""
+
+    def __init__(self, browser: list[dict] | None) -> None:
+        super().__init__([{"items": [], "has_more": False}], profile={"nickname": "徐兆猛", "aweme_count": 62})
+        self.browser = browser
+
+    async def browser_posts(self, sec_uid: str, pages: int) -> list[dict]:
+        self.calls.append(("browser", pages))
+        return self.browser or []
+
+
+def test_refused_post_list_falls_back_to_the_browser(store: StudioStore) -> None:
+    acct = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    client = RefusedListClient([_post("1", 10), _post("2", 20)])
+    result = sync_account(store, acct["id"], client_factory=lambda: client, sleep=_no_sleep)
+    assert result["video_count"] == 2 and ("browser", 3) in client.calls
+
+
+def test_refused_everywhere_is_an_error_not_a_silent_zero(store: StudioStore) -> None:
+    acct = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    with pytest.raises(AccountError, match="拒绝读取作品列表"):
+        sync_account(store, acct["id"], client_factory=lambda: RefusedListClient(None), sleep=_no_sleep)
+    assert "拒绝读取作品列表" in store.account(acct["id"])["last_error"]
+
+
+def test_browser_pages_dedupe_and_track_has_more() -> None:
+    from content_studio.douyin_browser import Pages
+
+    got = Pages()
+    got.add({"aweme_list": [{"aweme_id": "1"}, {"aweme_id": "2"}], "has_more": 1})
+    got.add({"aweme_list": [{"aweme_id": "2"}, {"aweme_id": "3"}], "has_more": 0})
+    assert [p["aweme_id"] for p in got.posts] == ["1", "2", "3"] and got.pages == 2 and not got.has_more

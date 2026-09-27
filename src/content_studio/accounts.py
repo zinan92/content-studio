@@ -119,6 +119,7 @@ class ContentDownloaderClient:
         except ImportError as exc:
             raise AccountError("content-downloader 未安装或不可导入，无法同步抖音账号") from exc
         self._client = DouyinAPIClient(cookies=cookies)
+        self._cookies = dict(cookies)
 
     async def __aenter__(self) -> "ContentDownloaderClient":
         await self._client.__aenter__()
@@ -141,6 +142,13 @@ class ContentDownloaderClient:
 
     async def posts(self, sec_uid: str, cursor: int) -> dict[str, Any]:
         return await self._client.get_user_post(sec_uid, max_cursor=cursor, count=20)
+
+    async def browser_posts(self, sec_uid: str, pages: int) -> list[dict[str, Any]]:
+        """接口被拒时的兜底：真的 Chrome 打开主页，读页面自己拿到的列表。"""
+        from .douyin_browser import fetch_user_posts
+
+        got = await asyncio.to_thread(fetch_user_posts, sec_uid, self._cookies, pages=pages)
+        return got.posts
 
 
 def normalize_post(post: dict[str, Any]) -> dict[str, Any] | None:
@@ -292,6 +300,15 @@ async def _fetch_account(
             status_code = data.get("status_code") or 0
             if status_code:
                 raise AccountError(f"抖音返回错误码 {status_code}，可能是登录已过期：请重新登录抖音并导出 cookies")
+            if page == 0 and not data.get("items") and _has_works(profile):
+                # 资料说有作品、列表却是空的 = 接口被拒（9/27 起 /aweme/post/ 返回 403）。换真的浏览器读。
+                browser = getattr(client, "browser_posts", None)
+                if browser is None:
+                    break
+                posts = await browser(sec_uid, pages)
+                if not posts:
+                    raise AccountError("抖音拒绝读取作品列表（接口和浏览器都没拿到）。资料能读，作品读不到，先别信这次的数")
+                break
             posts.extend(data.get("items") or [])
             if not data.get("has_more"):
                 break
@@ -299,6 +316,13 @@ async def _fetch_account(
     if not posts and not profile:
         raise AccountError("没有拉到任何作品和资料，可能是登录已过期：请重新登录抖音并导出 cookies")
     return profile, posts
+
+
+def _has_works(profile: dict[str, Any]) -> bool:
+    try:
+        return int(profile.get("aweme_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 AUTO_SOURCE_PREFIX = "对标爆款"
