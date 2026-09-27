@@ -396,9 +396,12 @@ function copyAll(p) {
 function articleBlock(p, d) {
   const t = d.topic;
   const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台改 →</button>`;
+  if (d.has_article && p.key === 'wechat_mp') {
+    // 公众号：只有一个预览（排过就是 gzh 的样子，没排就是基础排版），排版状态就地显示
+    return `<div class="pdl-wx" id="pdlWx"><span class="spin"></span></div><p class="pdl-note">想改文章：${back}</p>`;
+  }
   if (d.has_article) {
     return `<details class="pdl-art" id="pdlArtPrev"><summary>✓ 文章已经写好 · <b>点开看全文</b></summary><div class="md pdl-art-body"><span class="spin"></span></div></details>
-      ${p.key === 'wechat_mp' ? `<div class="pdl-acts"><button class="btn" type="button" id="pdlWxPreview">看公众号里的样子</button><button class="btn ghost" type="button" id="pdlGzh" title="用 gzh-design 排成橄榄手记样式，5–10 分钟">用 gzh 排版</button></div>` : ''}
       <p class="pdl-note">想改：${back}</p>`;
   }
   if (t.write_state === 'running') return `<p class="pdl-note"><span class="spin"></span> 正在写文章，一般 1–5 分钟，写完这里自动变。</p>`;
@@ -492,7 +495,7 @@ function sideCore(p, d) {
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
-      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? ({ x: '。发的是研习室那篇文章，封面按标题单独出一张纯文字的（不带人脸）；需要 X Premium', wechat_mp: '。发的是研习室那篇文章，自动排版（橄榄手记）+ 公众号封面；「发布」不推送粉丝', miniprogram: '。发的是「研习室文章」那一篇，排版和网页后台导入一样；再发一次会更新同一篇' }[p.key] || '') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
+      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? ({ x: '。发的是研习室那篇文章，封面按标题单独出一张纯文字的（不带人脸）；需要 X Premium', wechat_mp: '。发的是研习室那篇文章 + 公众号封面，存进草稿箱，群发你在公众号后台自己点', miniprogram: '。发的是「研习室文章」那一篇，排版和网页后台导入一样；再发一次会更新同一篇' }[p.key] || '') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
         <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
     } else {
@@ -505,6 +508,42 @@ function sideCore(p, d) {
       ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
+}
+
+/* 公众号：先排版（gzh，5–10 分钟）→ 看公众号里的样子 → 存进草稿箱。状态就地显示，不靠 toast（弹窗会挡住它）。 */
+function openWxPreview(topicId) {
+  const box = document.createElement('dialog');
+  box.className = 'wx-prev';
+  box.innerHTML = `<div class="wx-prev-h"><b>公众号里的样子</b><button class="btn small" type="button">关掉</button></div><iframe src="/api/topics/${topicId}/wechat-preview.html?t=${Date.now()}" title="公众号预览"></iframe>`;
+  document.body.appendChild(box);
+  box.querySelector('button').onclick = () => box.close();
+  box.onclose = () => box.remove();
+  box.showModal();
+}
+
+async function renderWx(dlg, topicId) {
+  const box = $('#pdlWx', dlg);
+  if (!box) return;
+  let st;
+  try { st = await api(`/api/topics/${topicId}/layout`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
+  const fresh = st.has_layout && !st.stale;
+  const preview = `<button class="btn ${fresh ? 'primary' : ''}" type="button" data-wx-preview>看公众号里的样子</button>`;
+  if (st.running) {
+    box.innerHTML = `<p class="pdl-note"><span class="spin"></span> 正在用 gzh 排版（橄榄手记），一般 5–10 分钟，排好这里会变。可以先关掉弹窗做别的。</p>`;
+    setTimeout(() => { if (document.body.contains(box)) renderWx(dlg, topicId); }, 5000);
+    return;
+  }
+  box.innerHTML = fresh
+    ? `<p class="pdl-note">✓ 已用 gzh 排好版（${esc(st.theme || '橄榄手记')}）。先看一眼，没问题再存草稿箱。</p><div class="pdl-acts">${preview}<button class="btn ghost" type="button" data-wx-layout>重新排版</button></div>`
+    : `${st.error ? `<p class="pdl-note bad">上次排版失败：${esc(st.error)}</p>` : ''}
+       <p class="pdl-note">${st.stale ? '文章改过了，之前的排版作废了。' : '还没排版。'}先用 gzh 排一下（5–10 分钟），排好能预览；不排也能发，用的是基础排版。</p>
+       <div class="pdl-acts"><button class="btn primary" type="button" data-wx-layout>用 gzh 排版</button>${preview.replace('看公众号里的样子', '看基础排版的样子')}</div>`;
+  box.querySelector('[data-wx-preview]').onclick = () => openWxPreview(topicId);
+  box.querySelector('[data-wx-layout]').onclick = async (e) => {
+    e.target.disabled = true;
+    try { await api(`/api/topics/${topicId}/layout`, { method: 'POST' }); } catch (err) { box.insertAdjacentHTML('afterbegin', `<p class="pdl-note bad">${esc(err.message)}</p>`); }
+    renderWx(dlg, topicId);
+  };
 }
 
 /* 小红书图文：文章原文排成 3:4 图。01 是封面；打包下载的文件名就是顺序。 */
@@ -667,18 +706,7 @@ function renderDialog() {
     try { toast((await api(`/api/topics/${t.id}/write`, { method: 'POST' })).message); await refresh(); } catch (err) { toast(err.message); art.disabled = false; }
   };
   $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => { dlg.close(); openWork(t.id, 'article'); }));
-  const wx = $('#pdlWxPreview', dlg);
-  if (wx) wx.onclick = () => {
-    const box = document.createElement('dialog');
-    box.className = 'wx-prev';
-    box.innerHTML = `<div class="wx-prev-h"><b>公众号里的样子</b><button class="btn small" type="button">关掉</button></div><iframe src="/api/topics/${t.id}/wechat-preview.html?t=${Date.now()}" title="公众号预览"></iframe>`;
-    document.body.appendChild(box);
-    box.querySelector('button').onclick = () => box.close();
-    box.onclose = () => box.remove();
-    box.showModal();
-  };
-  const gzh = $('#pdlGzh', dlg);
-  if (gzh) gzh.onclick = async () => { gzh.disabled = true; try { toast((await api(`/api/topics/${t.id}/layout`, { method: 'POST' })).message); } catch (err) { toast(err.message); gzh.disabled = false; } };
+  if ($('#pdlWx', dlg)) renderWx(dlg, t.id);
   const prev = $('#pdlArtPrev', dlg);
   if (prev) prev.addEventListener('toggle', async () => {
     const box = $('.pdl-art-body', prev);
