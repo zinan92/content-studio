@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import re
 import os
 from pathlib import Path
 
@@ -32,6 +33,21 @@ ERRORS = {
     40013: ("appid", "AppID 不对"),
     45009: ("quota", "今天的接口调用次数用完了"),
 }
+
+
+def seen_ip(payload: dict[str, Any]) -> str | None:
+    """40164 时微信会说它看到的出口 IP（「invalid ip 1.2.3.4 ipv6 …」），把它交给 Park 去加白名单。"""
+    m = re.search(r"invalid ip ([0-9.]+)", str(payload.get("errmsg") or ""))
+    return m.group(1) if m else None
+
+
+def explain(payload: dict[str, Any]) -> tuple[str, str]:
+    code = payload.get("errcode")
+    reason, note = ERRORS.get(code, ("error", f"微信返回 {code} {payload.get('errmsg')}"))
+    ip = seen_ip(payload) if code == 40164 else None
+    if ip:
+        note = f"{note}：微信看到的是 {ip}，到公众号后台 → 设置与开发 → 开发接口管理 → IP 白名单 里加上它"
+    return reason, note
 
 
 def load_credentials(path: Path | None = None) -> dict[str, str]:
@@ -58,8 +74,7 @@ def fetch_token(creds: dict[str, str], *, opener: Any = None) -> dict[str, Any]:
         return {"ok": False, "reason": "network", "note": f"连不上微信：{exc}"}
     if payload.get("access_token"):
         return {"ok": True, "reason": "", "note": "官方接口可用"}
-    code = payload.get("errcode")
-    reason, note = ERRORS.get(code, ("error", f"微信返回 {code} {payload.get('errmsg')}"))
+    reason, note = explain(payload)
     return {"ok": False, "reason": reason, "note": note}
 
 
