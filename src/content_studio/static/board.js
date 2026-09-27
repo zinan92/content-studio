@@ -28,8 +28,10 @@ window.patchTopic = async (id, body, message) => {
   } catch (err) { toast(err.message); }
 };
 
-function openWork(id) {
+function openWork(id, tab) {
   S.workId = id;
+  // 从发布台跳回来直接落在某个页签（比如「研习室文章」）：先认下这个选题，免得切选题时被重置回提纲
+  if (tab && typeof VD !== 'undefined') { VD.topicId = id; VD.outline = null; VD.mode = 'preview'; VD.tab = tab; }
   if (window.invalidateWork) window.invalidateWork();
   go('work');
 }
