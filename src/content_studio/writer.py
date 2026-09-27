@@ -70,8 +70,14 @@ def topic_sources(vault_raw: str, topic: dict[str, Any], drafts_dir: Path) -> li
 
 TRANSCRIPT_TITLE = "视频原话（转写）"
 VIDEO_RULE = """
-- 这篇是 Park 那条视频的文字版。**观点、例子和先后顺序以「视频原话」为准**：把口语整理成书面语，
+- 这篇的内容来自 Park 那条视频的原话（文章里不要提视频）。**观点、例子和先后顺序以「视频原话」为准**：把口语整理成书面语，
   删掉口头禅和重复，但不要加视频里没说的观点、经历和数字；笔记只用来核对和补细节。"""
+
+
+def _memo_for_writer(memo: str | None) -> str:
+    """备注里工作台自己记的流程话（比如补发时的「补发：抖音发过的旧视频」）不是写作要求，不给写作看：
+    9/27 它让文章开头写成了「这是我之前在抖音发过的视频，整理成了文字版」。"""
+    return "\n".join(l for l in (memo or "").splitlines() if not l.strip().startswith("补发")).strip()
 
 
 def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None) -> str:
@@ -86,13 +92,15 @@ def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: st
 重要：khazix-writer 只提供写法。文章作者是 Park，不是卡兹克。
 - 不要出现卡兹克的署名、邮箱、投稿方式、「以上，既然看到这里了……三连」这类他的固定结尾。
 - 用第一人称「我」写 Park 的观点；素材里别人的观点要说明是谁说的，不要据为己有。
-- 素材里没有的事实、数字、人名不要编。{VIDEO_RULE if from_video else ""}
+- 素材里没有的事实、数字、人名不要编。
+- 文章要像专门为这个平台写的：不要提它来自哪个平台或哪条视频，不要写「之前在抖音发过」「整理成文字版」「补发」
+  「视频里」「关注我」这类话，也不要出现抖音、视频号、小红书、B 站等平台名（Park 9/27：其他平台会当成引流）。{VIDEO_RULE if from_video else ""}
 
 ## 选题
 {topic['title']}
 
 ## Park 的备注
-{topic.get('memo') or '（无）'}
+{_memo_for_writer(topic.get('memo')) or '（无）'}
 
 ## 素材
 {material}
