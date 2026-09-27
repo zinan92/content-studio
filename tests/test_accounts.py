@@ -298,3 +298,15 @@ def test_deep_sync_goes_further_back_and_keeps_what_was_there(store: StudioStore
     assert len(store.videos(account["id"])) == 2
     sync_account(store, account["id"], client_factory=lambda: FakeClient(pages), sleep=_no_sleep, pages=6)
     assert len(store.videos(account["id"])) == 6
+
+
+def test_public_videos_drops_ones_the_latest_sync_no_longer_saw(store: StudioStore) -> None:
+    """Park 9/27：只看公开的作品。设成私密后，公开主页的同步就不再刷新它。"""
+    acct = add_account(store, f"https://www.douyin.com/user/{SEC}")
+    base = {"platform": "douyin", "title": "t", "published_at": "2026-09-12T00:00:00+00:00", "duration_seconds": 10,
+            "is_top": 0, "is_image_post": 0, "likes": 0, "comments": 0, "shares": 0, "collects": 0, "views": 0}
+    store.upsert_videos(acct["id"], [{**base, "video_id": "gone"}, {**base, "video_id": "kept"}])
+    with store.tx() as conn:
+        conn.execute("UPDATE videos SET fetched_at = '2026-09-15T08:18:12+00:00' WHERE video_id = 'gone'")
+        conn.execute("UPDATE videos SET fetched_at = '2026-09-26T01:53:54+00:00' WHERE video_id = 'kept'")
+    assert [v["video_id"] for v in store.public_videos(acct["id"])] == ["kept"]

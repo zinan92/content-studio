@@ -144,3 +144,10 @@ def test_node_modules_is_not_scanned(tmp_path: Path) -> None:
     lib.mkdir()
     _video_file(src / "project" / "node_modules" / "pkg" / "clip.mp4", 4 * 1024 * 1024)
     assert archive.scan_local([src], root=lib, probe=probe_const(10.0)) == []
+
+
+def test_folder_date_is_beijing_time() -> None:
+    """库里存 UTC。9/12 00:01（北京）发的 FDE 存成 2026-09-11T16:01:11+00:00。"""
+    v = {"video_id": "x", "title": "给每一个业务匹配一个 FDE 业务、流量", "published_at": "2026-09-11T16:01:11+00:00"}
+    assert archive.folder_name(v).startswith("2026-09-12 ")
+    assert archive.publish_day({"published_at": "2026-09-11T15:59:00+00:00"}) == "2026-09-11"

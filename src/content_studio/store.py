@@ -798,6 +798,19 @@ class StudioStore:
             "SELECT * FROM videos WHERE account_id = ? ORDER BY published_at DESC", (account_id,)
         )
 
+    PUBLIC_WINDOW_SECONDS = 3600
+
+    def public_videos(self, account_id: int) -> list[dict[str, Any]]:
+        """还挂在公开主页上的作品。同步读的是公开主页，每次把看到的都刷新 fetched_at；
+        设成私密或删掉的，从此停在最后一次被看到的时间（Park 9/27：只看公开的作品）。"""
+        rows = self.videos(account_id)
+        stamps = [r["fetched_at"] for r in rows if r.get("fetched_at")]
+        if not stamps:
+            return rows
+        latest = datetime.fromisoformat(max(stamps))
+        return [r for r in rows if r.get("fetched_at")
+                and (latest - datetime.fromisoformat(r["fetched_at"])).total_seconds() <= self.PUBLIC_WINDOW_SECONDS]
+
     def account_snapshots(self, account_id: int, since_day: str) -> list[dict[str, Any]]:
         return self._rows(
             "SELECT s.video_id, s.fetched_at, s.views, v.published_at FROM video_snapshots s JOIN videos v ON v.video_id = s.video_id "

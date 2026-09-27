@@ -193,7 +193,7 @@ def archive_new_videos(store: StudioStore, *, cookie_path: Path, limit: int = 5,
     settings = store.settings()
     root = archive.usable_root(settings.get("douyin_archive"))
     search = [Path(p).expanduser() for p in settings.get("local_video_roots") or []]
-    return archive.archive_pending(store.videos(me["id"]), root=root, cookie_path=cookie_path, search=search, limit=limit, **kwargs)
+    return archive.archive_pending(store.public_videos(me["id"]), root=root, cookie_path=cookie_path, search=search, limit=limit, **kwargs)
 
 
 def run_sync(args: argparse.Namespace) -> int:
