@@ -1078,6 +1078,8 @@ def create_app(
             "release": _release_for(topic),
             "has_copy": bool(entry["title"] or entry["body"]),
             "has_article": article is not None,
+            # 左边那张仿平台页面要填真的内容：文章标题、摘要、正文开头（纯文字）
+            "article": _article_preview(article["markdown"]) if article else None,
             "entry": entry,
             "platforms": rows,
         }
@@ -1270,6 +1272,14 @@ def create_app(
         return {"started": True, "message": "开始写骨架，一般 1–2 分钟"}
 
     title_errors: dict[int, str] = {}
+
+    def _article_preview(markdown: str, limit: int = 3000) -> dict[str, Any]:
+        lines = markdown.splitlines()
+        title = next((l[2:].strip() for l in lines if l.startswith("# ")), "")
+        paras = [re.sub(r"[*_`>#]+", "", l).strip() for l in lines if l.strip() and not l.startswith("# ")]
+        paras = [p for p in paras if p]
+        text = "\n\n".join(paras)
+        return {"title": title, "summary": (paras[0] if paras else "")[:120], "text": text[:limit], "chars": len(re.sub(r"\s", "", text))}
 
     def _video_transcript(topic: dict[str, Any]) -> str:
         """视频项目里的原话：优先校对过标点的句子表，没有再用 SRT。"""
