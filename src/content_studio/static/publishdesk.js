@@ -530,6 +530,8 @@ async function renderWx(dlg, topicId) {
   const preview = `<button class="btn ${fresh ? 'primary' : ''}" type="button" data-wx-preview>看公众号里的样子</button>`;
   if (st.running) {
     box.innerHTML = `<p class="pdl-note"><span class="spin"></span> 正在用 gzh 排版（橄榄手记），一般 5–10 分钟，排好这里会变。可以先关掉弹窗做别的。</p>`;
+    const save = $('[data-pj-prepare="draft"]', dlg);
+    if (save) { save.disabled = true; save.textContent = '排版中，排好再存'; }
     setTimeout(() => { if (document.body.contains(box)) renderWx(dlg, topicId); }, 5000);
     return;
   }
@@ -538,6 +540,12 @@ async function renderWx(dlg, topicId) {
     : `${st.error ? `<p class="pdl-note bad">上次排版失败：${esc(st.error)}</p>` : ''}
        <p class="pdl-note">${st.stale ? '文章改过了，之前的排版作废了。' : '还没排版。'}先用 gzh 排一下（5–10 分钟），排好能预览；不排也能发，用的是基础排版。</p>
        <div class="pdl-acts"><button class="btn primary" type="button" data-wx-layout>用 gzh 排版</button>${preview.replace('看公众号里的样子', '看基础排版的样子')}</div>`;
+  // 存草稿按钮跟着排版走：排版中先别存（存进去就是基础排版）；没排就写明是基础排版
+  const save = $('[data-pj-prepare="draft"]', dlg);
+  if (save) {
+    save.disabled = false;
+    save.textContent = fresh ? '存进公众号草稿箱（gzh 排版）' : '存进公众号草稿箱（基础排版）';
+  }
   box.querySelector('[data-wx-preview]').onclick = () => openWxPreview(topicId);
   box.querySelector('[data-wx-layout]').onclick = async (e) => {
     e.target.disabled = true;

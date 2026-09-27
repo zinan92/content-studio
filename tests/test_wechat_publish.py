@@ -124,3 +124,29 @@ def test_yanxishi_key_travels_by_env_not_argv(tmp_path: Path, monkeypatch: pytes
     result = publisher.run(payload)
     assert result.get("ok") is True and seen["env"]["WORKBENCH_KEY"] == "K" * 96
     assert not any("K" * 96 in a for a in seen["cmd"])
+
+
+@pytest.mark.skipif(not shutil.which("magick"), reason="imagemagick missing")
+def test_saving_again_updates_the_same_draft(tmp_path: Path) -> None:
+    """9/27：每存一次就多一份草稿，草稿箱里攒了 3 份一样的。再存要更新原来那份。"""
+    article = tmp_path / "article.md"
+    article.write_text(ARTICLE, encoding="utf-8")
+    cover = tmp_path / "c.jpg"
+    subprocess.run(["magick", "-size", "1440x1080", "xc:white", str(cover)], check=True)
+    wx.publish_article(article, cover=cover, creds=CREDS, send=Fake(), wait=lambda s: None)
+    fake = Fake()
+    r = wx.publish_article(article, cover=cover, creds=CREDS, send=fake, wait=lambda s: None)
+    steps = [c[0].rsplit("/", 1)[-1] for c in fake.calls]
+    assert "update" in steps and "add" not in steps and r["updated"] is True and r["media_id"] == "DRAFT"
+    assert json.loads(fake.calls[steps.index("update")][1].decode("utf-8"))["media_id"] == "DRAFT"
+
+    class Gone(Fake):  # 上次那份在后台删了
+        def __call__(self, request):
+            if "draft/update" in request.full_url:
+                self.calls.append((request.full_url.split("?")[0], request.data))
+                return io.BytesIO(json.dumps({"errcode": 40007, "errmsg": "invalid media_id"}).encode())
+            return super().__call__(request)
+
+    gone = Gone()
+    r = wx.publish_article(article, cover=cover, creds=CREDS, send=gone, wait=lambda s: None)
+    assert [c[0].rsplit("/", 1)[-1] for c in gone.calls].count("add") == 1 and r["updated"] is False
