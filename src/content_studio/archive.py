@@ -6,12 +6,17 @@ Park：视频本身应该存在本地；大部分原片本机本来就有，按�
     作品库/
       00 总表.md
       originals.json              每条抖音视频 → 它的文件夹和成片（工作台读这个）
-      2026-09-24 某某标题/
+      2026-09-24 某某标题/            发布日期 + 抖音标题第一句
         info.md                   抖音链接、时长、每个文件从哪来
-        1 成片/                    发出去的那一版；抖音下载版.mp4 是从抖音下的备份
-        2 中间产物/
-        3 原始录像/
+        1 成片/                    2026-09-24 某某标题.mp4（原片）
+                                  2026-09-24 某某标题 抖音下载版.mp4（从抖音下的，码率低）
+        2 中间产物/                项目文件夹原样放；单个文件叫「文件夹名 <N>秒版.ext」
+        3 原始录像/                录制日期 + 录像标题，比如 2026-09-12 打造个人知识库….mp4
       _未发布/  _待确认/
+
+命名规则（Park 9/27 定的）：文件夹和文件都是「日期 名字」，后缀只有「抖音下载版」和
+「<N>秒版」两种，不让名字各写各的。成片是不是抖音下载的，看 originals.json 的 source，
+不靠文件名猜。
 
 同步发现新视频时：
 1. 先在本机按时长找原片（差 1.5 秒以内、文件日期在发布前后 30 天内），找到就硬链接进
@@ -49,7 +54,7 @@ DATE_WINDOW_DAYS = 30
 INDEX_FILE = "originals.json"
 SCAN_CACHE = ".local-scan.json"
 FINAL_DIR = "1 成片"
-DOWNLOAD_NAME = "抖音下载版.mp4"
+DOWNLOAD_SUFFIX = "抖音下载版"
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv"}
 FINAL_HINTS = re.compile(r"上传版|剪映导出|抖音视频|final|成片|导出", re.IGNORECASE)
 MIN_BYTES = 3 * 1024 * 1024
@@ -103,16 +108,32 @@ def video_file(root: Path | None, video_id: str) -> Path | None:
     folder = Path(entry.get("folder") or "") / FINAL_DIR
     if folder.is_dir():
         files = sorted((p for p in folder.iterdir() if p.suffix.lower() in VIDEO_SUFFIXES),
-                       key=lambda p: (p.name == DOWNLOAD_NAME, -p.stat().st_size))
+                       key=lambda p: (is_download(p), -p.stat().st_size))
         return files[0] if files else None
     return None
+
+
+def is_download(path: Path) -> bool:
+    return path.stem.endswith(DOWNLOAD_SUFFIX)
+
+
+def final_name(folder: Path, suffix: str) -> str:
+    """原片：和文件夹同名。"""
+    return f"{folder.name}{suffix.lower()}"
+
+
+def download_name(folder: Path) -> str:
+    return f"{folder.name} {DOWNLOAD_SUFFIX}.mp4"
 
 
 def source_of(root: Path | None, video_id: str) -> str | None:
     f = video_file(root, video_id)
     if f is None:
         return None
-    return "douyin" if f.name == DOWNLOAD_NAME else "local"
+    entry = read_index(root).get(video_id) or {}
+    if entry.get("source") in ("local", "douyin") and entry.get("path") == str(f):
+        return entry["source"]
+    return "douyin" if is_download(f) else "local"
 
 
 def pending(videos: list[dict[str, Any]], root: Path | None) -> list[dict[str, Any]]:
@@ -263,7 +284,7 @@ def match_local(video: dict[str, Any], files: list[dict[str, Any]], *, rivals: l
         return None
     hits.sort(key=lambda h: h[:3])
     best = hits[0][3]
-    return {"path": best["path"], "size": best["size"], "diff": round(hits[0][2], 2), "candidates": len(hits)}
+    return {"path": best["path"], "size": best["size"], "dur": best["dur"], "diff": round(hits[0][2], 2), "candidates": len(hits)}
 
 
 def match_download(video: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -315,7 +336,7 @@ def fetch(video: dict[str, Any], *, root: Path, cookie_path: Path, index: dict[s
         if want and (got is None or abs(got - want) > DOWNLOAD_TOLERANCE_SECONDS):
             raise RuntimeError(f"下回来的只有 {round(got or 0)} 秒，抖音上是 {round(want)} 秒，不是完整视频")
         folder = video_folder(root, video, index)
-        dest = folder / FINAL_DIR / DOWNLOAD_NAME
+        dest = folder / FINAL_DIR / download_name(folder)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(found[0]), dest)
         return dest
@@ -355,8 +376,11 @@ def archive_pending(videos: list[dict[str, Any]], *, root: Path | None, cookie_p
                 continue
             taken.add(hit["size"])
             folder = video_folder(root, v, index)
-            dest = folder / FINAL_DIR / Path(hit["path"]).name
-            link_or_copy(Path(hit["path"]), dest)
+            src = Path(hit["path"])
+            dest = folder / FINAL_DIR / final_name(folder, src.suffix)
+            if dest.exists() and not os.path.samefile(dest, src):
+                dest = dest.with_name(f"{folder.name} {round(hit['dur'])}秒版{src.suffix.lower()}")
+            link_or_copy(src, dest)
             index[v["video_id"]] = {"folder": str(folder), "path": str(dest), "source": "local"}
             if v in upgrades:
                 write_info(folder, v, f"成片：换成原片 {hit['path']}（时长差 {hit['diff']} 秒）；抖音下载版留着当备份")
@@ -371,7 +395,7 @@ def archive_pending(videos: list[dict[str, Any]], *, root: Path | None, cookie_p
             if got is None:
                 continue
             folder = video_folder(root, v, index)
-            dest = folder / FINAL_DIR / DOWNLOAD_NAME
+            dest = folder / FINAL_DIR / download_name(folder)
             link_or_copy(Path(got["path"]), dest)
             index[v["video_id"]] = {"folder": str(folder), "path": str(dest), "source": "douyin"}
             write_info(folder, v, f"成片：抖音下载版 {got['path']}（本机已有的抖音下载，码率低于原片）")

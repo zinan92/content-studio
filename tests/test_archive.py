@@ -46,6 +46,7 @@ def test_local_original_is_linked_into_its_folder_and_nothing_is_downloaded(tmp_
     assert r["local"] == ["v1"] and calls == []
     final = archive.video_file(lib, "v1")
     assert final is not None and final.parent.name == archive.FINAL_DIR and os.path.samefile(final, original)
+    assert final.name == final.parent.parent.name + ".mp4"  # 「日期 标题.mp4」，不带原来的「9月17日」
     assert archive.source_of(lib, "v1") == "local"
     assert "本机原片" in (final.parent.parent / "info.md").read_text(encoding="utf-8")
 
@@ -57,7 +58,7 @@ def test_downloads_are_checked_serial_and_two_failures_stop(tmp_path: Path) -> N
     fn, calls = _fake_download(fail_on={"v3", "v2"})
     r = archive.archive_pending(vids, root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(100.0), sleep=lambda _s: None, download=True)
     assert calls == ["v4", "v3", "v2"] and r["done"] == ["v4"] and r["stopped"]
-    assert archive.video_file(lib, "v4").name == archive.DOWNLOAD_NAME
+    assert archive.is_download(archive.video_file(lib, "v4"))
     assert json.loads((lib / archive.INDEX_FILE).read_text(encoding="utf-8"))["v4"]["source"] == "douyin"
     assert not (lib / ".downloading" / "v3").exists()
 
@@ -106,7 +107,7 @@ def test_one_file_goes_to_one_video_and_downloads_are_not_originals(tmp_path: Pa
     third = {"video_id": "7612963821522554158", "title": "AI时代的明牌机会 但是大部分人", "published_at": "2026-03-03", "duration_seconds": 2299.8}
     r = archive.archive_pending([first, third], root=lib, cookie_path=tmp_path / "c", search=[nas], probe=probe_const(2299.83))
     assert archive.video_file(lib, first["video_id"]) is None and r["missing"] == [first["video_id"]]
-    assert archive.video_file(lib, third["video_id"]).name == archive.DOWNLOAD_NAME
+    assert archive.video_file(lib, third["video_id"]).name == "2026-03-03 AI时代的明牌机会 抖音下载版.mp4"
     assert archive.source_of(lib, third["video_id"]) == "douyin"
 
 
@@ -133,7 +134,9 @@ def test_an_original_replaces_a_douyin_download(tmp_path: Path) -> None:
     _video_file(src / "final" / "AI时代如何避免无效努力.mp4", 5 * 1024 * 1024)
     r = archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", search=[src], probe=probe_const(1047.13))
     assert r["upgraded"] == ["v9"] and archive.source_of(lib, "v9") == "local"
-    assert (archive.video_file(lib, "v9").parent / archive.DOWNLOAD_NAME).exists()
+    final = archive.video_file(lib, "v9")
+    assert final.name == final.parent.parent.name + ".mp4"
+    assert (final.parent / archive.download_name(final.parent.parent)).exists()
 
 
 def test_node_modules_is_not_scanned(tmp_path: Path) -> None:
