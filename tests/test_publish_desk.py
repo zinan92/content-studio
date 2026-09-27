@@ -116,3 +116,19 @@ def test_desk_endpoint_empty(client):
     d = client.get("/api/publish/desk").json()
     assert d["topic"] is None and d["candidates"] == [] and len(d["platforms"]) == 9
     assert d["waiting"] is None and d["others"] == []
+
+
+def test_platforms_come_in_publishing_order_and_next_skips_done_and_skipped() -> None:
+    """Park 9/27：抖音 → 视频号 → B 站 → YouTube → 小红书 → 公众号 → 研习室 → X → 小宇宙，一次只亮下一步。"""
+    from content_studio import publish_desk as pd
+
+    rows = pd.in_sequence([{"key": k, "on": True} for k in ("x", "youtube", "douyin", "channels", "bilibili")])
+    assert [r["key"] for r in rows] == ["douyin", "channels", "bilibili", "youtube", "x"]
+    rows[0]["shipped"] = True
+    assert pd.next_step(rows) == "channels"
+    rows[1]["skipped"] = True
+    rows[2]["on"] = False
+    assert pd.next_step(rows) == "youtube"
+    for r in rows:
+        r["shipped"] = True
+    assert pd.next_step(rows) is None

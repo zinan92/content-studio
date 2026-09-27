@@ -264,12 +264,44 @@ function tile(p, d) {
   const stamp = p.shipped ? `<span class="pub-stamp">✓ 已发${p.record && p.record.published_at ? ' · ' + day(p.record.published_at) : ''}</span>`
     : p.job && p.job.state === 'running' ? '<span class="pub-stamp live">发布中</span>'
       : p.job && p.job.state === 'awaiting_confirm' ? '<span class="pub-stamp wait">等你确认</span>' : '';
-  return `<article class="pub-tile ${p.shipped ? 'shipped' : ''} ${live ? 'live' : ''} ${p.on ? '' : 'off'}" data-key="${p.key}">
-    <button class="pub-shot" type="button" data-pd-open="${p.key}" aria-label="打开${esc(p.label)}">${replica(p, d)}${stamp}</button>
+  const steps = d.platforms.filter((x) => x.on);
+  const n = steps.indexOf(p) + 1;
+  const isNext = d.topic && d.next === p.key;
+  const skip = p.skipped ? '<span class="pub-stamp skip">这条不发</span>' : '';
+  return `<article class="pub-tile ${p.shipped ? 'shipped' : ''} ${live ? 'live' : ''} ${p.on ? '' : 'off'} ${isNext ? 'next' : ''} ${p.skipped ? 'skipped' : ''}" data-key="${p.key}">
+    ${n ? `<span class="pub-step">${isNext ? '下一步 · ' : ''}${n}</span>` : ''}
+    <button class="pub-shot" type="button" data-pd-open="${p.key}" aria-label="打开${esc(p.label)}">${replica(p, d)}${stamp}${skip}</button>
     <div class="pub-cap"><i class="plat s-${p.state}"${p.state === 'manual' || p.state === 'blocked' ? '' : ` style="--plat:${esc(p.hue)}"`}>${esc(p.mark)}</i><b>${esc(p.label)}</b><small title="${esc(p.handle || '')}">${esc(p.handle || '')}</small></div>
     <div class="pub-how"><span class="ps ${cls}">${label}</span><span>${esc(p.treatment_label)}</span></div>
     <div class="pub-act">${tileAction(p, d)}</div>
   </article>`;
+}
+
+/* 按顺序带着走：这一条现在该发哪个平台 */
+function guideBar(d) {
+  const steps = d.platforms.filter((x) => x.on);
+  const done = steps.filter((x) => x.shipped || x.skipped).length;
+  const next = steps.find((x) => x.key === d.next);
+  if (!next) return `<div class="pub-guide done"><b>✓ ${steps.length} 步都走完了</b><span>该发的都发了（跳过的不算）。下面点「这条发布完毕」收尾。</span></div>`;
+  const i = steps.indexOf(next) + 1;
+  return `<div class="pub-guide"><span class="num">第 ${i} 步 / 共 ${steps.length} 步</span><b>下一个：${esc(next.label)}</b>
+    <small>${done} 个已经发了或跳过</small><span class="spacer"></span>
+    <button class="btn primary" type="button" data-pd-open="${next.key}">开始 →</button>
+    <button class="btn ghost" type="button" data-pd-skip="${next.key}">这条不发${esc(next.label)}，跳过</button></div>`;
+}
+
+async function setSkip(topicId, key, skip) {
+  await api(`/api/topics/${topicId}/skip`, { method: 'PUT', body: { platform: key, skip } });
+  PD.data = null; $('#publishBody').dataset.sig = '';
+  await loadDesk(true);
+}
+
+/* 一个平台发完（或跳过）就接着打开下一个 */
+function goNext() {
+  const d = PD.data;
+  const dlg = $('#pubDlg');
+  if (d && d.next) { PD.open = d.next; renderDialog(); if (!dlg.open) dlg.showModal(); }
+  else if (dlg.open) dlg.close();
 }
 
 /* ================= 页面 ================= */
@@ -285,7 +317,7 @@ window.VIEWS.publish = {
     // 只在内容真变了才重画：15 秒一次的刷新如果每次都重画，弹窗里正在输的链接会被抹掉。
     const sig = JSON.stringify([PD.topicId, d.has_copy, d.has_article, d.video && d.video.mb,
       d.candidates.map((c) => [c.id, c.stage, c.shipped_count]),
-      d.platforms.map((p) => [p.shipped, p.state, p.on, p.handoff_done, p.job && p.job.id, p.job && p.job.state, p.fill.title, p.fill.body])]);
+      d.next, d.platforms.map((p) => [p.shipped, p.skipped, p.state, p.on, p.handoff_done, p.job && p.job.id, p.job && p.job.state, p.fill.title, p.fill.body])]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
     const shipped = d.platforms.filter((p) => p.shipped).length;
@@ -316,7 +348,7 @@ window.VIEWS.publish = {
         <div class="pub-topics"><small>发这条</small>${chip({ ...d.topic, shipped_count: (d.candidates.find((c) => c.id === d.topic.id) || {}).shipped_count }, d.topic.id)}
         ${pick.map((c) => chip(c, d.topic.id)).join('')}</div>
         ${closeBar(d)}
-      </div>${others}
+      </div>${guideBar(d)}${others}
       <div class="pub-grid">${d.platforms.map((p) => tile(p, d)).join('')}</div>`;
     }
     fitReplicas(body);
@@ -325,6 +357,7 @@ window.VIEWS.publish = {
     $$('[data-pd-close]', body).forEach((b) => (b.onclick = () => closeTopic(d.topic.id, b.dataset.pdClose === 'reopen')));
     $$('[data-pd-topic]', body).forEach((b) => (b.onclick = () => { PD.topicId = Number(b.dataset.pdTopic); S.publishId = PD.topicId; PD.data = null; history.replaceState(null, '', `#publish/${PD.topicId}`); renderView(); }));
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
+    $$('[data-pd-skip]', body).forEach((b) => (b.onclick = async () => { try { await setSkip(d.topic.id, b.dataset.pdSkip, true); renderView(); } catch (err) { toast(err.message); } }));
     const edit = $('#pdEditCopy');
     if (edit) edit.onclick = () => openCopy(d.topic);
     const coverBtn = $('#pdCover');
@@ -377,7 +410,14 @@ function articleBlock(p, d) {
 /* 文字平台和小红书：不管在哪一步，最上面都能看到那篇文章（没写就能就地写） */
 function sideFor(p, d) {
   const core = sideCore(p, d);
-  return (p.needs_article || p.key === 'xiaohongshu') && !p.shipped ? articleBlock(p, d) + core : core;
+  const next = d.platforms.find((x) => x.key === d.next);
+  const flow = p.skipped
+    ? `<div class="pdl-flow"><b>这条不发${esc(p.label)}</b><button class="linklike" type="button" id="pdlUnskip">撤销，还是要发</button>${next ? `<button class="btn primary" type="button" id="pdlNext">下一个：${esc(next.label)} →</button>` : ''}</div>`
+    : p.shipped
+      ? (next ? `<div class="pdl-flow"><b>✓ ${esc(p.label)}发完了</b><button class="btn primary" type="button" id="pdlNext">下一个：${esc(next.label)} →</button></div>` : '<div class="pdl-flow"><b>✓ 顺序里的平台都走完了</b></div>')
+      : `<div class="pdl-flow quiet"><button class="linklike" type="button" id="pdlSkip">这条不发${esc(p.label)}，跳过 →</button></div>`;
+  const art = (p.needs_article || p.key === 'xiaohongshu') && !p.shipped && !p.skipped ? articleBlock(p, d) : '';
+  return (p.shipped || p.skipped ? flow : '') + art + core + (p.shipped || p.skipped ? '' : flow);
 }
 
 function sideCore(p, d) {
@@ -606,7 +646,7 @@ function renderDialog() {
   if (mark) mark.onclick = async () => {
     const url = $('#pdlUrl', dlg).value.trim() || null;
     if (url && !/^https?:\/\//.test(url)) { toast('链接要以 https:// 开头'); return; }
-    try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: true, url } }); toast(`${p.label} 记为已发`); await refresh(); } catch (err) { toast(err.message); }
+    try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: true, url } }); toast(`${p.label} 记为已发`); await refresh(); goNext(); } catch (err) { toast(err.message); }
   };
   if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
   if (p.key === 'xiaohongshu') renderXhs(dlg, t.id);
@@ -630,6 +670,11 @@ function renderDialog() {
   // 小红书上传页要选图：点「打开小红书上传」时顺手在访达里打开图片文件夹，不用去后台找
   const xhsOpen = $('[data-xhs-open]', dlg);
   if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
+  const nextBtn = $('#pdlNext', dlg); if (nextBtn) nextBtn.onclick = () => goNext();
+  const skipBtn = $('#pdlSkip', dlg);
+  if (skipBtn) skipBtn.onclick = async () => { try { await setSkip(t.id, p.key, true); toast(`这条不发${p.label}`); renderView(); goNext(); } catch (err) { toast(err.message); } };
+  const unskip = $('#pdlUnskip', dlg);
+  if (unskip) unskip.onclick = async () => { try { await setSkip(t.id, p.key, false); renderView(); renderDialog(); } catch (err) { toast(err.message); } };
   const unmark = $('#pdlUnmark', dlg);
   if (unmark) unmark.onclick = async () => {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: false, url: null } }); toast('已撤销'); await refresh(); } catch (err) { toast(err.message); }

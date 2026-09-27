@@ -69,11 +69,30 @@ def _job_view(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 发布顺序（Park 9/27）：抖音发完，视频号 → B 站 → YouTube；再做图文和文字：小红书 → 公众号 → 研习室 → X；最后小宇宙。
+# 发布台按这个顺序排，一次只亮「下一步」，不用自己想下一个去哪。
+SEQUENCE = ("douyin", "channels", "bilibili", "youtube", "xiaohongshu", "wechat_mp", "miniprogram", "x", "xiaoyuzhou")
+
+
+def in_sequence(rows_: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rank = {k: i for i, k in enumerate(SEQUENCE)}
+    return sorted(rows_, key=lambda r: rank.get(r["key"], len(SEQUENCE)))
+
+
+def next_step(rows_: list[dict[str, Any]]) -> str | None:
+    """顺序里第一个开着、没发、没跳过的平台。"""
+    for r in rows_:
+        if r.get("on") and not r.get("shipped") and not r.get("skipped"):
+            return r["key"]
+    return None
+
+
 def rows(platform_rows: list[dict[str, Any]], *, specs: dict[str, dict[str, Any]], publishers: dict[str, dict[str, Any]],
          readiness: dict[str, dict[str, Any]], records: dict[str, dict[str, Any]], jobs: list[dict[str, Any]],
-         entry: dict[str, Any], douyin_linked: bool = False, handoff_done: bool = False) -> list[dict[str, Any]]:
+         entry: dict[str, Any], douyin_linked: bool = False, handoff_done: bool = False,
+         skips: set[str] | None = None) -> list[dict[str, Any]]:
     out = []
-    for p in platform_rows:
+    for p in in_sequence(platform_rows):
         key = p["key"]
         spec = specs.get(key) or {}
         channel = readiness.get(key) or {}
@@ -97,6 +116,7 @@ def rows(platform_rows: list[dict[str, Any]], *, specs: dict[str, dict[str, Any]
             "needs_article": bool(channel.get("needs_article")),
             "can_auto": can_auto,
             "handoff_done": handoff_done if how == "handoff" else None,
+            "skipped": key in (skips or set()) and not shipped,
         })
     return out
 
