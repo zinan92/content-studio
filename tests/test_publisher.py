@@ -70,3 +70,11 @@ def test_run_parses_json_and_explains_login(tmp_path: Path) -> None:
     bad = _specs(tmp_path, "import json; print(json.dumps({'ok': False, 'status': 'cookie_invalid'})); raise SystemExit(2)")
     failed = pub.run(payload, publishers=bad)
     assert failed["ok"] is False and "重新扫码" in pub.explain(failed)
+
+
+def test_after_publishing_open_the_page_to_confirm() -> None:
+    """Park 9/27：存了 X 草稿不知道发过去没有，还得自己去找。发完直接打开那一页。"""
+    assert pub.confirm_url("x", {"id": "2104231031381635072"}) == "https://x.com/compose/articles/edit/2104231031381635072"
+    assert pub.confirm_url("wechat_mp", {"media_id": "m"}) == "https://mp.weixin.qq.com/"
+    assert pub.confirm_url("bilibili", {"platform_url": "https://member.bilibili.com/platform/upload-manager/article", "url": "https://www.bilibili.com/video/BV1"}).startswith("https://member.bilibili.com")
+    assert pub.confirm_url("youtube", {"video_id": "abc"}) == "https://studio.youtube.com/video/abc/edit"
