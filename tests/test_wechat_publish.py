@@ -27,6 +27,8 @@ class Fake:
             reply = {"access_token": "T"}
         elif "add_material" in url:
             reply = {"media_id": "THUMB"}
+        elif "uploadimg" in url:
+            reply = {"url": "https://mmbiz.qpic.cn/pic1"}
         elif "draft/add" in url:
             reply = {"media_id": "DRAFT"}
         elif "draft/get" in url:
@@ -150,3 +152,20 @@ def test_saving_again_updates_the_same_draft(tmp_path: Path) -> None:
     gone = Gone()
     r = wx.publish_article(article, cover=cover, creds=CREDS, send=gone, wait=lambda s: None)
     assert [c[0].rsplit("/", 1)[-1] for c in gone.calls].count("add") == 1 and r["updated"] is False
+
+
+@pytest.mark.skipif(not shutil.which("magick"), reason="imagemagick missing")
+def test_article_illustrations_are_uploaded_into_the_body(tmp_path: Path) -> None:
+    """Park 9/27：公众号文章也要带配图。本地图传到微信，正文里换成微信的地址。"""
+    (tmp_path / "illustrations").mkdir()
+    subprocess.run(["magick", "-size", "320x180", "xc:white", str(tmp_path / "illustrations" / "01-a.png")], check=True)
+    article = tmp_path / "article.md"
+    article.write_text(ARTICLE + "\n![小黑推加息](illustrations/01-a.png)\n", encoding="utf-8")
+    cover = tmp_path / "c.jpg"
+    subprocess.run(["magick", "-size", "1440x1080", "xc:white", str(cover)], check=True)
+    fake = Fake()
+    wx.publish_article(article, cover=cover, creds=CREDS, send=fake, wait=lambda s: None)
+    steps = [c[0].rsplit("/", 1)[-1] for c in fake.calls]
+    assert steps.count("uploadimg") == 1
+    content = json.loads(fake.calls[steps.index("add")][1].decode("utf-8"))["articles"][0]["content"]
+    assert 'src="https://mmbiz.qpic.cn/pic1"' in content and "illustrations/01-a.png" not in content

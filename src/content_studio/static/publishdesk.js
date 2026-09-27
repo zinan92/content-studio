@@ -401,12 +401,13 @@ function copyAll(p) {
 function articleBlock(p, d) {
   const t = d.topic;
   const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台改 →</button>`;
+  const figs = '<div class="pdl-figs" id="pdlFigs"></div>';
   if (d.has_article && p.key === 'wechat_mp') {
     // 公众号：只有一个预览（排过就是 gzh 的样子，没排就是基础排版），排版状态就地显示
-    return `<div class="pdl-wx" id="pdlWx"><span class="spin"></span></div><p class="pdl-note">想改文章：${back}</p>`;
+    return `${figs}<div class="pdl-wx" id="pdlWx"><span class="spin"></span></div><p class="pdl-note">想改文章：${back}</p>`;
   }
   if (d.has_article) {
-    return `<details class="pdl-art" id="pdlArtPrev"><summary>✓ 文章已经写好 · <b>点开看全文</b></summary><div class="md pdl-art-body"><span class="spin"></span></div></details>
+    return `${figs}<details class="pdl-art" id="pdlArtPrev"><summary>✓ 文章已经写好 · <b>点开看全文</b></summary><div class="md pdl-art-body"><span class="spin"></span></div></details>
       <p class="pdl-note">想改：${back}</p>`;
   }
   if (t.write_state === 'running') return `<p class="pdl-note"><span class="spin"></span> 正在写文章，一般 1–5 分钟，写完这里自动变。</p>`;
@@ -513,6 +514,29 @@ function sideCore(p, d) {
       ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
+}
+
+/* 配图（小黑手绘，Codex 画）：文字版都过一遍。写完文章会自动配；这里看进度、看图、重配。 */
+async function renderFigs(dlg, topicId) {
+  const box = $('#pdlFigs', dlg);
+  if (!box) return;
+  let st;
+  try { st = await api(`/api/topics/${topicId}/illustrate`); } catch (err) { box.innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
+  const thumbs = st.images.length ? `<div class="pdl-fig-grid">${st.images.map((i) => `<a href="${i.url}" target="_blank" rel="noopener" title="${esc(i.caption)}"><img src="${i.url}" alt="${esc(i.caption)}" loading="lazy"></a>`).join('')}</div>` : '';
+  if (st.running) {
+    box.innerHTML = `<p class="pdl-note"><span class="spin"></span> 正在配图（小黑手绘，一张一张画），一般 5–10 分钟。</p>${thumbs}`;
+    setTimeout(() => { if (document.body.contains(box)) renderFigs(dlg, topicId); }, 8000);
+    return;
+  }
+  box.innerHTML = `${st.error ? `<p class="pdl-note bad">配图失败：${esc(st.error)}</p>` : ''}
+    <p class="pdl-note">${st.images.length ? `配图 ${st.images.length} 张，已经插在文章里` : '还没配图'}
+    <button class="linklike" type="button" data-fig-go>${st.images.length ? '重新配图' : '配图（5–10 分钟）'}</button></p>${thumbs}`;
+  box.querySelector('[data-fig-go]').onclick = async (e) => {
+    if (st.images.length && !confirm('重新配图会换掉现在这几张，排好的公众号版式和小红书图也要重出。继续？')) return;
+    e.target.disabled = true;
+    try { await api(`/api/topics/${topicId}/illustrate`, { method: 'POST' }); } catch (err) { toast(err.message); }
+    renderFigs(dlg, topicId);
+  };
 }
 
 /* 公众号：先排版（gzh，5–10 分钟）→ 看公众号里的样子 → 存进草稿箱。状态就地显示，不靠 toast（弹窗会挡住它）。 */
@@ -720,13 +744,15 @@ function renderDialog() {
   };
   $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => { dlg.close(); openWork(t.id, 'article'); }));
   if ($('#pdlWx', dlg)) renderWx(dlg, t.id);
+  if ($('#pdlFigs', dlg)) renderFigs(dlg, t.id);
   const prev = $('#pdlArtPrev', dlg);
   if (prev) prev.addEventListener('toggle', async () => {
     const box = $('.pdl-art-body', prev);
     if (!prev.open || box.dataset.loaded) return;
     try {
       const a = await api(`/api/topics/${t.id}/article`);
-      box.innerHTML = `<small>${a.markdown.replace(/\s/g, '').length} 字</small>${renderMarkdown(a.markdown)}`;
+      const md = a.markdown.replace(/\]\(illustrations\//g, `](/api/topics/${t.id}/article-file/illustrations/`);
+      box.innerHTML = `<small>${a.markdown.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\s/g, '').length} 字</small>${renderMarkdown(md)}`;
       box.dataset.loaded = '1';
     } catch (err) { box.innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
   });
