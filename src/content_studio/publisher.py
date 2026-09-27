@@ -322,6 +322,27 @@ def result_url(result: dict[str, Any]) -> str | None:
     return None
 
 
+# 发完（尤其是存草稿、要去平台确认的）之后该打开哪一页：Park 9/27「存了 X 草稿，我都不知道发过去没有，
+# 还得自己去 x.com 找」。能直达那一篇就直达，不能就打开草稿箱 / 稿件管理。
+CONFIRM_PAGES = {
+    "wechat_mp": "https://mp.weixin.qq.com/",
+    "miniprogram": None,
+    "channels": "https://channels.weixin.qq.com/platform/post/list",
+    "bilibili": "https://member.bilibili.com/platform/upload-manager/article",
+}
+
+
+def confirm_url(platform: str, result: dict[str, Any]) -> str | None:
+    """这一条发完后给 Park 打开的页面。"""
+    if platform == "x" and result.get("id"):
+        return f"https://x.com/compose/articles/edit/{result['id']}"
+    if platform == "bilibili" and str(result.get("platform_url") or "").startswith("http"):
+        return result["platform_url"]  # 在审核中，打开稿件管理比打开视频页有用
+    if platform == "youtube" and result.get("video_id"):
+        return f"https://studio.youtube.com/video/{result['video_id']}/edit"
+    return CONFIRM_PAGES.get(platform) or result_url(result)
+
+
 STATUS_TEXT = {
     "cookie_missing": "还没有登录信息，需要先在电脑上登录",
     "cookie_invalid": "登录已过期，需要在电脑上重新扫码登录",

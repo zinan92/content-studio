@@ -1,6 +1,11 @@
 """Shared fixtures."""
 
+import os as _os
+
 import pytest as _pytest
+
+# 发布完成后会在浏览器里打开平台页面；测试里不要真的打开。
+_os.environ["CONTENT_STUDIO_NO_OPEN"] = "1"
 
 
 @_pytest.fixture(autouse=True)
