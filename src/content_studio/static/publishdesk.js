@@ -313,7 +313,12 @@ window.VIEWS.publish = {
     const body = $('#publishBody');
     if (S.publishId && S.publishId !== PD.topicId) { PD.topicId = S.publishId; PD.data = null; }
     let d;
-    try { d = await loadDesk(false); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    try { d = await loadDesk(false); } catch (err) {
+      // 工作台重启的那几秒会连不上：别就此停住，过一会儿再来（9/27 重启后「发布中」一直不变）
+      if (!PD.data) body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`;
+      setTimeout(() => { if (S.view === 'publish') { PD.data = null; renderView(); } }, 5000);
+      return;
+    }
     // 只在内容真变了才重画：15 秒一次的刷新如果每次都重画，弹窗里正在输的链接会被抹掉。
     const sig = JSON.stringify([PD.topicId, d.has_copy, d.has_article, d.video && d.video.mb,
       d.candidates.map((c) => [c.id, c.stage, c.shipped_count]),
@@ -726,6 +731,18 @@ function renderDialog() {
     } catch (err) { box.innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
   });
   if (t.write_state === 'running') setTimeout(() => { if (dlg.open && PD.open === p.key) refresh(); }, 8000);
+  // 这个平台正在发：弹窗自己隔几秒问一次，发完立刻变，不靠整页刷新
+  if (p.job && p.job.state === 'running') {
+    const jobId = p.job.id;
+    setTimeout(async () => {
+      if (!dlg.open || PD.open !== p.key) return;
+      try {
+        await loadDesk(true);
+        const now = (PD.data.platforms.find((x) => x.key === p.key) || {}).job;
+        if (!now || now.id !== jobId || now.state !== 'running') { $('#publishBody').dataset.sig = ''; renderView(); } else renderDialog();
+      } catch (_) { renderDialog(); }
+    }, 5000);
+  }
   // 小红书上传页要选图：点「打开小红书上传」时顺手在访达里打开图片文件夹，不用去后台找
   const xhsOpen = $('[data-xhs-open]', dlg);
   if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
