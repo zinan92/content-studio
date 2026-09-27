@@ -1173,7 +1173,9 @@ def test_cover_dialog_defaults_and_make(client: TestClient, tmp_path: Path, monk
     assert client.get(opts["frames"][0]["url"]).status_code == 200
 
     made = client.post(f"/api/topics/{topic['id']}/cover", json={"lines": ["我终于理解了", "dbskill！"], "emphasis": "dbskill！", "at": 12})
-    assert made.json() == {"project": base.name, "covers": {"横": "final/covers/9月22日-横封面.jpg", "竖": "final/covers/9月22日-竖封面.jpg"}}
+    got = made.json()
+    assert {k: got[k] for k in ("project", "covers")} == {"project": base.name, "covers": {"横": "final/covers/9月22日-横封面.jpg", "竖": "final/covers/9月22日-竖封面.jpg"}}
+    assert set(got["urls"]) == {"横", "竖"}
     assert seen["base"] == base and seen["video"] == "9月22日-上传版.mp4" and seen["at"] == 12.0
 
     monkeypatch.setattr(cover, "make_covers", lambda *a, **k: (_ for _ in ()).throw(cover.CoverError("强调短语必须是其中一整行")))
