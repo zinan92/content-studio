@@ -1457,3 +1457,19 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .rc-doc::after{content:"";position:absolute;left:0;right:0;bottom:0;height:40px;background:linear-gradient(transparent,#fff)}
 .pdl-shot .rc-wrap{position:relative}
 .rc-badge{position:absolute;right:8px;top:8px;font-size:11px;background:rgba(17,24,39,.72);color:#fff;padding:2px 8px;border-radius:999px;pointer-events:none}
+
+/* 发布顺序：编号、下一步高亮、跳过 */
+.pub-tile{position:relative}
+.pub-step{position:absolute;left:8px;top:8px;z-index:2;font-size:11px;font-weight:700;background:rgba(17,24,39,.7);color:#fff;padding:1px 8px;border-radius:999px}
+.pub-tile.next{outline:2px solid var(--accent,#6D4AFF);outline-offset:2px}
+.pub-tile.next .pub-step{background:var(--accent,#6D4AFF)}
+.pub-tile.skipped{opacity:.5}
+.pub-stamp.skip{background:#6B7280}
+.pub-guide{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;margin:10px 0;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.pub-guide .num{font-size:12px;color:var(--muted,#888)}
+.pub-guide b{font-size:15px}
+.pub-guide small{color:var(--muted,#888)}
+.pub-guide.done{border-color:#86C99A}
+.pdl-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.pdl-flow.quiet{margin:12px 0 0}
+.pub-shot .rc-badge{display:none}

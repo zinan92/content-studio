@@ -159,6 +159,11 @@ class CopyBody(BaseModel):
     platforms: dict[str, dict[str, Any]]
 
 
+class SkipBody(BaseModel):
+    platform: str
+    skip: bool
+
+
 class RecordBody(BaseModel):
     platform: str
     published: bool
@@ -1066,7 +1071,7 @@ def create_app(
             pass
         rows = publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready,
                                  records=store.publish_records(topic["id"]), jobs=store.publish_jobs(topic["id"]), entry=entry,
-                                 douyin_linked=board.is_shipped(topic), handoff_done=handoff_done)
+                                 douyin_linked=board.is_shipped(topic), handoff_done=handoff_done, skips=store.publish_skips(topic["id"]))
         return {
             # 能发的才列出来；其余的留在 others 里，页面上折起来。
             "candidates": sendable,
@@ -1078,6 +1083,7 @@ def create_app(
             "release": _release_for(topic),
             "has_copy": bool(entry["title"] or entry["body"]),
             "has_article": article is not None,
+            "next": publish_desk.next_step(rows),
             # 左边那张仿平台页面要填真的内容：文章标题、摘要、正文开头（纯文字）
             "article": _article_preview(article["markdown"]) if article else None,
             "entry": entry,
@@ -2540,6 +2546,16 @@ def create_app(
         if body.url and not body.url.startswith(("https://", "http://")):
             raise ValueError("链接需要以 https:// 开头")
         return store.set_publish_record(topic_id, body.platform, published=body.published, url=body.url)
+
+    @app.put("/api/topics/{topic_id}/skip")
+    def put_skip(topic_id: int, body: SkipBody) -> dict[str, Any]:
+        """这一条不发某个平台：发布台的顺序跳过它，走下一个。"""
+        from . import copypack
+
+        store.topic(topic_id)
+        if body.platform not in copypack.PLATFORMS:
+            raise ValueError("未知平台")
+        return {"skipped": sorted(store.set_publish_skip(topic_id, body.platform, skip=body.skip))}
 
     @app.get("/api/topics/{topic_id}/article")
     def get_article(topic_id: int) -> dict[str, Any]:

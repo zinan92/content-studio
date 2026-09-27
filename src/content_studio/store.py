@@ -158,6 +158,12 @@ CREATE TABLE IF NOT EXISTS publish_records (
     published_at TEXT NOT NULL,
     PRIMARY KEY (topic_id, platform)
 );
+CREATE TABLE IF NOT EXISTS publish_skips (
+    topic_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    skipped_at TEXT NOT NULL,
+    PRIMARY KEY (topic_id, platform)
+);
 CREATE TABLE IF NOT EXISTS reviews (
     week TEXT PRIMARY KEY,
     state TEXT NOT NULL,
@@ -515,6 +521,18 @@ class StudioStore:
             else:
                 conn.execute("DELETE FROM publish_records WHERE topic_id = ? AND platform = ?", (topic_id, platform))
         return self.publish_records(topic_id)
+
+    def publish_skips(self, topic_id: int) -> set[str]:
+        """这一条决定不发的平台（发布台的顺序里跳过它）。"""
+        return {r["platform"] for r in self._rows("SELECT platform FROM publish_skips WHERE topic_id = ?", (topic_id,))}
+
+    def set_publish_skip(self, topic_id: int, platform: str, *, skip: bool) -> set[str]:
+        with self.tx() as conn:
+            if skip:
+                conn.execute("INSERT OR IGNORE INTO publish_skips(topic_id, platform, skipped_at) VALUES (?, ?, ?)", (topic_id, platform, now_iso()))
+            else:
+                conn.execute("DELETE FROM publish_skips WHERE topic_id = ? AND platform = ?", (topic_id, platform))
+        return self.publish_skips(topic_id)
 
     def create_run(self, topic_id: int, project: str) -> int:
         with self.tx() as conn:
