@@ -516,7 +516,7 @@ async function renderXhs(dlg, topicId) {
   const note = st.running ? '<span class="spin"></span> 正在出图，十几秒'
     : st.error ? `<span class="bad">${esc(st.error)}</span>`
       : st.stale ? '<span class="bad">文章改过了，这组图是旧的：重新出一次</span>'
-        : has ? `${st.images.length} 张 · ${st.chars} 字一字不改${st.over_limit ? ` · <b class="bad">超过小红书 ${st.max} 张上限，得拆成上下两篇</b>` : ''}`
+        : has ? `${st.images.length} 张 · ${st.chars} 字一字不改${st.font_scale && st.font_scale < 1 ? ` · 字号缩到 ${Math.round(st.font_scale * 100)}% 才放进 ${st.max} 张` : ''}${st.over_limit ? ` · <b class="bad">超过小红书 ${st.max} 张上限，得拆成上下两篇</b>` : ''}`
           : '还没出图';
   box.innerHTML = `<div class="xhs-h"><button class="btn ${has ? '' : 'primary'}" type="button" id="xhsGo" ${st.running ? 'disabled' : ''}>${has || st.stale ? '重新出图文' : '出图文'}</button>
       ${has ? `<a class="btn" href="/api/topics/${topicId}/xhs.zip" download>打包下载</a>` : ''}<small>${note}</small></div>
