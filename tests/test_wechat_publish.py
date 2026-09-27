@@ -95,8 +95,10 @@ def test_desk_sends_the_article_and_cover(tmp_path: Path, monkeypatch: pytest.Mo
     article.write_text(ARTICLE, encoding="utf-8")
     cover = tmp_path / "w.jpg"
     cover.write_bytes(b"1")
-    argv = publisher.command_for(publisher.build_payload("wechat_mp", "publish", video=None, copy=None, article=article, cover=cover))
-    assert argv[1:3] == ["-m", "content_studio.wechat_publish"] and argv[-1] == "--publish" and str(cover) in argv
+    argv = publisher.command_for(publisher.build_payload("wechat_mp", "draft", video=None, copy=None, article=article, cover=cover))
+    assert argv[1:3] == ["-m", "content_studio.wechat_publish"] and "--publish" not in argv and str(cover) in argv
+    with pytest.raises(publisher.PublishError, match="发布方式无效"):  # 9/27 Park：公众号只存草稿箱
+        publisher.build_payload("wechat_mp", "publish", video=None, copy=None, article=article, cover=cover)
 
 
 def test_yanxishi_key_travels_by_env_not_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
