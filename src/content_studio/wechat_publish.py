@@ -26,7 +26,7 @@ from typing import Any, Callable
 import urllib.parse
 import urllib.request
 
-from .wechat import ERRORS, SECRETS_PATH, TOKEN_URL, load_credentials
+from .wechat import ERRORS, SECRETS_PATH, TOKEN_URL, explain, load_credentials
 
 API = "https://api.weixin.qq.com/cgi-bin"
 TITLE_MAX = 64
@@ -162,7 +162,7 @@ Send = Callable[[urllib.request.Request], Any]
 def _explain(payload: dict[str, Any]) -> str:
     code = payload.get("errcode")
     if code in ERRORS:
-        return ERRORS[code][1]
+        return explain(payload)[1]
     return MORE_ERRORS.get(code, f"微信返回 {code} {payload.get('errmsg', '')}")
 
 
