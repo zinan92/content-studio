@@ -408,6 +408,14 @@ function articleBlock(p, d) {
 }
 
 /* 文字平台和小红书：不管在哪一步，最上面都能看到那篇文章（没写就能就地写） */
+/* 公众号、B 站发的时候要封面：没有就先做（补发的旧视频从来没做过） */
+function needsCover(p, d) {
+  const c = (d.release && d.release.covers) || {};
+  if (p.key === 'wechat_mp') return !(c.wechat || c.landscape);
+  if (p.key === 'bilibili') return !c.landscape;
+  return false;
+}
+
 function sideFor(p, d) {
   const core = sideCore(p, d);
   const next = d.platforms.find((x) => x.key === d.next);
@@ -477,6 +485,9 @@ function sideCore(p, d) {
       block = '';
     } else if (!p.needs_article && !d.has_copy) {
       block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
+    } else if (needsCover(p, d)) {
+      block = `<p class="pdl-note">${esc(p.label)}要封面${p.key === 'wechat_mp' ? '（2.35:1）' : ''}，这条还没有。封面从成片里取一帧、抠人像、排标题，一分钟左右。</p>
+        <div class="pdl-acts"><button class="btn primary" type="button" id="pdlCover">先做封面</button></div>`;
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
@@ -596,9 +607,8 @@ async function openCover(topicId) {
     go.disabled = true; $('#cvMsg', dlg).textContent = '正在抠人像、排字…';
     try {
       const r = await api(`/api/topics/${topicId}/cover`, { method: 'POST', body: st });
-      const name = encodeURIComponent(r.project);
       const stamp = Date.now();
-      $('#cvOut', dlg).innerHTML = Object.entries(r.covers).map(([k, path]) => `<img class="cv-shot ${k === '竖' ? 'portrait' : k === '公众号' ? 'wechat' : 'landscape'}" src="/api/video-projects/${name}/file?path=${encodeURIComponent(path)}&t=${stamp}" alt="${k}版封面">`).join('');
+      $('#cvOut', dlg).innerHTML = Object.entries(r.urls).map(([k, url]) => `<img class="cv-shot ${k === '竖' ? 'portrait' : k === '公众号' ? 'wechat' : 'landscape'}" src="${url}?t=${stamp}" alt="${k}版封面">`).join('');
       $('#cvMsg', dlg).textContent = '好了，已经放进交付包。不满意就换一帧或改字再出一次。';
       PD.data = null; $('#publishBody').dataset.sig = ''; renderView();
     } catch (err) { $('#cvMsg', dlg).textContent = err.message; }
@@ -612,7 +622,7 @@ function releaseStrip(rel) {
   const shots = [['landscape', '横版'], ['portrait', '竖版'], ['wechat', '公众号']].filter(([k]) => rel.covers[k]);
   if (!shots.length) return '';
   return `<div class="pub-covers">${shots.map(([k, label]) => {
-    const url = `/api/video-projects/${encodeURIComponent(rel.project)}/file?path=${encodeURIComponent(rel.covers[k])}`;
+    const url = (rel.cover_urls || {})[k];
     return `<a class="pub-cover ${k}" href="${url}" target="_blank" rel="noopener" title="${esc(rel.covers[k])}"><img src="${url}" alt="${label}封面" loading="lazy"><small>${label}封面</small></a>`;
   }).join('')}</div>`;
 }
@@ -671,6 +681,7 @@ function renderDialog() {
   const xhsOpen = $('[data-xhs-open]', dlg);
   if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
   const nextBtn = $('#pdlNext', dlg); if (nextBtn) nextBtn.onclick = () => goNext();
+  const coverBtn2 = $('#pdlCover', dlg); if (coverBtn2) coverBtn2.onclick = () => { dlg.close(); openCover(t.id); };
   const skipBtn = $('#pdlSkip', dlg);
   if (skipBtn) skipBtn.onclick = async () => { try { await setSkip(t.id, p.key, true); toast(`这条不发${p.label}`); renderView(); goNext(); } catch (err) { toast(err.message); } };
   const unskip = $('#pdlUnskip', dlg);

@@ -57,7 +57,23 @@ def units(text: str) -> float:
 
 
 def split_title(title: str, *, per_line: float = 6.2) -> list[str]:
-    """没给换行时自动断：一行不超过约 6 个汉字宽；拉丁单词不拆开。"""
+    """没给换行时自动断：先在标点后断（「看懂加息，/看懂底层逻辑」，不拆成「看懂加息，看/懂底层逻辑」），
+    一段太长再按宽度断；一行不超过约 6 个汉字宽，拉丁单词不拆开。"""
+    phrases = [p for p in re.split(r"(?<=[，。！？、：；,!?:;])", title.strip()) if p.strip()]
+    if len(phrases) > 1:
+        lines: list[str] = []
+        for ph in phrases:
+            if lines and units(lines[-1] + ph) <= per_line:
+                lines[-1] += ph
+            elif units(ph) <= per_line * 1.35:
+                lines.append(ph.strip())
+            else:
+                lines.extend(_by_width(ph, per_line))
+        return lines
+    return _by_width(title, per_line)
+
+
+def _by_width(title: str, per_line: float) -> list[str]:
     tokens = re.findall(r"[A-Za-z0-9]+|\s+|.", title.strip())
     lines, cur = [], ""
     for tok in tokens:

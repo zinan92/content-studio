@@ -2208,17 +2208,44 @@ def create_app(
 
         return publishers if publishers is not None else publisher.PUBLISHERS
 
+    def _media_base(topic: dict[str, Any]) -> Path:
+        """封面这类发布用的文件放哪：有视频项目就在项目里；补发的旧视频没有项目，放它自己的草稿目录。"""
+        if topic.get("video_project"):
+            return video_project.project_dir(video_root(), topic["video_project"])
+        base = drafts_root / f"topic-{topic['id']}"
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    def _media_url(topic: dict[str, Any], relative: str) -> str:
+        from urllib.parse import quote
+
+        return f"/api/topics/{topic['id']}/media/{quote(relative)}"
+
+    @app.get("/api/topics/{topic_id}/media/{relative:path}")
+    def topic_media(topic_id: int, relative: str) -> Response:
+        """选题的封面、候选帧，只读。项目里的和补发草稿目录里的都从这里取。"""
+        topic = store.topic(topic_id)
+        try:
+            base = _media_base(topic).resolve()
+        except VideoProjectError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        path = (base / relative).resolve()
+        if base not in path.parents or not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+            raise HTTPException(status_code=404, detail="文件不存在")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
+
     def _release_for(topic: dict[str, Any]) -> dict[str, Any] | None:
-        """final/ 下的封面和发布文案。项目名带出去，前端用它拼文件地址。"""
+        """final/ 下的封面和发布文案，带上每张封面的地址。补发的旧视频也有（放在草稿目录）。"""
         from . import release
 
-        if not topic.get("video_project"):
-            return None
         try:
-            base = video_project.project_dir(video_root(), topic["video_project"])
+            base = _media_base(topic)
         except VideoProjectError:
             return None
-        return {"project": topic["video_project"], **release.find_release(base)}
+        found = release.find_release(base)
+        covers = found.get("covers") or {}
+        return {"project": topic.get("video_project"), **found,
+                "cover_urls": {k: _media_url(topic, v) for k, v in covers.items() if v}}
 
     backfill_root = data_dir / "backfill"
 
@@ -2260,12 +2287,10 @@ def create_app(
 
     def _cover_target(topic_id: int) -> tuple[dict[str, Any], Path, Path]:
         topic = store.topic(topic_id)
-        if not topic.get("video_project"):
-            raise HTTPException(status_code=400, detail="补发的旧视频没有项目目录，封面先用平台自动截的那一帧")
         video = final_video_path(topic)
         if video is None:
             raise HTTPException(status_code=400, detail="这一条还没有成片，封面要从成片里取人像")
-        return topic, video_project.project_dir(video_root(), topic["video_project"]), video
+        return topic, _media_base(topic), video
 
     @app.get("/api/topics/{topic_id}/cover")
     def cover_options(topic_id: int) -> dict[str, Any]:
@@ -2283,11 +2308,9 @@ def create_app(
             frames = cover.candidate_frames(video, base / "analysis" / "cover-frames")
         except cover.CoverError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
-        name = quote(topic["video_project"])
         return {
             "title": title, "lines": lines, "emphasis": lines[-1],
-            "frames": [{"at": f["at"], "url": f"/api/video-projects/{name}/raw/{quote(str(f['path'].relative_to(base)))}"}
-                       for f in frames],
+            "frames": [{"at": f["at"], "url": _media_url(topic, str(f["path"].relative_to(base)))} for f in frames],
         }
 
     @app.post("/api/topics/{topic_id}/cover")
@@ -2299,10 +2322,11 @@ def create_app(
         lines = [str(l) for l in payload.get("lines") or []]
         try:
             made = cover.make_covers(base, video, lines=lines, emphasis=str(payload.get("emphasis") or ""),
-                                     at=float(payload.get("at") or 0))
+                                     at=float(payload.get("at") or 0), name=None if topic.get("video_project") else topic["title"][:30])
         except (cover.CoverError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
-        return {"project": topic["video_project"], "covers": made}
+        return {"project": topic.get("video_project"), "covers": made,
+                "urls": {k: _media_url(topic, v) for k, v in made.items()}}
 
     phone_errors: dict[int, str] = {}
 
@@ -2387,7 +2411,7 @@ def create_app(
         covers = release_info.get("covers") or {}
         # 公众号要 2.35:1：有专门出的公众号封面就用它，没有就用横版（发的时候垫宽）
         chosen = (covers.get("wechat") if body.platform == "wechat_mp" else None) or covers.get("landscape")
-        cover = video_project.project_dir(video_root(), topic["video_project"]) / chosen if chosen else None
+        cover = _media_base(topic) / chosen if chosen else None
         payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs(),
                                           article=article, cover=cover)
         return {"job": store.create_publish_job(topic_id, payload)}
