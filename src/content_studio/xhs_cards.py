@@ -147,27 +147,45 @@ def page_text(inner: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", inner))
 
 
-async def _render(title: str, blocks: list[dict[str, str]], out: Path) -> list[str]:
+# 小红书一篇最多 18 张：排不下就把正文字号一档一档缩小再排（最小到原来的 76%，正文约 27px）
+SCALES = (1.0, 0.94, 0.88, 0.82, 0.76)
+
+
+def scale_css(scale: float) -> str:
+    if scale >= 1:
+        return ""
+    return (f".content{{font-size:{36 * scale:.1f}px}}.content p.lead{{font-size:{38 * scale:.1f}px}}"
+            f".content p.h{{font-size:{52 * scale:.1f}px}}")
+
+
+async def _render(title: str, blocks: list[dict[str, str]], out: Path) -> tuple[list[str], float]:
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         try:
             page = await browser.new_page(viewport={"width": 1080, "height": 1440})
-            await page.set_content(PAGE)
-            pages = await page.evaluate(LAYOUT_JS, blocks)
+            for scale in SCALES:
+                await page.set_content(PAGE)
+                if scale_css(scale):
+                    await page.add_style_tag(content=scale_css(scale))
+                pages = await page.evaluate(LAYOUT_JS, blocks)
+                if len(pages) + 1 <= MAX_IMAGES:
+                    break
             total = len(pages) + 1
             await page.set_content(cover_html(title, len(pages)))
             await page.wait_for_timeout(80)
             await page.screenshot(path=str(out / "01.png"))
             for i, inner in enumerate(pages, 2):
                 await page.set_content(PAGE)
+                if scale_css(scale):
+                    await page.add_style_tag(content=scale_css(scale))
                 await page.evaluate("([h, no, more]) => { document.getElementById('c').innerHTML = h; document.getElementById('no').textContent = no; document.getElementById('more').textContent = more; }",
                                     [inner, f"{i} / {total}", "" if i == total else "接下页 →"])
                 await page.screenshot(path=str(out / f"{i:02d}.png"))
         finally:
             await browser.close()
-    return pages
+    return pages, scale
 
 
 def make_cards(article: Path, *, now: datetime | None = None) -> dict[str, Any]:
@@ -178,7 +196,7 @@ def make_cards(article: Path, *, now: datetime | None = None) -> dict[str, Any]:
     for old in out.glob("*.png"):
         old.unlink()
     try:
-        pages = asyncio.run(_render(title, blocks, out))
+        pages, scale = asyncio.run(_render(title, blocks, out))
     except ImportError:
         raise XhsError("这台机器上没有 playwright，出不了图") from None
     got = _norm("".join(page_text(p) for p in pages))
@@ -187,7 +205,7 @@ def make_cards(article: Path, *, now: datetime | None = None) -> dict[str, Any]:
         raise XhsError("排完的字和原文对不上，没有出图")  # 不该发生；发生了就别让它发出去
     count = len(pages) + 1
     meta = {"source_sha256": digest(markdown), "images": count, "chars": len(want),
-            "over_limit": count > MAX_IMAGES,
+            "over_limit": count > MAX_IMAGES, "font_scale": scale,
             "generated_at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}
     (out / META).write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return meta
@@ -205,4 +223,4 @@ def state(article: Path | None) -> dict[str, Any]:
         meta = {}
     stale = bool(images) and meta.get("source_sha256") != digest(article.read_text(encoding="utf-8"))
     return {"images": images, "stale": stale, "max": MAX_IMAGES,
-            **{k: meta.get(k) for k in ("chars", "over_limit", "generated_at")}}
+            **{k: meta.get(k) for k in ("chars", "over_limit", "generated_at", "font_scale")}}
