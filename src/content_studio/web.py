@@ -2826,7 +2826,9 @@ def create_app(
             if root is None:
                 raise RuntimeError("作品库没配置，或者那块硬盘没插")
             search = [Path(p).expanduser() for p in store.settings().get("local_video_roots") or []]
-            r = archive.archive_pending([store.video(video_id)], root=root, cookie_path=cookie_path, search=search, delay=0, download=True)
+            me = store.self_account()
+            own = store.videos(me["id"]) if me else [store.video(video_id)]
+            r = archive.archive_pending(own, root=root, cookie_path=cookie_path, search=search, delay=0, download=True, only={video_id})
             if r["failed"]:
                 raise RuntimeError(r["failed"][0]["error"])
             f = archive.video_file(root, video_id)

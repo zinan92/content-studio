@@ -85,3 +85,59 @@ def test_by_default_nothing_is_downloaded_missing_ones_are_listed(tmp_path: Path
     v = {"video_id": "gone", "title": "在另一台电脑上的一条 x", "published_at": "2026-03-01", "duration_seconds": 900.0}
     r = archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(900.0))
     assert calls == [] and r["missing"] == ["gone"] and r["done"] == []
+
+
+def _video_file(path: Path, size: int, when: int = 1772700000) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"v" * size)
+    os.utime(path, (when, when))  # 2026-03-05-ish
+    return path
+
+
+def test_one_file_goes_to_one_video_and_downloads_are_not_originals(tmp_path: Path) -> None:
+    """9/27: two videos 1.2 s apart, and 3/3's Douyin download copied to two places on the NAS.
+    It went into both folders as 「本机原片」. It is neither an original nor 3/1's."""
+    lib, nas = tmp_path / "lib", tmp_path / "nas"
+    lib.mkdir()
+    size = 4 * 1024 * 1024
+    _video_file(nas / "抖音下载版" / "7612963821522554158" / "media" / "video.mp4", size)
+    _video_file(nas / "已匹配抖音作品" / "2026-03-03_明牌机会" / "1 成片" / "video.mp4", size)
+    first = {"video_id": "7612227309759646986", "title": "测试哪个coding agent最听话 x", "published_at": "2026-03-01", "duration_seconds": 2298.6}
+    third = {"video_id": "7612963821522554158", "title": "AI时代的明牌机会 但是大部分人", "published_at": "2026-03-03", "duration_seconds": 2299.8}
+    r = archive.archive_pending([first, third], root=lib, cookie_path=tmp_path / "c", search=[nas], probe=probe_const(2299.83))
+    assert archive.video_file(lib, first["video_id"]) is None and r["missing"] == [first["video_id"]]
+    assert archive.video_file(lib, third["video_id"]).name == archive.DOWNLOAD_NAME
+    assert archive.source_of(lib, third["video_id"]) == "douyin"
+
+
+def test_a_file_belongs_to_the_video_it_is_closest_to(tmp_path: Path) -> None:
+    lib, src = tmp_path / "lib", tmp_path / "videos"
+    lib.mkdir()
+    _video_file(src / "导出" / "a.mp4", 4 * 1024 * 1024)
+    near = {"video_id": "near", "title": "离得近的那条标题 x", "published_at": "2026-03-03", "duration_seconds": 2299.8}
+    far = {"video_id": "far", "title": "离得远的那条标题 x", "published_at": "2026-03-01", "duration_seconds": 2298.6}
+    archive.archive_pending([far, near], root=lib, cookie_path=tmp_path / "c", search=[src], probe=probe_const(2299.83))
+    assert archive.video_file(lib, "near") is not None and archive.video_file(lib, "far") is None
+    # a second run does not hand the same file to the other one
+    archive.archive_pending([far, near], root=lib, cookie_path=tmp_path / "c", search=[src], probe=probe_const(2299.83))
+    assert archive.video_file(lib, "far") is None
+
+
+def test_an_original_replaces_a_douyin_download(tmp_path: Path) -> None:
+    lib, src = tmp_path / "lib", tmp_path / "videos"
+    lib.mkdir()
+    v = {"video_id": "v9", "title": "AI越强，你越是在瞎努力 x", "published_at": "2026-03-08", "duration_seconds": 1047.1}
+    fn, _ = _fake_download()
+    archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", download_fn=fn, probe=probe_const(1047.13), download=True)
+    assert archive.source_of(lib, "v9") == "douyin"
+    _video_file(src / "final" / "AI时代如何避免无效努力.mp4", 5 * 1024 * 1024)
+    r = archive.archive_pending([v], root=lib, cookie_path=tmp_path / "c", search=[src], probe=probe_const(1047.13))
+    assert r["upgraded"] == ["v9"] and archive.source_of(lib, "v9") == "local"
+    assert (archive.video_file(lib, "v9").parent / archive.DOWNLOAD_NAME).exists()
+
+
+def test_node_modules_is_not_scanned(tmp_path: Path) -> None:
+    lib, src = tmp_path / "lib", tmp_path / "videos"
+    lib.mkdir()
+    _video_file(src / "project" / "node_modules" / "pkg" / "clip.mp4", 4 * 1024 * 1024)
+    assert archive.scan_local([src], root=lib, probe=probe_const(10.0)) == []
