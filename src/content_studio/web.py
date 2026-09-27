@@ -2773,7 +2773,7 @@ def create_app(
         return {
             "platforms": [{"key": k, "label": on[k].get("label", k), "kind": backfill.KIND[k], "missing": sum(1 for r in rows if k in r["missing"])} for k in keys],
             "videos": rows,
-            "order": "还有缺口的在前；缺口里抖音点赞高的在前",
+            "order": "按发布时间从新到旧",
         }
 
     @app.post("/api/backfill/{video_id}/mark")

@@ -93,8 +93,7 @@ def link_topics(videos: list[dict[str, Any]], topics: list[dict[str, Any]],
 
 def queue(videos: list[dict[str, Any]], *, links: dict[str, int], records: dict[int, dict[str, Any]],
           marks: dict[str, set[str]], median: float | None, platforms: tuple[str, ...] = PLATFORMS) -> list[dict[str, Any]]:
-    """每条视频在每个平台的状态。排序：还有缺口的在前，缺口里点赞高的在前——同样一条旧视频，
-    在抖音上验证过的先拿去别的平台。"""
+    """每条视频在每个平台的状态。排序：按发布时间从新到旧（Park 9/27）。"""
     rows = []
     for v in videos:
         tid = links.get(v["video_id"])
@@ -110,5 +109,5 @@ def queue(videos: list[dict[str, Any]], *, links: dict[str, int], records: dict[
             "multiple": round(likes / median, 1) if median and likes is not None else None,
             "topic_id": tid, "done": done, "missing": missing,
         })
-    rows.sort(key=lambda r: (0 if r["missing"] else 1, -(r["likes"] or 0)))
+    rows.sort(key=lambda r: r["published_at"] or "", reverse=True)
     return rows
