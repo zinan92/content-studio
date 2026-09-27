@@ -1072,7 +1072,8 @@ def create_app(
             "candidates": sendable,
             "waiting": waiting,
             "others": [c for c in candidates if c["id"] not in {s["id"] for s in sendable}],
-            "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url"), "closed_at": topic.get("closed_at")},
+            "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url"), "closed_at": topic.get("closed_at"),
+                      "video_project": topic.get("video_project"), "write_state": topic.get("write_state"), "write_error": topic.get("write_error")},
             "video": {"path": str(video), "name": video.name, "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
             "release": _release_for(topic),
             "has_copy": bool(entry["title"] or entry["body"]),
@@ -1275,14 +1276,17 @@ def create_app(
         from . import koubo, titles
 
         if not topic.get("video_project"):
-            # 补发的旧视频没有视频项目：用拆解时转写的逐字稿（downloads/douyin/<作者>/<视频>/text.txt）。
+            # 补发的旧视频没有视频项目：用拆解时转写的逐字稿 transcript.json（full_text）。
+            # 同目录的 text.txt 是抖音简介，不是原话，只有几十到几百字。
             vid = topic.get("published_video_id")
             if vid and str(vid).isdigit():
-                for path in sorted((downloads_dir / "douyin").glob(f"*/{vid}/text.txt")):
+                for path in sorted((downloads_dir / "douyin").glob(f"*/{vid}/transcript.json")):
                     try:
-                        return path.read_text(encoding="utf-8", errors="replace").strip()
-                    except OSError:
+                        text = str(json.loads(path.read_text(encoding="utf-8")).get("full_text") or "").strip()
+                    except (OSError, ValueError, AttributeError):
                         continue
+                    if text:
+                        return text
             return ""
         try:
             base = video_project.project_dir(video_root(), topic["video_project"])

@@ -356,6 +356,19 @@ function copyAll(p) {
   return navigator.clipboard.writeText(text).then(() => toast('已复制，去粘贴'), () => toast('复制失败'));
 }
 
+/* 文字、图文平台要的是「研习室文章」。补发的旧视频不经过加工中，直接到这里：
+   所以文章就地写（用这条视频的逐字稿），写好了也能跳回加工台去改。 */
+function articleBlock(p, d) {
+  const t = d.topic;
+  const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台看、改这篇文章 →</button>`;
+  if (d.has_article) return `<p class="pdl-note">✓ 文章已经写好。${back}</p>`;
+  if (t.write_state === 'running') return `<p class="pdl-note"><span class="spin"></span> 正在写文章，一般 1–5 分钟，写完这里自动变。</p>`;
+  const why = p.key === 'xiaohongshu' ? '小红书图文是把研习室那篇文章排成图' : `${esc(p.label)}发的是研习室那篇文章`;
+  return `<p class="pdl-note">${why}，这条还没写。${t.video_project || t.published_video_id ? '会以这条视频的原话为主写。' : ''}</p>
+    ${t.write_state === 'failed' ? `<p class="pdl-note bad">${esc(t.write_error || '上次写失败了')}</p>` : ''}
+    <div class="pdl-acts"><button class="btn primary" type="button" id="pdlArticle">${t.write_state === 'failed' ? '重写文章' : '写文章'}</button></div>`;
+}
+
 function sideFor(p, d) {
   const t = d.topic;
   const field = (label, value, hint) => value
@@ -410,7 +423,7 @@ function sideFor(p, d) {
     } else if (p.state === 'setup') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>${esc(p.login_hint)}</p>${manual}`;
     } else if (p.needs_article && !d.has_article) {
-      block = `<p class="pdl-note">${esc(p.label)}发的是研习室那篇文章：先在「研习室文章」写好（视频拍完的会以视频原话为准），封面会自动带上。</p>`;
+      block = articleBlock(p, d);
     } else if (!p.needs_article && !d.has_copy) {
       block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
     } else if (!d.video && !p.no_video) {
@@ -418,7 +431,7 @@ function sideFor(p, d) {
     } else if (ready) {
       block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? ({ x: '。发的是研习室那篇文章，封面按标题单独出一张纯文字的（不带人脸）；需要 X Premium', wechat_mp: '。发的是研习室那篇文章，自动排版（橄榄手记）+ 公众号封面；「发布」不推送粉丝', miniprogram: '。发的是「研习室文章」那一篇，排版和网页后台导入一样；再发一次会更新同一篇' }[p.key] || '') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
-        <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
+        <p class="pdl-note">点了之后先看摘要，再由你确认。</p>${p.needs_article ? articleBlock(p, d) : ''}`;
     } else {
       block = `<p class="pdl-note">${esc(p.note)}</p>${manual}`;
     }
@@ -426,7 +439,7 @@ function sideFor(p, d) {
   }
   return `<h4>${esc(p.treatment_label)}</h4>
     ${p.key === 'xiaohongshu'
-      ? '<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p><div id="pdlXhs" class="xhs"></div>'
+      ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${articleBlock(p, d)}${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
 }
@@ -586,6 +599,13 @@ function renderDialog() {
   };
   if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
   if (p.key === 'xiaohongshu') renderXhs(dlg, t.id);
+  const art = $('#pdlArticle', dlg);
+  if (art) art.onclick = async () => {
+    art.disabled = true;
+    try { toast((await api(`/api/topics/${t.id}/write`, { method: 'POST' })).message); await refresh(); } catch (err) { toast(err.message); art.disabled = false; }
+  };
+  $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => { dlg.close(); openWork(t.id, 'article'); }));
+  if (t.write_state === 'running') setTimeout(() => { if (dlg.open && PD.open === p.key) refresh(); }, 8000);
   // 小红书上传页要选图：点「打开小红书上传」时顺手在访达里打开图片文件夹，不用去后台找
   const xhsOpen = $('[data-xhs-open]', dlg);
   if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
