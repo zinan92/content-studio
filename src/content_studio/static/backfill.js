@@ -51,7 +51,7 @@ window.VIEWS.backfill = {
     $('#backfillFigs').innerHTML = `<div class="pub-figs">${cols.map((p) => `<span>${esc(p.label)} 缺 <b>${p.missing}</b></span>`).join('')}</div>`;
     const kinds = []; cols.forEach((p) => { const last = kinds[kinds.length - 1]; if (last && last.kind === p.kind) last.n += 1; else kinds.push({ kind: p.kind, n: 1 }); });
     const row = (v) => `<tr>
-      <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${esc((v.published_at || '').slice(0, 10))} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
+      <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${day(v.published_at)} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
         <div class="bf-acts">${bfNext(v)}</div></td>
       ${cols.map((p) => `<td class="c">${bfCell(v, p)}</td>`).join('')}
     </tr>`;
