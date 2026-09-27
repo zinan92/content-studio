@@ -96,6 +96,12 @@ def render_html(markdown: str) -> tuple[str, str, str]:
         bullet = re.match(r"^[-*+]\s+(.*)$", line)
         number = re.match(r"^\d+[.)、]\s+(.*)$", line)
         quote = re.match(r"^>\s?(.*)$", line)
+        image = re.match(r"^!\[([^\]]*)\]\(([^)\s]+)\)$", line)
+        if image:
+            # 配图：先放本地相对路径，发的时候传到微信换成微信的地址（inline_images）
+            flush_para(); flush_list()
+            parts.append(_block(f'<img src="{html.escape(image.group(2))}" alt="{html.escape(image.group(1))}" style="width:100%;display:block;border-radius:4px;">'))
+            continue
         if not line or re.fullmatch(r"[-*_]{3,}", line) or re.match(r"^!\[", line):
             flush_para(); flush_list()
             continue
@@ -195,6 +201,50 @@ def _post(path: str, token: str, payload: dict[str, Any], send: Send | None) -> 
     return _call(request, send)
 
 
+IMG_SRC = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)(")')
+INLINE_MAX = 1_000_000  # 正文图片接口只收 1MB 以内的 jpg/png
+
+
+def upload_inline(path: Path, token: str, send: Send | None = None) -> str:
+    """正文里的图：media/uploadimg，返回微信的图片地址（正文只认这个地址）。"""
+    if path.stat().st_size > INLINE_MAX:
+        smaller = path.with_name(path.stem + ".wx.jpg")
+        subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "70", "-Z", "1600", str(path), "--out", str(smaller)],
+                       capture_output=True, check=False)
+        if smaller.is_file() and smaller.stat().st_size <= INLINE_MAX:
+            path = smaller
+    boundary = secrets.token_hex(12)
+    mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+    body = b"".join([
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"media\"; filename=\"img{path.suffix.lower()}\"\r\nContent-Type: {mime}\r\n\r\n".encode(),
+        path.read_bytes(), f"\r\n--{boundary}--\r\n".encode(),
+    ])
+    request = urllib.request.Request(f"{API}/media/uploadimg?access_token={token}", data=body, method="POST")
+    request.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    url = _call(request, send).get("url")
+    if not url:
+        raise WechatError("正文图片传上去了，但微信没给地址")
+    return str(url)
+
+
+def inline_images(body: str, base: Path, token: str, send: Send | None = None) -> tuple[str, int]:
+    """把正文里本地的 <img src="illustrations/…"> 传到微信并换成微信地址。"""
+    done: dict[str, str] = {}
+
+    def swap(m: re.Match[str]) -> str:
+        src = html.unescape(m.group(2))
+        if src.startswith(("http://", "https://", "data:")):
+            return m.group(0)
+        path = (base / src).resolve()
+        if not path.is_file():
+            raise WechatError(f"正文里的图找不到：{src}")
+        if src not in done:
+            done[src] = upload_inline(path, token, send)
+        return f"{m.group(1)}{done[src]}{m.group(3)}"
+
+    return IMG_SRC.sub(swap, body), len(done)
+
+
 def upload_cover(path: Path, token: str, send: Send | None = None) -> str:
     boundary = secrets.token_hex(12)
     mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
@@ -226,6 +276,7 @@ def publish_article(article: Path, *, cover: Path, publish: bool = False, author
     wide = wide_cover(cover, article.parent / "公众号封面.jpg")
     token = get_token(creds or load_credentials(), send)
     thumb = upload_cover(wide, token, send)
+    body, _uploaded = inline_images(body, article.parent, token, send)
     item = {"title": title, "author": author or "", "digest": digest, "content": body,
             "thumb_media_id": thumb, "need_open_comment": 1, "only_fans_can_comment": 0}
     # 同一篇文章再存：更新上次那份草稿，不再新建一份（9/27 草稿箱里攒了 3 份一样的）。

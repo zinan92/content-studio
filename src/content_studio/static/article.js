@@ -59,7 +59,7 @@ window.VIDEO_TABS.push({
               <div class="seg-toggle" role="group"><button type="button" class="${AR.mode === 'preview' ? 'on' : ''}" data-mode="preview">预览</button><button type="button" class="${AR.mode === 'edit' ? 'on' : ''}" data-mode="edit">编辑</button></div>
             </div>
           </div>
-          ${AR.mode === 'edit' ? `<textarea id="artText" spellcheck="false">${esc(d.markdown)}</textarea>` : `<article class="md art-md">${renderMarkdown(d.markdown)}</article>`}
+          ${AR.mode === 'edit' ? `<textarea id="artText" spellcheck="false">${esc(d.markdown)}</textarea>` : `<article class="md art-md">${renderMarkdown(d.markdown.replace(/\]\(illustrations\//g, `](/api/topics/${topic.id}/article-file/illustrations/`))}</article>`}
           <div class="art-foot">
             ${AR.mode === 'edit' ? '<button class="btn primary" type="button" id="artSave">保存</button>' : ''}
             <button class="btn" type="button" id="artCopy">复制正文</button>

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import datetime, timezone
 import hashlib
 import html
@@ -45,7 +46,11 @@ def parse(markdown: str) -> tuple[str, list[dict[str, str]]]:
         p = para.strip()
         if not p or re.fullmatch(r"[-*_]{3,}", p):
             continue
-        if p.startswith("#"):
+        image = re.fullmatch(r"!\[([^\]]*)\]\(([^)\s]+)\)", p)
+        if image:
+            # 配图：整张放进卡片，放不下就去下一页（不参与「一字不改」的核对）
+            blocks.append({"kind": "img", "text": "", "src": image.group(2), "alt": image.group(1)})
+        elif p.startswith("#"):
             blocks.append({"kind": "h", "text": re.sub(r"^#+\s*", "", p)})
         elif p.startswith(">"):
             blocks.append({"kind": "q", "text": re.sub(r"^>\s?", "", p, flags=re.M)})
@@ -82,6 +87,7 @@ body{{width:1080px;height:1440px;overflow:hidden;background:linear-gradient(160d
 .content p{{margin:0 0 22px;text-align:justify}}
 .content p.lead{{font-weight:900;color:#141414;font-size:38px}}
 .content p.h{{font-weight:900;font-size:52px;color:#141414;border-left:10px solid {ORANGE};padding-left:22px}}
+.content img.fig{{display:block;width:100%;border-radius:12px;margin:6px 0 22px;border:1px solid #eee}}
 .content p.q{{background:#fff;border:2px solid #e6dfcf;border-radius:14px;padding:22px 26px;font-weight:700}}
 .em{{font-weight:900;color:#141414;background:linear-gradient(transparent 62%,rgba(239,55,17,.28) 62%)}}
 .foot{{position:absolute;left:84px;right:84px;bottom:48px;display:flex;justify-content:space-between;font-size:26px;color:#9a9486}}
@@ -112,6 +118,12 @@ LAYOUT_JS = r"""
   const make = (b, t) => { const p = document.createElement('p'); p.className = b.kind; p.innerHTML = esc(t); return p; };
   const flush = () => { pages.push(c.innerHTML); c.innerHTML = ''; };
   for (const b of blocks) {
+    if (b.kind === 'img') {
+      const img = document.createElement('img'); img.src = b.data; img.className = 'fig'; img.alt = b.alt || '';
+      c.appendChild(img);
+      if (!fits() && c.children.length > 1) { c.removeChild(img); flush(); c.appendChild(img); }
+      continue;
+    }
     let rest = b.text;
     while (rest) {
       const el = make(b, rest); c.appendChild(el);
@@ -191,6 +203,13 @@ async def _render(title: str, blocks: list[dict[str, str]], out: Path) -> tuple[
 def make_cards(article: Path, *, now: datetime | None = None) -> dict[str, Any]:
     markdown = article.read_text(encoding="utf-8")
     title, blocks = parse(markdown)
+    for b in blocks:
+        if b["kind"] == "img":
+            path = (article.parent / b["src"]).resolve()
+            if not path.is_file():
+                raise XhsError(f"文章里的图找不到：{b['src']}")
+            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            b["data"] = f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode()
     out = article.parent / FOLDER
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
@@ -200,7 +219,7 @@ def make_cards(article: Path, *, now: datetime | None = None) -> dict[str, Any]:
     except ImportError:
         raise XhsError("这台机器上没有 playwright，出不了图") from None
     got = _norm("".join(page_text(p) for p in pages))
-    want = _norm("".join(re.sub(r"\*\*", "", b["text"]) for b in blocks))
+    want = _norm("".join(re.sub(r"\*\*", "", b["text"]) for b in blocks if b["kind"] != "img"))
     if got != want:
         raise XhsError("排完的字和原文对不上，没有出图")  # 不该发生；发生了就别让它发出去
     count = len(pages) + 1

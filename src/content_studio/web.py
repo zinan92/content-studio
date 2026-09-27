@@ -1222,6 +1222,12 @@ def create_app(
                 write_error=None,
                 status="drafting" if current["status"] == "todo" else current["status"],
             )
+            # Park 9/27：文字版都要过一遍插图。写完接着配图（失败不影响文章本身）。
+            try:
+                if not os.environ.get("CONTENT_STUDIO_NO_ILLUSTRATE"):
+                    start_illustrate(topic_id)
+            except Exception as exc:  # noqa: BLE001 - 配不了图就先不配
+                logger.warning("illustrate %s not started: %s", topic_id, exc)
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("writing topic %s failed: %s", topic_id, exc)
             store.update_topic(topic_id, write_state="failed", write_error=str(exc)[:300] or type(exc).__name__)
@@ -1407,6 +1413,66 @@ def create_app(
             running = 50_000 + topic_id in writing
         return {"running": running, "error": layout_errors.get(topic_id), **gzh_layout.state(_article_path(topic))}
 
+    illustrate_errors: dict[int, str] = {}
+
+    def start_illustrate(topic_id: int) -> bool:
+        """配图（Codex 画，4–8 张，5–10 分钟）。已经在配就不再起一个。"""
+        from . import illustrate as il
+
+        article = _article_path(store.topic(topic_id))
+        if article is None or not article.is_file():
+            raise ValueError("先写好文章再配图")
+        with writing_lock:
+            if 60_000 + topic_id in writing:
+                return False
+            writing.add(60_000 + topic_id)
+        illustrate_errors.pop(topic_id, None)
+
+        def run() -> None:
+            try:
+                r = il.illustrate(article)
+                store.log_event("copy", f"《{store.topic(topic_id)['title'][:24]}》配好了 {len(r['images'])} 张图", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 发布台显示
+                logger.warning("illustrate %s failed: %s", topic_id, exc)
+                illustrate_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+            finally:
+                with writing_lock:
+                    writing.discard(60_000 + topic_id)
+
+        threading.Thread(target=run, name=f"illustrate-{topic_id}", daemon=True).start()
+        return True
+
+    @app.post("/api/topics/{topic_id}/illustrate")
+    def post_illustrate(topic_id: int) -> dict[str, Any]:
+        started = start_illustrate(topic_id)
+        return {"started": started, "message": "开始配图（小黑手绘），一般 5–10 分钟" if started else "正在配"}
+
+    @app.get("/api/topics/{topic_id}/illustrate")
+    def get_illustrate(topic_id: int) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        from . import illustrate as il
+
+        topic = store.topic(topic_id)
+        with writing_lock:
+            running = 60_000 + topic_id in writing
+        st = il.state(_article_path(topic))
+        for img in st["images"]:
+            img["url"] = f"/api/topics/{topic_id}/article-file/{il.FOLDER}/{quote(img['file'])}"
+        return {"running": running, "error": illustrate_errors.get(topic_id), **st}
+
+    @app.get("/api/topics/{topic_id}/article-file/{relative:path}")
+    def article_file(topic_id: int, relative: str) -> Response:
+        """文章目录里的图（配图），只读，只给图片。"""
+        article = _article_path(store.topic(topic_id))
+        if article is None:
+            raise HTTPException(status_code=404, detail="还没有文章")
+        base = article.parent.resolve()
+        path = (base / relative).resolve()
+        if base not in path.parents or not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+            raise HTTPException(status_code=404, detail="文件不存在")
+        return FileResponse(path, headers={"Cache-Control": "no-store"})
+
     @app.get("/api/topics/{topic_id}/wechat-preview.html")
     def wechat_preview(topic_id: int) -> Response:
         """公众号里会是什么样：和发布时用的是同一份正文（有 gzh 排版用 gzh 的，没有用基础排版），手机宽度。"""
@@ -1422,6 +1488,8 @@ def create_app(
         if styled is not None:
             body = styled.read_text(encoding="utf-8")
         kind = "gzh 排版（橄榄手记）" if styled is not None else "基础排版（还没用 gzh 排）"
+        # 配图是文章目录里的相对路径：预览里换成能打开的地址（发的时候另外传到微信）
+        body = re.sub(r'(<img\b[^>]*?\bsrc=")(?!https?:|data:)([^"]+)"', lambda m: f'{m.group(1)}/api/topics/{topic_id}/article-file/{m.group(2)}"', body)
         doc = ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
                '<body style="margin:0;background:#ededed;font-family:-apple-system,PingFang SC,sans-serif">'
                f'<div style="max-width:390px;margin:0 auto;background:#fff;min-height:100vh;padding:20px 16px 40px;box-sizing:border-box">'
