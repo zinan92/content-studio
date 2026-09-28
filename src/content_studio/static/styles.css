@@ -1535,7 +1535,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 /* 咨询客户页 */
 .cl-wrap{overflow-x:auto;margin-top:18px}
 .cl-table{border-collapse:collapse;width:100%;min-width:1180px;font-size:13.5px}
-.cl-table th,.cl-table td{padding:12px 10px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}
+.cl-table th,.cl-table td{font-family:var(--sans);padding:12px 10px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}
 .cl-table thead th{font-size:12px;font-weight:600;color:var(--ink-3);background:var(--sunk);white-space:nowrap;position:sticky;top:0}
 .cl-table tbody tr:last-child>*{border-bottom:0}
 .cl-table tbody th{min-width:120px}
