@@ -1512,3 +1512,17 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .k-sector{font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .k-svg path.u{fill:#1C3326}:root:not([data-theme="light"]) .k-svg path.d{fill:#3A1E17}:root:not([data-theme="light"]) .k-svg path.w{stroke:#4A515B}}
 :root[data-theme="dark"] .k-svg path.u{fill:#1C3326}:root[data-theme="dark"] .k-svg path.d{fill:#3A1E17}:root[data-theme="dark"] .k-svg path.w{stroke:#4A515B}
+
+/* 咨询录音 */
+.cs-meta{display:grid;grid-template-columns:1fr 150px;gap:8px}
+#csFile{padding:8px}
+.cs-list{display:flex;flex-direction:column;border-top:1px solid var(--line-soft);margin-top:4px}
+.cs-list:empty{display:none}
+.cs-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+.cs-row small{display:block;color:var(--ink-2);font-size:11.5px;margin-top:2px}
+.cs-row .cs-err,.cs-err{color:var(--warn)}
+.cs-empty{padding:10px 0;font-size:12.5px}
+.cs-stage{font-size:12px;color:var(--ink-2)}
+.cs-stage.cs-done{color:var(--save)}
+.cs-stage.cs-failed,.cs-stage.cs-interrupted{color:var(--warn)}
+.cs-stage.cs-transcribing,.cs-stage.cs-analyzing,.cs-stage.cs-queued{color:var(--accent)}

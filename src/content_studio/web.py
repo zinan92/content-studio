@@ -13,7 +13,7 @@ import sqlite3
 import threading
 from typing import Any, Callable
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -1460,6 +1460,98 @@ def create_app(
         for img in st["images"]:
             img["url"] = f"/api/topics/{topic_id}/article-file/{il.FOLDER}/{quote(img['file'])}"
         return {"running": running, "error": illustrate_errors.get(topic_id), **st}
+
+    # -- 咨询录音：上传 → 转写 + 分析 → vault 010_咨询/ 一篇左右对照的笔记 --------
+    consult_running: set[str] = set()
+    consult_lock = threading.Lock()
+
+    def _consult_row(row: dict[str, Any]) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        with consult_lock:
+            running = row["slug"] in consult_running
+        stage = row.get("stage")
+        if stage in ("queued", "transcribing", "analyzing") and not running:
+            stage = "interrupted"
+        note = row.get("note")
+        return {
+            "slug": row["slug"], "name": row.get("name"), "day": row.get("day"), "stage": stage, "running": running,
+            "error": row.get("error"), "minutes": row.get("minutes"), "note": note, "missing": row.get("missing") or [],
+            "obsidian": f"obsidian://open?path={quote(note)}" if note else None,
+        }
+
+    def start_consult(slug: str) -> bool:
+        from urllib.parse import quote
+
+        from . import consult
+
+        folder = consult.root() / slug
+        with consult_lock:
+            if slug in consult_running:
+                return False
+            consult_running.add(slug)
+        consult.save_state(folder, stage="queued", error=None)
+
+        def run() -> None:
+            try:
+                note = consult.run(folder, vault.vault_root(vault_path()))
+                _open_in_browser(f"obsidian://open?path={quote(str(note))}")
+            except Exception as exc:  # noqa: BLE001 - shown to Park on the card
+                logger.warning("consult %s failed: %s", slug, exc)
+                consult.save_state(folder, stage="failed", error=str(exc)[:300] or type(exc).__name__, pid=None)
+            finally:
+                with consult_lock:
+                    consult_running.discard(slug)
+
+        threading.Thread(target=run, name=f"consult-{slug}", daemon=True).start()
+        return True
+
+    @app.get("/api/consults")
+    def get_consults() -> dict[str, Any]:
+        from . import consult
+
+        return {"consults": [_consult_row(r) for r in consult.jobs()][:20]}
+
+    @app.post("/api/consults")
+    async def post_consult(request: Request) -> dict[str, Any]:
+        from . import consult
+
+        form = await request.form()
+        upload, name = form.get("file"), str(form.get("name") or "").strip()
+        if upload is None or not getattr(upload, "filename", ""):
+            raise HTTPException(status_code=400, detail="没收到录音文件")
+        suffix = Path(upload.filename).suffix.lower()
+        if suffix not in consult.AUDIO_SUFFIXES:
+            raise HTTPException(status_code=400, detail=f"不认识这种文件：{suffix or '没有扩展名'}（支持 m4a、mp3、wav 等）")
+        if not name:
+            raise HTTPException(status_code=400, detail="写一下客户是谁")
+        day = parse_day(str(form.get("day") or "") or None)
+        slug = consult.slug(name, day)
+        folder = consult.root() / slug
+        with consult_lock:
+            if slug in consult_running:
+                raise HTTPException(status_code=409, detail="这一场正在处理，等它做完")
+        folder.mkdir(parents=True, exist_ok=True)
+        for old in folder.glob("audio.*"):
+            old.unlink()
+        (folder / "transcript.json").unlink(missing_ok=True)
+        with (folder / f"audio{suffix}").open("wb") as out:
+            while chunk := await upload.read(1 << 20):
+                out.write(chunk)
+        consult.save_state(folder, name=consult.slug(name, day)[5:], day=day.isoformat(), original=upload.filename,
+                           created_at=now_iso(), note=None, missing=[])
+        start_consult(slug)
+        return {"consult": _consult_row({"slug": slug, **consult.load_state(folder)})}
+
+    @app.post("/api/consults/{slug}/retry")
+    def retry_consult(slug: str) -> dict[str, Any]:
+        from . import consult
+
+        folder = consult.root() / slug
+        if folder.parent != consult.root() or not (folder / "state.json").is_file():
+            raise HTTPException(status_code=404, detail="找不到这一场")
+        start_consult(slug)
+        return {"consult": _consult_row({"slug": slug, **consult.load_state(folder)})}
 
     @app.get("/api/topics/{topic_id}/article-file/{relative:path}")
     def article_file(topic_id: int, relative: str) -> Response:
