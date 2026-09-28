@@ -452,11 +452,21 @@ def set_visual_target(base: Path, percent: float) -> float:
 PRESET_KINDS = (("media", "media"), ("audio", "audio"), ("caption_style", "captions"), ("caption_layout", "captions"))
 
 
+def _is_override(path: Path) -> bool:
+    """spec 选中才用的覆盖预设（竖屏、剪映已烧字幕…）不能被当成默认值。"""
+    import json
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("status") == "override"
+    except (OSError, ValueError):
+        return False
+
+
 def default_presets(skill: Path | None = None) -> dict[str, str]:
     root = (skill or skill_dir()) / "presets"
     out: dict[str, str] = {}
     for key, folder in PRESET_KINDS:
-        files = sorted((root / folder).glob("*.json")) if (root / folder).is_dir() else []
+        files = [f for f in sorted((root / folder).glob("*.json")) if not _is_override(f)] if (root / folder).is_dir() else []
         # caption_style 和 caption_layout 同在 captions/ 下，靠名字里的 layout 区分。
         wanted = [f for f in files if ("layout" in f.stem) == (key == "caption_layout")] if folder == "captions" else files
         if not wanted:
@@ -488,6 +498,49 @@ def init_project(base: Path, *, skill: Path | None = None) -> dict[str, Any]:
 
 
 HOOK_STEPS = (5, 7, 8, 9)
+
+# -- 剪辑规格：Park 从剪映导出后手动选，工作流照做、不再判断（skill 的 Park's manual spec）--
+SPEC_OPTIONS: dict[str, tuple[str, ...]] = {
+    "hook": ("yes", "no"),
+    "captions": ("generate", "burned_in"),
+    "layout": ("split-4x3", "vertical-full-overlay"),
+    "bgm": ("none", "light"),
+}
+SPEC_PRESETS = {
+    ("captions", "burned_in"): ("caption_style", "park-caption-burned-in-v1"),
+    ("layout", "vertical-full-overlay"): ("media", "park-talking-head-9x16-full-v1"),
+}
+
+
+def set_spec(base: Path, changes: dict[str, Any], *, skill: Path | None = None) -> dict[str, Any]:
+    """记下 Park 选的规格，并把对应的 preset 换好。没选的项保持原样。"""
+    bad = {k: v for k, v in changes.items() if k not in SPEC_OPTIONS or v not in SPEC_OPTIONS[k]}
+    if bad:
+        raise KouboError(f"不认识的规格：{bad}")
+    path, data = _contract(base)
+    spec = data.setdefault("spec", {})
+    presets = data.setdefault("presets", {})
+    defaults = default_presets(skill)
+    for key, value in changes.items():
+        spec[key] = value
+        for (k, v), (preset_key, preset_id) in SPEC_PRESETS.items():
+            if k == key:
+                presets[preset_key] = preset_id if value == v else defaults[preset_key]
+        if key == "hook":
+            status = data.setdefault("step_status", {})
+            approvals = data.setdefault("approvals", {})
+            if value == "no":
+                for n in HOOK_STEPS:
+                    status[str(n)] = "skipped"
+                approvals["hook"] = "skipped"
+            else:
+                for n in HOOK_STEPS:
+                    if status.get(str(n)) == "skipped":
+                        status.pop(str(n))
+                if approvals.get("hook") == "skipped":
+                    approvals["hook"] = None
+    _save_contract(path, data)
+    return spec
 
 
 def skip_hook(base: Path) -> list[int]:
