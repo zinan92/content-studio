@@ -282,6 +282,7 @@ function guideBar(d) {
   const steps = d.platforms.filter((x) => x.on);
   const done = steps.filter((x) => x.shipped || x.skipped).length;
   const next = steps.find((x) => x.key === d.next);
+  if (!next && d.topic.closed_at) return ''; // 已经发布完毕，上面那条已经说了，不再叠一条
   if (!next) return `<div class="pub-guide done"><b>✓ ${steps.length} 步都走完了</b><span>该发的都发了（跳过的不算）。下面点「这条发布完毕」收尾。</span></div>`;
   const i = steps.indexOf(next) + 1;
   return `<div class="pub-guide"><span class="num">第 ${i} 步 / 共 ${steps.length} 步</span><b>下一个：${esc(next.label)}</b>

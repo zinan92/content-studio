@@ -38,27 +38,32 @@ function clientField(row, [key, , hint]) {
   if (key === '后续方案') {
     return `<select class="cl-in" ${data}>${CS_PLAN.map((o) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
   }
-  if (key === '画像') return `<textarea class="cl-in" rows="${Math.min(6, Math.max(2, Math.ceil(v.length / 15)))}" ${data} placeholder="${esc(hint)}">${esc(v)}</textarea>`;
+  if (key === '画像') return `<textarea class="cl-in" rows="${Math.min(6, Math.max(2, Math.ceil(v.length / 13)))}" ${data} placeholder="${esc(hint)}">${esc(v)}</textarea>`;
   return `<input class="cl-in" ${data} value="${esc(v)}" placeholder="${esc(hint)}" autocomplete="off">`;
 }
 
-function consultCell(c) {
+function jobLine(c) {
   const day = (c.day || '').slice(5).replace('-', '/');
-  if (c.stage !== 'done') {
-    const retry = c.stage === 'failed' || c.stage === 'interrupted'
-      ? ` <button class="btn small" type="button" data-cs-retry="${esc(c.slug)}">重试</button>` : '';
-    return `<div class="cl-cs"><b>${esc(day)}</b><span class="cs-stage cs-${esc(c.stage)}">${esc(CS_STAGE[c.stage] || c.stage)}</span>${retry}${c.error ? `<small class="cs-err">${esc(c.error)}</small>` : ''}</div>`;
-  }
-  const sent = c.pdf || c.client
-    ? `<a href="${esc(c.pdf || c.client)}" target="_blank" rel="noopener">${c.pdf ? 'PDF' : 'HTML'}</a>`
-      + (c.pdf && c.client ? `<a href="${esc(c.client)}" target="_blank" rel="noopener">HTML</a>` : '')
-      + `<button class="linklike" type="button" data-cs-reveal="${esc(c.slug)}" data-what="client">在 Finder 里选中</button>`
-    : '<span class="cl-none">还没有</span>';
-  return `<div class="cl-cs"><b>${esc(day)}</b>`
-    + `<div><span class="cl-k">发给他的</span>${sent}</div>`
-    + `<div><span class="cl-k">我自己看的</span><a href="${esc(c.obsidian)}">咨询记录</a><button class="linklike" type="button" data-cs-reveal="${esc(c.slug)}" data-what="folder">原件</button></div>`
-    + (c.error ? `<small class="cs-err">${esc(c.error)}</small>` : '')
-    + '</div>';
+  const retry = c.stage === 'failed' || c.stage === 'interrupted'
+    ? `<button class="btn small" type="button" data-cs-retry="${esc(c.slug)}">重试</button>` : '';
+  return `<div class="cl-job"><span class="cl-day">${esc(day)}</span><span class="cs-stage cs-${esc(c.stage)}">${esc(CS_STAGE[c.stage] || c.stage)}</span>${retry}${c.error ? `<small class="cs-err">${esc(c.error)}</small>` : ''}</div>`;
+}
+
+function docChip(name, d) {
+  const main = d.pdf_url || d.html_url;
+  const alt = d.pdf_url && d.html_url ? `<a class="cl-alt" href="${esc(d.html_url)}" target="_blank" rel="noopener" title="网页版">HTML</a>` : '';
+  return `<span class="cl-doc"><a href="${esc(main)}" target="_blank" rel="noopener" title="打开"><i>${d.pdf_url ? 'PDF' : 'HTML'}</i>${esc(d.label)}</a>${alt}`
+    + `<button class="cl-find" type="button" data-cl-reveal="${esc(name)}" data-file="${esc(d.pdf || d.html)}" title="在 Finder 里选中，拖进微信发给客户">⌕</button></span>`;
+}
+
+function summaryCell(r) {
+  const jobs = r.consults.filter((c) => c.stage !== 'done').map(jobLine).join('');
+  const days = (r.files || []).map((f) => `<div class="cl-day-block">
+      <span class="cl-day">${esc(f.day.slice(0, 2))}/${esc(f.day.slice(2))}</span>
+      <div class="cl-grp"><span class="cl-k">发给他的</span>${f.sent.map((d) => docChip(r.name, d)).join('') || '<span class="cl-none">没有</span>'}</div>
+      <div class="cl-grp"><span class="cl-k">我自己看的</span>${f.mine.map((d) => `<span class="cl-doc mine"><a href="${esc(d.obsidian)}" title="在 Obsidian 打开"><i>MD</i>${esc(d.label)}</a></span>`).join('') || '<span class="cl-none">没有</span>'}</div>
+    </div>`).join('');
+  return jobs + days || '<span class="cl-none">还没有录音</span>';
 }
 
 function renderClients() {
@@ -66,14 +71,24 @@ function renderClients() {
   if (!CS.rows) { body.innerHTML = '<div class="panel empty">正在读客户…</div>'; loadClients(); return; }
   if (CS.rows.error) { body.innerHTML = `<div class="panel empty">${esc(CS.rows.error)}</div>`; return; }
   if (!CS.rows.length) { body.innerHTML = '<div class="panel empty">还没有客户。做完一场咨询，点右上角「上传咨询录音」。</div>'; return; }
-  body.innerHTML = `<div class="panel cl-wrap"><table class="cl-table">
+  const sessions = CS.rows.reduce((n, r) => n + Math.max(r.consults.length, (r.files || []).length), 0);
+  const follow = CS.rows.filter((r) => r.profile['后续方案'] === '要出方案').length;
+  const pending = CS.rows.filter((r) => !r.profile['后续方案'] || r.profile['后续方案'] === '待定').length;
+  body.innerHTML = `<div class="cl-stats">
+      <div><b>${CS.rows.length}</b><span>客户</span></div>
+      <div><b>${sessions}</b><span>场咨询</span></div>
+      <div><b>${follow}</b><span>要出方案</span></div>
+      <div><b>${pending}</b><span>还没定下一步</span></div>
+    </div>
+    <div class="panel cl-wrap"><table class="cl-table">
+    <colgroup><col class="c-name"><col class="c-src"><col class="c-fee"><col class="c-who"><col class="c-wx"><col class="c-plan"><col class="c-quote"><col class="c-sum"></colgroup>
     <thead><tr><th>客户</th>${CS_COLS.map(([, label]) => `<th>${esc(label)}</th>`).join('')}<th>Summary</th></tr></thead>
-    <tbody>${CS.rows.map((r) => `<tr>
-      <th scope="row"><b>${esc(r.name)}</b><small>${r.consults.length} 场咨询</small></th>
-      ${CS_COLS.map((col) => `<td>${clientField(r, col)}</td>`).join('')}
-      <td class="cl-sum">${r.consults.map(consultCell).join('') || '<span class="cl-none">没有录音</span>'}</td>
+    <tbody>${CS.rows.map((r) => `<tr class="${r.profile['后续方案'] === '暂不需要' ? 'cl-noplan' : ''}">
+      <th scope="row"><b>${esc(r.name)}</b><small>${Math.max(r.consults.length, (r.files || []).length)} 场咨询</small></th>
+      ${CS_COLS.map((col) => `<td class="f-${esc(col[0])}">${clientField(r, col)}</td>`).join('')}
+      <td class="cl-sum">${summaryCell(r)}</td>
     </tr>`).join('')}</tbody></table></div>
-    <p class="cl-foot">每个客户的信息都在 Obsidian 的 010_咨询/&lt;客户&gt;/ 里，填的这几栏存进「客户档案.md」，那边改了这里也会变。</p>`;
+    <p class="cl-foot">每个客户一个文件夹：Obsidian 的 010_咨询/&lt;客户&gt;/。填的几栏存在那里的「客户档案.md」；「发给他的」「我自己看的」按文件夹里实际的文件列出，手动放进去的 PDF 也会出现。</p>`;
 }
 
 async function saveClientField(el) {
@@ -82,6 +97,7 @@ async function saveClientField(el) {
     await api(`/api/clients/${encodeURIComponent(client)}`, { method: 'PUT', body: { [field]: el.value } });
     const row = CS.rows.find((r) => r.name === client);
     if (row) row.profile[field] = el.value;
+    if (field === '后续方案') el.closest('tr').classList.toggle('cl-noplan', el.value === '暂不需要');
     toast('已保存到客户档案');
   } catch (err) { toast(err.message); }
 }
@@ -103,7 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#clientsBody').addEventListener('change', (e) => { if (e.target.matches('.cl-in')) saveClientField(e.target); });
   $('#clientsBody').addEventListener('click', async (e) => {
     const t = e.target, d = t.dataset || {};
-    if (d.csReveal) {
+    if (d.clReveal) {
+      try { await api(`/api/clients/${encodeURIComponent(d.clReveal)}/reveal?file=${encodeURIComponent(d.file)}`, { method: 'POST' }); toast('已在 Finder 里选中，拖进微信就能发'); } catch (err) { toast(err.message); }
+    } else if (d.csReveal) {
       try { await api(`/api/consults/${encodeURIComponent(d.csReveal)}/reveal?what=${d.what}`, { method: 'POST' }); toast(d.what === 'client' ? '已在 Finder 里选中客户版，拖进微信就能发' : '已在 Finder 里打开'); } catch (err) { toast(err.message); }
     } else if (d.csRetry) {
       t.disabled = true;

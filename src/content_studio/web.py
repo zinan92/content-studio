@@ -1578,11 +1578,44 @@ def create_app(
         """「客户」页：一个客户一行，档案 + 每一场咨询的两份 summary。"""
         from . import consult
 
-        rows = consult.clients(vault.vault_root(vault_path()))
+        from urllib.parse import quote
+
+        root = vault.vault_root(vault_path())
+        rows = consult.clients(root)
         for row in rows:
             row["consults"] = [_consult_row(c) for c in row["consults"]]
             row["consults"].sort(key=lambda c: c.get("day") or "", reverse=True)
+            base = f"/api/clients/{quote(row['name'])}/file/"
+            for day in row["files"]:
+                for doc in day["sent"]:
+                    doc["pdf_url"] = base + quote(doc["pdf"]) if doc["pdf"] else None
+                    doc["html_url"] = base + quote(doc["html"]) if doc["html"] else None
+                for doc in day["mine"]:
+                    doc["obsidian"] = "obsidian://open?path=" + quote(str(consult.client_dir(root, row["name"]) / doc["file"]))
         return {"clients": rows, "fields": list(consult.PROFILE_FIELDS)}
+
+    def _client_file(name: str, file: str) -> Path:
+        from . import consult
+
+        home = consult.client_dir(vault.vault_root(vault_path()), name)
+        path = home / file
+        if home.name != name or "/" in file or file.startswith(".") or not path.is_file():
+            raise HTTPException(status_code=404, detail="找不到这个文件")
+        return path
+
+    @app.get("/api/clients/{name}/file/{file}")
+    def client_file(name: str, file: str) -> Response:
+        path = _client_file(name, file)
+        media = {".pdf": "application/pdf", ".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8"}
+        return FileResponse(path, media_type=media.get(path.suffix, "application/octet-stream"))
+
+    @app.post("/api/clients/{name}/reveal")
+    def reveal_client_file(name: str, file: str) -> dict[str, Any]:
+        """在 Finder 里选中这个文件（拖进微信发给客户）。"""
+        path = _client_file(name, file)
+        if sys.platform == "darwin" and not os.environ.get("CONTENT_STUDIO_NO_OPEN"):
+            subprocess.Popen(["open", "-R", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"path": str(path)}
 
     @app.put("/api/clients/{name}")
     def put_client(name: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -2033,6 +2066,20 @@ def create_app(
                 lines.append(f"## 他的抖音主页\n昵称：{me.get('nickname')}；粉丝 {me.get('follower_count')}\n简介：{me.get('signature') or '（没抓到）'}")
                 titles = [(v['title'] or '').split(chr(10))[0][:50] for v in store.videos(me["id"]) if not v["is_image_post"]][:12]
                 lines.append("## 他最近的视频标题（做「陌生人自测」用）\n" + ("\n".join(f"- {t}" for t in titles) or "没有"))
+        elif kind == "consults":
+            from . import consult
+
+            rows = consult.clients(vault.vault_root(vault_path()))
+            for row in rows[:12]:
+                p = row["profile"]
+                lines.append(f"## 客户：{row['name']}\n来源：{p['来源'] or '未填'}；首次咨询收费：{p['首次咨询收费'] or '未填'}；"
+                             f"画像：{p['画像'] or '未填'}；后续方案：{p['后续方案'] or '未填'}；报价：{p['报价'] or '未填'}")
+                note = next((c.get("note") for c in row["consults"] if c.get("note")), None)
+                if note and Path(note).is_file():
+                    text = Path(note).read_text(encoding="utf-8").split("## 逐段对照")[0]
+                    lines.append("### 最近一场咨询的总结\n" + text[-4000:])
+            if not rows:
+                lines.append("还没有咨询客户。")
         else:
             lines.append("Park 在设置页。")
         return "\n\n".join(lines)

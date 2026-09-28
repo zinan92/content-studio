@@ -10,12 +10,13 @@ const ANNA_PROMPTS = {
   work: ['这个提纲第一句够不够狠？', '交付这一点怎么补？', '按三点看，这条能不能拍？'],
   output: ['这周哪条最好，为什么？', '下一条只改一件事，改什么？', '来的人对不对？'],
   settings: ['你现在读的是哪些文件？'],
+  consults: ['这个客户下一步该怎么跟？', '哪场咨询能做成一条视频？'],
 };
 
 function annaScope() {
   if (S.view === 'work' && S.workId) return `work:${S.workId}`;
   if (OUTPUT_FAMILY.includes(S.view)) return 'output';
-  if (['input', 'board', 'settings', 'positioning'].includes(S.view)) return S.view;
+  if (['input', 'board', 'settings', 'positioning', 'consults'].includes(S.view)) return S.view;
   return 'board';
 }
 

@@ -148,13 +148,29 @@ def plain_summary(body: str, limit: int = 120) -> str:
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
+TITLE_PREFIX = re.compile(r"^文章标题[:：]\s*")
+
+
 def _title(path: Path, meta: dict[str, str], body: str) -> str:
     if meta.get("title"):
-        return meta["title"]
+        return TITLE_PREFIX.sub("", meta["title"])
     heading = re.search(r"^#\s+(.+)$", body, flags=re.MULTILINE)
     if heading:
-        return heading.group(1).strip()
+        return TITLE_PREFIX.sub("", heading.group(1).strip())
     return path.stem
+
+
+def _card_body(body: str, title: str) -> str:
+    """卡片摘要只要正文：X 收藏的笔记开头是「# 文章标题：…」+「source: 我的 X 收藏 · link」+ 再来一遍标题，
+    直接截前 120 字，卡片上全是这些。笔记本身不改（日报、索引都读这个格式）。"""
+    key = re.sub(r"\W", "", title)
+    kept = []
+    for line in body.splitlines():
+        bare = TITLE_PREFIX.sub("", re.sub(r"^#+\s*", "", line.strip()))
+        if re.match(r"^source:\s", bare) or (key and re.sub(r"\W", "", bare) == key):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def _created(path: Path, meta: dict[str, str]) -> datetime:
@@ -254,7 +270,7 @@ def _item(path: Path, root: Path, source: InboxSource, meta: dict[str, str], bod
         "source": source.key,
         "source_label": source.label,
         "title": _title(path, meta, body),
-        "summary": plain_summary(body),
+        "summary": plain_summary(_card_body(body, _title(path, meta, body))),
         "url": meta.get("source") or meta.get("url") or None,
         "author": str(meta.get("author") or "").strip() or None,
         "created_at": created.isoformat(timespec="minutes"),

@@ -172,3 +172,18 @@ def test_portrait_is_parsed_for_park_only() -> None:
     client = consult.parse_client(CLIENT.replace("标题：", "画像：宁波 POD 数码印刷，年销售额 150–200 万\n标题："))
     assert client["portrait"].startswith("宁波")
     assert "宁波 POD" not in consult.render_client(client, day=date(2026, 9, 28))
+
+
+def test_client_files_lists_what_is_really_in_the_folder(tmp_path: Path) -> None:
+    home = tmp_path / "阿皮"
+    home.mkdir()
+    for name in ("0928 客户版.pdf", "0928 客户版.html", "0928 调研 个性化定制消费.pdf", "0928 调研 个性化定制消费.html",
+                 "0928 咨询记录.md", "客户档案.md", "随手.txt"):
+        (home / name).write_text("x")
+    [day] = consult.client_files(home)
+    assert day["day"] == "0928"
+    assert [(d["label"], d["pdf"], d["html"]) for d in day["sent"]] == [
+        ("会议纪要", "0928 客户版.pdf", "0928 客户版.html"),
+        ("调研报告 · 个性化定制消费", "0928 调研 个性化定制消费.pdf", "0928 调研 个性化定制消费.html"),
+    ]
+    assert day["mine"] == [{"label": "咨询记录", "file": "0928 咨询记录.md"}]
