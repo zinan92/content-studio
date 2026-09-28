@@ -1445,4 +1445,8 @@ def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path,
     assert client.put("/api/clients/阿平", json={"微信名": "apin", "报价": "3 万"}).json()["profile"]["微信名"] == "apin"
     assert client.get("/api/clients").json()["clients"][0]["profile"]["报价"] == "3 万"
     assert client.get(rows[0]["consults"][0]["pdf"]).content == b"%PDF"
+    sent = rows[0]["files"][0]["sent"]
+    assert [d["label"] for d in sent] == ["会议纪要"] and client.get(sent[0]["pdf_url"]).content == b"%PDF"
+    assert client.get("/api/clients/阿平/file/..%2F..%2Fsecret").status_code == 404
+    assert client.post("/api/clients/阿平/reveal", params={"file": "0928 客户版.pdf"}).json()["path"].endswith("0928 客户版.pdf")
     assert client.post("/api/consults/0928-阿平/reveal?what=client").json()["path"].endswith("阿平/0928 客户版.pdf")

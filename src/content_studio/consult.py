@@ -479,6 +479,45 @@ def write_profile(home: Path, changes: dict[str, Any]) -> dict[str, str]:
     return current
 
 
+DOC_NAME = re.compile(r"^(\d{4}) (.+)\.(pdf|html|md)$")
+
+
+def _doc_label(stem: str) -> str:
+    if stem == "客户版":
+        return "会议纪要"
+    if stem.startswith("调研"):
+        rest = stem[2:].strip()
+        return f"调研报告 · {rest}" if rest else "调研报告"
+    return stem
+
+
+def client_files(home: Path) -> list[dict[str, Any]]:
+    """按文件夹里真有的东西算：每一天发给客户的（PDF/HTML，按名字配对）和自己看的（.md）。
+
+    Park 9/28：发给阿皮的是会议纪要和一份调研报告，各一个 PDF + HTML；调研报告不是流水线出的，
+    所以不能只看任务记录，要扫文件夹。以后手动放进来的也算。"""
+    days: dict[str, dict[str, Any]] = {}
+    if not home.is_dir():
+        return []
+    for path in sorted(home.iterdir()):
+        m = DOC_NAME.match(path.name)
+        if not m or path.name == PROFILE:
+            continue
+        day, stem, ext = m.groups()
+        entry = days.setdefault(day, {"day": day, "sent": {}, "mine": []})
+        if ext == "md":
+            entry["mine"].append({"label": stem, "file": path.name})
+        else:
+            doc = entry["sent"].setdefault(stem, {"label": _doc_label(stem), "pdf": None, "html": None})
+            doc[ext] = path.name
+    out = []
+    for day in sorted(days, reverse=True):
+        e = days[day]
+        sent = sorted(e["sent"].values(), key=lambda d: (d["label"] != "会议纪要", d["label"]))
+        out.append({"day": day, "sent": sent, "mine": e["mine"]})
+    return out
+
+
 def clients(vault: Path) -> list[dict[str, Any]]:
     """每个客户一行：档案 + 这个客户每一场咨询（最新在前）。还在转写、没建文件夹的也列出来。"""
     base = vault / FOLDER
@@ -492,7 +531,9 @@ def clients(vault: Path) -> list[dict[str, Any]]:
         row = rows.setdefault(name, {"name": name, "profile": {k: "" for k in PROFILE_FIELDS}, "consults": []})
         row["consults"].append(job)
     for row in rows.values():
-        row["latest"] = max((c.get("day") or "" for c in row["consults"]), default="")
+        row["files"] = client_files(base / row["name"])
+        latest_file = f"{datetime.now().year}-{row['files'][0]['day'][:2]}-{row['files'][0]['day'][2:]}" if row["files"] else ""
+        row["latest"] = max([c.get("day") or "" for c in row["consults"]] + [latest_file])
     return sorted(rows.values(), key=lambda r: (r["latest"], r["name"]), reverse=True)
 
 

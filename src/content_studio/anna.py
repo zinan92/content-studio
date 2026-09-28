@@ -39,7 +39,7 @@ MAX_KNOWLEDGE_FILE_CHARS = 12000
 MAX_CONTEXT_CHARS = 24000
 TURN_TIMEOUT_SECONDS = 180
 
-SCOPE_LABELS = {"input": "进项", "board": "加工中", "work": "这条视频", "output": "已发出", "settings": "设置", "positioning": "定位"}
+SCOPE_LABELS = {"input": "进项", "board": "加工中", "work": "这条视频", "output": "已发出", "settings": "设置", "positioning": "定位", "consults": "咨询客户"}
 # What each [动作] line may ask for; anything else is shown as text.
 ACTION_KINDS = {"存进备注": "memo", "重写提纲": "outline", "拿来做": "take", "按三点评分": "qa", "记进标准": "standard", "记进定位": "positioning"}
 ACTION_RE = re.compile(r"^\s*\[动作\]\s*(" + "|".join(ACTION_KINDS) + r")\s*[:：]?\s*(.*)$")
