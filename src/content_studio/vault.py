@@ -21,6 +21,9 @@ class DailySource:
     # Where the newsletter pipeline keeps each item's full text (<items>/<YY-MM-DD>/…/*.md).
     # Only then can Park take a single 快讯 into 选题池 with its original text.
     items: str | None = None
+    # A shared folder (2026-09-28: 财经日报 and 财经周报 live in one folder, K 线周报 sits next to
+    # K 线日报) — only file names containing this belong to the daily.
+    match: str = ""
 
 
 @dataclass(frozen=True)
@@ -42,8 +45,8 @@ class InboxSource:
 # 晨报 is a digest of these three, so it stays out to avoid showing the same thing twice.
 DAILY_SOURCES = (
     DailySource("ai_daily", "AI 日报", "006_ai daily newsletter", (".md",), "~/park-io/_inbox/processed"),
-    DailySource("finance_daily", "财经日报", "007_finance daily newsletter", (".md",)),
-    DailySource("kline_daily", "K 线日报", "007_kline daily newsletter", (".md",)),
+    DailySource("finance_daily", "财经日报", "007_finance newsletter", (".md",), match="finance-daily-newsletter"),
+    DailySource("kline_daily", "K 线日报", "007_kline daily newsletter", (".md",), match="kline-daily-newsletter"),
 )
 
 INBOX_SOURCES = (
@@ -89,7 +92,7 @@ def configure(vault_cfg: dict | None) -> None:
     dailies = vault_cfg.get("dailies")
     if isinstance(dailies, list) and dailies:
         DAILY_SOURCES = tuple(
-            DailySource(str(d["key"]), str(d.get("label") or d["key"]), str(d["folder"]), (".md",), str(d["items"]) if d.get("items") else None)
+            DailySource(str(d["key"]), str(d.get("label") or d["key"]), str(d["folder"]), (".md",), str(d["items"]) if d.get("items") else None, str(d.get("match") or ""))
             for d in dailies if isinstance(d, dict) and d.get("key") and d.get("folder")
         )
 
@@ -205,7 +208,7 @@ def dailies(raw_root: str, day: date) -> list[dict[str, Any]]:
         found = None
         if folder.is_dir():
             for path in sorted(folder.iterdir()):
-                if path.suffix.lower() in source.suffixes and any(path.name.startswith(t) or t in path.name for t in date_tokens(day)):
+                if path.suffix.lower() in source.suffixes and source.match in path.name and any(path.name.startswith(t) or t in path.name for t in date_tokens(day)):
                     found = path
                     break
         results.append(
@@ -232,7 +235,7 @@ def daily_history(raw_root: str, key: str, limit: int = 30) -> list[dict[str, An
     # README listed as if it were an issue is noise in a list Park reads every morning.
     files = [
         p for p in folder.iterdir()
-        if p.is_file() and p.suffix.lower() in source.suffixes and not p.name.startswith(".") and _daily_day(p.name)
+        if p.is_file() and p.suffix.lower() in source.suffixes and source.match in p.name and not p.name.startswith(".") and _daily_day(p.name)
     ]
     # Newest first, and a day's second issue (…-晚) above that day's first one — sorting on the
     # raw file name puts them the other way round, because '.' sorts after '-'.
