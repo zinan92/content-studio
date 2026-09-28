@@ -1541,8 +1541,8 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .cl-stats span{font-size:12.5px;color:var(--ink-2)}
 .cl-wrap{overflow-x:auto;margin-top:12px}
 .cl-table{border-collapse:collapse;width:100%;min-width:980px;table-layout:fixed;font-size:13.5px}
-.cl-table col.c-name{width:11%}.cl-table col.c-src{width:9%}.cl-table col.c-fee{width:8%}.cl-table col.c-who{width:17%}
-.cl-table col.c-wx{width:9%}.cl-table col.c-plan{width:9%}.cl-table col.c-quote{width:10%}.cl-table col.c-sum{width:27%}
+.cl-table col.c-name{width:11%}.cl-table col.c-src{width:8%}.cl-table col.c-fee{width:8%}.cl-table col.c-who{width:16%}
+.cl-table col.c-wx{width:11%}.cl-table col.c-plan{width:10%}.cl-table col.c-quote{width:10%}.cl-table col.c-sum{width:26%}
 .cl-table th,.cl-table td{font-family:var(--sans);padding:12px 8px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top;white-space:normal}
 .cl-table thead th{font-size:12px;font-weight:600;color:var(--ink-3);background:var(--sunk);position:sticky;top:0}
 .cl-table tbody tr:hover{background:color-mix(in srgb,var(--sunk) 55%,transparent)}
@@ -1550,7 +1550,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .cl-table tbody th{color:var(--ink);padding-left:16px}
 .cl-table tbody th b{display:block;font-size:14.5px;line-height:1.4;overflow-wrap:anywhere}
 .cl-table tbody th small{display:block;margin-top:2px;color:var(--ink-3);font-weight:400;font-size:12px}
-.cl-in{width:100%;min-width:0;border:1px solid transparent;border-radius:8px;background:transparent;padding:6px 8px;font:inherit;color:var(--ink);resize:vertical;text-overflow:ellipsis}
+.cl-in{width:100%;min-width:0;overflow:hidden;border:1px solid transparent;border-radius:8px;background:transparent;padding:6px 8px;font:inherit;color:var(--ink);resize:vertical;text-overflow:ellipsis}
 .cl-in:hover{border-color:var(--line)}
 .cl-in:focus{border-color:var(--accent);background:var(--surface);outline:none}
 .cl-in::placeholder{color:var(--ink-3)}
