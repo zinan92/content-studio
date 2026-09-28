@@ -97,7 +97,7 @@ def transcribe(folder: Path, *, transcriber: Transcriber | None = None) -> list[
     cached = folder / "transcript.json"
     if cached.is_file():
         try:
-            segments = json.loads(cached.read_text(encoding="utf-8")).get("segments") or []
+            segments = clean(json.loads(cached.read_text(encoding="utf-8")).get("segments") or [])
         except ValueError:
             segments = []
         if segments:
@@ -105,11 +105,26 @@ def transcribe(folder: Path, *, transcriber: Transcriber | None = None) -> list[
     audio = audio_of(folder)
     if not audio:
         raise ConsultError("找不到录音文件")
-    segments = [s for s in (transcriber or whisper_transcriber)(audio) if s.get("text")]
+    segments = clean((transcriber or whisper_transcriber)(audio))
     if not segments:
         raise ConsultError("录音里没转出文字：确认一下是不是空录音")
     cached.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
     return segments
+
+
+def clean(segments: list[dict[str, Any]], *, max_repeat: int = 3) -> list[dict[str, Any]]:
+    """去掉 whisper 在长录音上的两种幻觉循环（9/28 那场都出现过）：
+    时间往回跳、两句来回刷（「where is my phone / Holy shit」×7）；同一句连刷几十遍（「嗯」×22）。"""
+    out: list[dict[str, Any]] = []
+    for seg in segments:
+        text = (seg.get("text") or "").strip()
+        if not text or seg["end"] < seg["start"] or (out and seg["start"] < out[-1]["end"] - 0.5):
+            continue
+        tail = out[-max_repeat:]
+        if len(tail) == max_repeat and all(t["text"] == text for t in tail):
+            continue
+        out.append({**seg, "text": text})
+    return out
 
 
 def chunks(segments: list[dict[str, Any]], seconds: int = CHUNK_SECONDS) -> list[dict[str, Any]]:
