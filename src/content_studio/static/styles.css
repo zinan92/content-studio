@@ -392,7 +392,7 @@ span.rp-views{border-color:transparent;background:var(--sunk)}
 @media (max-width:760px){
   .app{grid-template-columns:1fr}
   .rail{position:sticky;top:0;z-index:5;height:auto;flex-direction:row;align-items:center;gap:8px;padding:8px 12px;overflow-x:auto}
-  .brand span,.rail-foot,.flow::before,.flow-t small,.flow .node{display:none}
+  .rail-consult small,.brand span,.rail-foot,.flow::before,.flow-t small,.flow .node{display:none}
   .brand b{font-size:15px;white-space:nowrap}
   .brand-mark{width:24px;height:24px}
   .brand{gap:6px;padding:0 4px}
@@ -1514,6 +1514,9 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 :root[data-theme="dark"] .k-svg path.u{fill:#1C3326}:root[data-theme="dark"] .k-svg path.d{fill:#3A1E17}:root[data-theme="dark"] .k-svg path.w{stroke:#4A515B}
 
 /* 咨询录音 */
+.rail-consult{border:1px dashed #2A3038;background:transparent;color:var(--rail-ink);text-align:left;padding:9px 14px;border-radius:10px;cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:2px}
+.rail-consult small{font-size:11px;color:var(--rail-dim)}
+.rail-consult:hover{background:var(--rail-2)}
 .cs-meta{display:grid;grid-template-columns:1fr 150px;gap:8px}
 #csFile{padding:8px}
 .cs-list{display:flex;flex-direction:column;border-top:1px solid var(--line-soft);margin-top:4px}

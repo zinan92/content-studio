@@ -67,3 +67,11 @@ def test_run_transcribes_once_then_writes_the_note(tmp_path: Path) -> None:
     assert consult.load_state(job)["stage"] == "done"
     consult.run(job, vault, transcriber=lambda a: calls.append(a) or SEGMENTS, analyzer=lambda p: _output(2))
     assert len(calls) == 1  # 第二次直接读 transcript.json
+
+
+def test_clean_drops_whisper_loops() -> None:
+    loop = [{"start": 0.0, "end": 1.0, "text": "你好"}] + [{"start": 1.0 + i, "end": 2.0 + i, "text": "嗯"} for i in range(20)]
+    loop += [{"start": 21.0, "end": 30.0, "text": "Holy shit"}, {"start": 30.0, "end": 31.0, "text": "where is my phone"}]
+    loop += [{"start": 31.0, "end": 30.0, "text": "Holy shit"}, {"start": 30.0, "end": 31.0, "text": "where is my phone"}] * 5
+    got = [s["text"] for s in consult.clean(loop)]
+    assert got == ["你好", "嗯", "嗯", "嗯", "Holy shit", "where is my phone"]
