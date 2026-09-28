@@ -478,6 +478,24 @@ def create_app(
         out["path"] = profile.get("_path")
         return out
 
+    @app.get("/api/update")
+    def get_update(fetch: bool = True) -> dict[str, Any]:
+        from . import updater
+
+        try:
+            return updater.status(fetch=fetch)
+        except updater.UpdateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/update")
+    def post_update() -> dict[str, Any]:
+        from . import updater
+
+        try:
+            return updater.apply()
+        except updater.UpdateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/api/brand/logo")
     def brand_logo() -> Response:
         """profile.yaml 里 brand.logo 指的 SVG；没配就 404，前端保留对勾。"""

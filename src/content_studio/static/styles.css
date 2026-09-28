@@ -1579,3 +1579,22 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 /* 表格默认是数字表（等宽、右对齐）；这些表里是中文句子，用正文字体 */
 .pos-tbl td{font-family:var(--sans);font-variant-numeric:normal}
 .bf-tbl td small,.bf-done td small{font-family:var(--mono)}
+
+/* 版本与更新 */
+.up-panel{margin-bottom:16px}
+#updateBody{padding:14px 18px 16px;display:flex;flex-direction:column;gap:10px}
+.up-now{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.up-now b{display:block;font-family:var(--mono);font-size:14px}
+.up-now small{display:block;color:var(--ink-2);font-size:12.5px}
+.up-k{display:block;font-size:11.5px;color:var(--ink-3)}
+.up-acts{display:flex;gap:8px}
+.up-note{margin:0;font-size:12.5px;color:var(--ink-2)}
+.up-note.err{color:var(--warn)}
+.up-log{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.up-log .num{font-family:var(--mono);color:var(--ink-3);margin-right:10px}
+.up-deps summary{cursor:pointer;font-size:12.5px;color:var(--ink-2)}
+.up-deps ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.up-deps li{display:grid;grid-template-columns:170px 1fr auto;gap:10px;font-size:12.5px}
+.up-deps li span{color:var(--ink-2)}
+.up-deps li em{font-style:normal;font-size:12px}
+.up-deps li.ok em{color:var(--save)} .up-deps li.miss em{color:var(--warn)} .up-deps li.off em{color:var(--ink-3)}

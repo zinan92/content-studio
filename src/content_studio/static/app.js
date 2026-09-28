@@ -279,7 +279,7 @@ $$('[data-sync-all]').forEach((b) => (b.onclick = () => syncAll(b)));
 function renderView() {
   if (!S.state) return;
   if (window.VIEWS[S.view]) window.VIEWS[S.view].render();
-  if (S.view === 'settings') { renderSettings(); if (window.renderSkills) window.renderSkills.render(); }
+  if (S.view === 'settings') { renderSettings(); if (window.renderSkills) window.renderSkills.render(); if (window.renderUpdate) window.renderUpdate(); }
   if (S.view === 'mine') renderMine();
   if (S.view === 'radar') renderRadar();
   if (S.view === 'report') { renderReport(); renderQueue(); }
