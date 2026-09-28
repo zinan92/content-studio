@@ -214,7 +214,7 @@ async function renderNow(topic, info) {
         <b>Step ${info.current_step} · ${esc(step.name || '')}</b><span class="spacer"></span>
         ${data.busy_elsewhere ? '<span class="muted">另一个项目正在跑</span>' : '<button class="btn small primary" type="button" id="runStart">让机器跑到下一个审批门</button>'}</div>
       ${(info.current_step || 1) <= 11 ? specRow(info, pct) : ''}
-      ${bar}<p class="vp-now-say">${early ? '先确认下面的粗剪就是这一条，再让机器跑：它会清点素材、查规格、对字幕、做好标 Hook 的表，然后停下等你标 Hook。' : '在这台 Mac 上后台跑 ask-park-video，遇到要你拍板的地方、阻塞或全部完成就停。随时能中止。'}</p>
+      ${bar}<p class="vp-now-say">${early ? (((info.spec || {}).hook === 'no' || info.hook_skipped) ? '先确认下面的粗剪就是这一条、上面的规格选对了，再让机器跑：它会清点素材、查规格、对齐字幕时间，直接进正文和动效，做好动效方案停下给你看。' : '先确认下面的粗剪就是这一条，再让机器跑：它会清点素材、查规格、对字幕、做好标 Hook 的表，然后停下等你标 Hook。') : '在这台 Mac 上后台跑 ask-park-video，遇到要你拍板的地方、阻塞或全部完成就停。随时能中止。'}</p>
       ${early ? '<div id="vpNowMedia"></div>' : `<p class="vp-now-need">这一步在等：${esc(step.evidence || '')}</p>`}</div>${last}`;
   }
 
