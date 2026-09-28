@@ -22,7 +22,9 @@ from typing import Any, Callable
 
 from .writer import ARTICLE_BLOCK, WriterError, cli_write
 
-SKILL_DIR = Path("~/.claude/skills/gzh-design").expanduser()
+from . import conf
+
+SKILL_DIR = conf.path("skills.gzh_design")
 VALIDATOR = SKILL_DIR / "scripts" / "validate_gzh_html.py"
 THEME = "橄榄手记"
 FILENAME = "article.gzh.html"

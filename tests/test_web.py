@@ -1450,3 +1450,9 @@ def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path,
     assert client.get("/api/clients/阿平/file/..%2F..%2Fsecret").status_code == 404
     assert client.post("/api/clients/阿平/reveal", params={"file": "0928 客户版.pdf"}).json()["path"].endswith("0928 客户版.pdf")
     assert client.post("/api/consults/0928-阿平/reveal?what=client").json()["path"].endswith("阿平/0928 客户版.pdf")
+
+
+def test_brand_defaults_to_park_and_logo_is_optional(client: TestClient) -> None:
+    brand = client.get("/api/state").json()["brand"]
+    assert brand["name"] == "帕克动手" and brand["slogan"] == "企业家的 AI 产品经理" and brand["logo"] == ""
+    assert client.get("/api/brand/logo").status_code == 404

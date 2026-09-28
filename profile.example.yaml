@@ -67,3 +67,36 @@ anna:
 # ─── 其他 ─────────────────────────────────────────────────────────────────
 video_projects_root: ""             # [可选] 口播视频项目目录（剪辑进度从这里读）
 secrets_file: ~/.config/park/secrets.yaml   # [可选] 公众号 appid/secret、X 密钥放这里，权限 600
+
+# ─── 品牌 ─────────────────────────────────────────────────────────────────
+# 工作台左上角、发给客户的会议纪要和报告都用它。不填 = 帕克动手。
+# brand:
+#   name: 你的名字或公司名
+#   en: YOUR CO.                    # [可选] 英文名，页脚用
+#   slogan: 一句话说你是谁
+#   promise: 一句话说你交付什么       # [可选] 页脚
+#   logo: ~/my-vault/brand/logo.svg # [可选] SVG；不填用对勾
+
+# ─── 你的标准和定位 ────────────────────────────────────────────────────────
+# 一个文件夹里放 SKILL.md（评分标准）、positioning.md（定位三问）、principles.md（内容原则），
+# 这里指到那个 SKILL.md。不填 = ~/.claude/skills/park-content-qa/SKILL.md
+# standards: ~/my-vault/标准/SKILL.md
+
+# ─── 咨询客户 ─────────────────────────────────────────────────────────────
+# consult:
+#   folder: 010_咨询                 # 库里放客户文件夹的地方
+#   workdir: ~/.config/content-studio/consults   # 录音、转写原件（不进笔记库）
+
+# ─── 发布和下载用的外部仓库、skill ─────────────────────────────────────────
+# 装机脚本会装到下面这些默认位置；装在别处才需要填。
+# paths:
+#   content_ops: ~/work/content-ops
+#   content_downloader: ~/work/content-downloader
+#   xingqiu: ~/work/wechat-xingqiu-shell        # 研习室（小程序）发布
+#   publish_toolkit: ~/content-toolkit/capabilities/publish
+#   secrets: ~/.config/park/secrets.yaml
+#   youtube_token: ~/.config/park/youtube-token.json
+# skills:
+#   koubo: ~/.agents/skills/ask-park-video
+#   gzh_design: ~/.claude/skills/gzh-design
+#   shots: ~/.agents/skills/video-shotcraft/references/shots

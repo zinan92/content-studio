@@ -24,15 +24,17 @@ import urllib.request
 
 from .store import StudioStore, now_iso
 
-BILI_COOKIES = Path("~/content-toolkit/capabilities/publish/cookies/bilibili_creator.json").expanduser()
+from . import conf
+
+BILI_COOKIES = conf.path("paths.publish_toolkit") / "cookies/bilibili_creator.json"
 BILI_ARCHIVES = "https://member.bilibili.com/x/web/archives"
 X_API = "https://api.x.com/2"
-XINGQIU = Path("~/work/wechat-xingqiu-shell").expanduser()
+XINGQIU = conf.path("paths.xingqiu")
 # launchd 的日常同步没有 Homebrew 的 PATH，node 和 tcb 都在那儿。
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 LABELS = {"bilibili": "B站", "x": "X", "miniprogram": "研习室", "youtube": "YouTube", "xiaohongshu": "小红书"}
-CONTENT_OPS = Path("~/work/content-ops").expanduser()
+CONTENT_OPS = conf.path("paths.content_ops")
 
 Post = dict[str, Any]  # {post_id, title, published_at, views}
 
