@@ -22,7 +22,8 @@ def _write(path: Path, text: str, when: datetime | None = None) -> Path:
 def root(tmp_path: Path) -> Path:
     old = datetime(2026, 8, 1)
     _write(tmp_path / "006_ai daily newsletter" / "26-09-14.md", "# AI Daily\n")
-    _write(tmp_path / "007_finance daily newsletter" / "2026-09-13-finance-daily-newsletter.md", "x")
+    _write(tmp_path / "007_finance newsletter" / "2026-09-13-finance-daily-newsletter.md", "x")
+    _write(tmp_path / "007_finance newsletter" / "2026-09-14-finance-weekly-newsletter.md", "weekly")
     _write(tmp_path / "009_morning brief" / "2026-09-14.html", "<h1>brief</h1>")
     _write(
         tmp_path / "002_clippings" / "new.md",
@@ -39,7 +40,7 @@ def test_dailies_match_both_date_formats(root: Path) -> None:
     items = {item["key"]: item for item in vault.dailies(str(root), date(2026, 9, 14))}
     assert items["ai_daily"]["path"] == "006_ai daily newsletter/26-09-14.md"
     assert [k for k in items] == ["ai_daily", "finance_daily", "kline_daily"]
-    assert items["finance_daily"]["path"] is None  # 9/13 file, not today's
+    assert items["finance_daily"]["path"] is None  # 9/13 file, not today's; the 9/14 weekly shares the folder but is not the daily
     # 晨报 is a digest of the three dailies and stays out of the workbench
     with pytest.raises(vault.VaultError):
         vault.read_note(str(root), "009_morning brief/2026-09-14.html")

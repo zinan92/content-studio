@@ -4,6 +4,14 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-09-28 — vault 文件夹合并后的路径
+
+- **Context:** Park 整理 vault：`005_我发出的视频` 与 `005_自媒体发出内容` 合并为 `005_我发出的内容`；财经日报、周报合并为 `007_finance newsletter`；K 线周报挪到 `007_kline daily newsletter`。
+- **Decision:** 自己视频文字稿写到 `005_我发出的内容`；日报来源加 `match`（文件名片段），财经日报只认 `finance-daily-newsletter`，K 线日报只认 `kline-daily-newsletter`，profile 的 `dailies` 可写 `match`。
+- **Why:** 两个文件夹现在各混着日报和周报，周日同一天两份文件，不加区分会把周报当日报显示。
+- **Evidence:** `pytest` 427 通过；新增断言：同日周报不被当成财经日报。
+- **Gotchas:** 本机 `profile.yaml` 里 `folders.my_videos` 要同步改名，否则工作台仍往旧路径写。
+
 ## 2026-09-13 — content-studio 地基与 M1 边界
 
 - **Context:** Park 批准新建 `zinan92/content-studio`，需求说明要求先复用已有仓库并在 M1 先保存创作者后台数据。
