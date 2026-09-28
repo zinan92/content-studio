@@ -232,7 +232,6 @@ function renderChrome() {
   const shipped = S.mine.videos.filter((v) => !v.is_image_post && v.published_at && new Date(v.published_at).getTime() >= weekAgo).length;
   $('#navOut').textContent = shipped ? `${shipped} 条/周` : '';
   renderPlatformStrip();
-  $('#brandSub').textContent = S.mine.account && S.mine.account.nickname ? `${S.mine.account.nickname} · 本机` : 'Park · 本机';
   const failedJobs = S.jobs.filter((j) => j.stage === 'failed').length;
   $('#qSummary').textContent = `${st.active_jobs ? `${st.active_jobs} 条进行中` : '没有进行中的'}${failedJobs ? ` · ${failedJobs} 条失败` : ''}`;
   paintChrome(S.view);
