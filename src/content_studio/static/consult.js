@@ -38,7 +38,7 @@ function clientField(row, [key, , hint]) {
   if (key === '后续方案') {
     return `<select class="cl-in" ${data}>${CS_PLAN.map((o) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
   }
-  if (key === '画像') return `<textarea class="cl-in" rows="3" ${data} placeholder="${esc(hint)}">${esc(v)}</textarea>`;
+  if (key === '画像') return `<textarea class="cl-in" rows="${Math.min(6, Math.max(2, Math.ceil(v.length / 15)))}" ${data} placeholder="${esc(hint)}">${esc(v)}</textarea>`;
   return `<input class="cl-in" ${data} value="${esc(v)}" placeholder="${esc(hint)}" autocomplete="off">`;
 }
 
