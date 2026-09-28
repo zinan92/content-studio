@@ -1440,4 +1440,9 @@ def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path,
     assert (tmp_path / "consults" / "0928-阿平" / "原件.mp4").read_bytes() == b"video"
     page = client.get(row["client"])
     assert page.status_code == 200 and "先验证" in page.text and "先别投流" not in page.text
+    rows = client.get("/api/clients").json()["clients"]
+    assert rows[0]["name"] == "阿平" and rows[0]["consults"][0]["pdf"].endswith("/client.pdf")
+    assert client.put("/api/clients/阿平", json={"微信名": "apin", "报价": "3 万"}).json()["profile"]["微信名"] == "apin"
+    assert client.get("/api/clients").json()["clients"][0]["profile"]["报价"] == "3 万"
+    assert client.get(rows[0]["consults"][0]["pdf"]).content == b"%PDF"
     assert client.post("/api/consults/0928-阿平/reveal?what=client").json()["path"].endswith("阿平/0928 客户版.pdf")

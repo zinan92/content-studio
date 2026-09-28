@@ -1480,6 +1480,7 @@ def create_app(
             "error": row.get("error"), "minutes": row.get("minutes"), "note": note, "missing": row.get("missing") or [],
             "obsidian": f"obsidian://open?path={quote(note)}" if note else None,
             "client": f"/api/consults/{slug_q}/client.html" if row.get("client") else None,
+            "pdf": f"/api/consults/{slug_q}/client.pdf" if row.get("pdf") else None,
             "client_file": row.get("client"),
         }
 
@@ -1562,6 +1563,35 @@ def create_app(
         if not page.is_file():
             raise HTTPException(status_code=404, detail="客户版还没做好")
         return FileResponse(page, media_type="text/html; charset=utf-8")
+
+    @app.get("/api/consults/{slug}/client.pdf")
+    def consult_client_pdf(slug: str) -> Response:
+        from . import consult
+
+        pdf = consult.load_state(_consult_folder(slug)).get("pdf")
+        if not pdf or not Path(pdf).is_file():
+            raise HTTPException(status_code=404, detail="客户版 PDF 还没做好")
+        return FileResponse(pdf, media_type="application/pdf")
+
+    @app.get("/api/clients")
+    def get_clients() -> dict[str, Any]:
+        """「客户」页：一个客户一行，档案 + 每一场咨询的两份 summary。"""
+        from . import consult
+
+        rows = consult.clients(vault.vault_root(vault_path()))
+        for row in rows:
+            row["consults"] = [_consult_row(c) for c in row["consults"]]
+            row["consults"].sort(key=lambda c: c.get("day") or "", reverse=True)
+        return {"clients": rows, "fields": list(consult.PROFILE_FIELDS)}
+
+    @app.put("/api/clients/{name}")
+    def put_client(name: str, body: dict[str, Any]) -> dict[str, Any]:
+        from . import consult
+
+        home = consult.client_dir(vault.vault_root(vault_path()), name)
+        if home.name != name:
+            raise HTTPException(status_code=400, detail="客户名里有不能用的字符")
+        return {"profile": consult.write_profile(home, body)}
 
     @app.post("/api/consults/{slug}/reveal")
     def reveal_consult(slug: str, what: str = "folder") -> dict[str, Any]:
