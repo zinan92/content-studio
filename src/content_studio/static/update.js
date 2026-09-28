@@ -19,7 +19,11 @@ function renderUpdate() {
   const box = $('#updateBody');
   if (!box) return;
   const d = UP.data;
-  if (!d) { box.innerHTML = '<p class="up-note">正在读版本…</p>'; loadUpdate(false); return; }
+  if (!d) {
+    box.innerHTML = '<p class="up-note">正在读版本…</p>';
+    if (!UP.loading) loadUpdate(false); // 只发一次：loadUpdate 自己会再调 renderUpdate
+    return;
+  }
   if (d.error) { box.innerHTML = `<p class="up-note err">${esc(d.error)}</p>`; return; }
   const deps = (d.deps || []).map((x) => `<li class="${x.installed ? 'ok' : x.required ? 'miss' : 'off'}"><b>${esc(x.name)}</b><span>${esc(x.feature)}</span><em>${x.installed ? '已装' : x.required ? '没装' : '可选，没装'}</em></li>`).join('');
   const commits = (d.commits || []).map((c) => `<li><span class="num">${esc(upDay(c.date))}</span>${esc(c.subject)}</li>`).join('');
@@ -42,6 +46,9 @@ function renderUpdate() {
       const r = await api('/api/update', { method: 'POST' });
       toast(r.message || '更新好了');
       UP.data = null;
+      UP.busy = false;
+      loadUpdate(false);
+      return;
     } catch (err) { toast(err.message); }
     UP.busy = false; renderUpdate();
   };
