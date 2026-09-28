@@ -1485,3 +1485,27 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .pdl-fig-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:4px 0 8px}
 .pdl-fig-grid img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 .md img{max-width:100%;border-radius:6px}
+
+/* ---- K 线日报：紧凑网格 ---- */
+.k-board{padding:16px 18px 12px;display:flex;flex-direction:column;gap:12px}
+.k-head h2.k-verdict{margin:2px 0 0;font:500 15px/1.6 var(--serif);color:var(--ink);text-wrap:pretty}
+.k-group h3{margin:6px 0 8px;font:500 13px/1.4 var(--sans);color:var(--ink-2)}
+.k-group h3 small{margin-left:6px;font:400 11px/1 var(--mono);color:var(--ink-3)}
+.k-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px}
+.k-card{border:1px solid var(--line-soft);border-radius:6px;background:var(--surface);padding:7px 8px 6px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.k-card:hover{border-color:var(--line)}
+.k-top{display:flex;align-items:baseline;gap:6px}
+.k-name{font-size:12.5px;font-weight:500;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.k-chg{font:400 11.5px/1 var(--mono);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.k-chg.up{color:#3E8A5B}.k-chg.dn{color:#B4412E}
+.k-sub{display:flex;justify-content:space-between;gap:6px;font:400 10.5px/1.4 var(--mono);color:var(--ink-3)}
+.k-sub span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.k-svg{display:block;width:100%;height:56px;margin-top:3px}
+.k-svg path.w{stroke:#B9BEC6;stroke-width:.8;fill:none}
+.k-svg path.u{fill:#E1EFE5;stroke:#3E8A5B;stroke-width:.7}
+.k-svg path.d{fill:#F6E1DC;stroke:#B4412E;stroke-width:.7}
+.k-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:2px}
+.k-tags span{font:400 10px/1 var(--sans);padding:3px 5px;border-radius:3px;background:var(--sunk);color:var(--ink-2)}
+.k-sector{font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .k-svg path.u{fill:#1C3326}:root:not([data-theme="light"]) .k-svg path.d{fill:#3A1E17}:root:not([data-theme="light"]) .k-svg path.w{stroke:#4A515B}}
+:root[data-theme="dark"] .k-svg path.u{fill:#1C3326}:root[data-theme="dark"] .k-svg path.d{fill:#3A1E17}:root[data-theme="dark"] .k-svg path.w{stroke:#4A515B}
