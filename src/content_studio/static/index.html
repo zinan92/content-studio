@@ -23,7 +23,7 @@
       <button type="button" data-view="output" data-stage="out"><i class="node"></i><span class="flow-k">04</span><span class="flow-t">已发出<small>数据和复盘</small></span><b class="count" id="navOut"></b></button>
     </nav>
     <button type="button" class="rail-anna" id="railAnna"><i class="an-dot"></i><span>Anna<small>内容主编 · 叫她过来</small></span></button>
-    <button type="button" class="rail-consult" id="consultBtn">上传咨询录音<small>转文字 + 分析，进 Obsidian</small></button>
+    <button type="button" class="rail-consult" id="consultBtn">上传咨询录音<small>出两份：给我的 · 给客户的</small></button>
     <button type="button" class="rail-set" data-view="settings">设置与 Skills</button>
     <div class="rail-foot">
       <div class="plat-strip" id="platStrip" aria-label="平台连接状态"></div>
@@ -197,9 +197,9 @@
 <dialog id="copyDlg" class="pub-dlg" aria-label="写标题和简介"></dialog>
 <dialog id="consultDlg" aria-label="上传咨询录音">
   <form class="dlg" id="consultForm">
-    <h2>上传咨询录音</h2>
-    <p>转成文字并分析，写进 Obsidian 的 010_咨询/：左边原话，右边逐段分析，最上面是整场总结。</p>
-    <input type="file" id="csFile" accept="audio/*,.m4a,.mp3,.wav,.aac" aria-label="录音文件">
+    <h2>上传咨询录音 / 录像</h2>
+    <p>录音或录像都行。本机留原件和转写文字，出两份：<b>给你的</b>（Obsidian 010_咨询/，总结 + 原话逐段分析）和<b>给客户的</b>（一页 HTML，纪要和 takeaway，不带转写）。</p>
+    <input type="file" id="csFile" accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.mp4,.mov" aria-label="录音文件">
     <div class="cs-meta"><input id="csName" placeholder="客户是谁，例如「〇 抖音客户」" aria-label="客户" autocomplete="off"><input type="date" id="csDay" aria-label="咨询日期"></div>
     <div class="detect" id="csMsg"></div>
     <div class="dlg-actions"><button type="button" class="btn" id="csCancel">关闭</button><button class="btn primary" type="submit" id="csSubmit">上传并开始</button></div>

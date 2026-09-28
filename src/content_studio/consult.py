@@ -1,13 +1,18 @@
-"""客户咨询录音 → 转文字 + 分析 → Obsidian 里一篇左右对照的笔记。
+"""客户咨询录音/录像 → 转文字 + 分析 → 两份成品：给 Park 的、给客户的。
 
-Park 9/28：做完一单 1v1 咨询，把录音（语音备忘录的 m4a）丢进工作台，出一篇笔记放在
-vault 的 010_咨询/：左边是转写原文，右边是逐段分析，最上面是整场的总结。
+Park 9/28：做完一单 1v1 咨询，把录音（语音备忘录的 m4a）或录像丢进工作台：
+- 本机留两样：原件（原件.m4a / 原件.mp4）和文字（转写.txt），都在工作目录里。
+- 给 Park 的：vault 010_咨询/ 一篇笔记，最上面整场总结（含成交信号、素材、复盘），
+  下面左边转写原文、右边逐段分析。
+- 给客户的：同目录一份「· 客户版.html」，只有会议纪要和 takeaway，不附转写，
+  也不带任何只给 Park 看的东西（成交判断、报价策略、素材、复盘）。Park 直接发给客户。
 
 - 转写本机跑 mlx-whisper，原文不经模型改写：45 分钟的对话让模型整段抄一遍，
   会截断、会悄悄改字（口播那边就是这样才加了漂移守卫）。左栏永远是 whisper 的原话。
 - 分析交给 claude -p：只拿编号的段落，回每段一句分析 + 整场总结，不重抄原文。
+  客户版是第二次调用，拿总结和原文写给客户看的纪要。
 - 每一步的结果都落在工作目录里（~/.config/content-studio/consults/<名字>/），
-  中途断了重跑会跳过已完成的转写。
+  中途断了重跑会跳过已完成的步骤（转写、分析、客户版各自缓存）。
 - 笔记只写进空文件或工作台自己写的文件；Park 手写过内容的同名文件不覆盖，另存一份。
 """
 from __future__ import annotations
@@ -25,7 +30,10 @@ ROOT_ENV = "CONTENT_STUDIO_CONSULTS"
 DEFAULT_ROOT = Path("~/.config/content-studio/consults")
 FOLDER = "010_咨询"
 MARKER = "generated_by: 内容工作台"
-AUDIO_SUFFIXES = (".m4a", ".mp3", ".wav", ".aac", ".mp4", ".mov", ".caf")
+MEDIA_SUFFIXES = (".m4a", ".mp3", ".wav", ".aac", ".caf", ".mp4", ".mov", ".m4v", ".webm", ".mkv")
+ORIGINAL = "原件"
+TEXT_FILE = "转写.txt"
+CLIENT_SUFFIX = " · 客户版.html"
 CHUNK_SECONDS = 150
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 POSITIONING = Path("~/.claude/skills/park-content-qa/positioning.md")
@@ -67,10 +75,17 @@ def save_state(folder: Path, **changes: Any) -> dict[str, Any]:
 
 
 def audio_of(folder: Path) -> Path | None:
-    for path in sorted(folder.glob("audio.*")):
-        if path.suffix.lower() in AUDIO_SUFFIXES:
+    for path in sorted(folder.glob(f"{ORIGINAL}.*")) + sorted(folder.glob("audio.*")):
+        if path.suffix.lower() in MEDIA_SUFFIXES:
             return path
     return None
+
+
+def write_text(folder: Path, segments: list[dict[str, Any]]) -> Path:
+    """本机留一份能直接看的文字：一行一句，前面是录音里的时间。"""
+    path = folder / TEXT_FILE
+    path.write_text("\n".join(f"[{clock(s['start'])}] {s['text']}" for s in segments) + "\n", encoding="utf-8")
+    return path
 
 
 # -- 转写 -------------------------------------------------------------------------
@@ -101,6 +116,8 @@ def transcribe(folder: Path, *, transcriber: Transcriber | None = None) -> list[
         except ValueError:
             segments = []
         if segments:
+            if not (folder / TEXT_FILE).is_file():
+                write_text(folder, segments)
             return segments
     audio = audio_of(folder)
     if not audio:
@@ -109,6 +126,7 @@ def transcribe(folder: Path, *, transcriber: Transcriber | None = None) -> list[
     if not segments:
         raise ConsultError("录音里没转出文字：确认一下是不是空录音")
     cached.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
+    write_text(folder, segments)
     return segments
 
 
@@ -229,14 +247,124 @@ def parse(output: str, count: int) -> dict[str, Any]:
     return {"summary": summary, "notes": notes, "missing": [i for i in range(1, count + 1) if i not in notes]}
 
 
+# -- 客户版 -----------------------------------------------------------------------
+
+CLIENT_HEADINGS = ("你现在的情况", "这次聊的核心问题", "我的判断", "建议你做的", "下一步")
+
+
+def client_prompt(name: str, parts: list[dict[str, Any]], summary: str) -> str:
+    body = "\n\n".join(f"[{clock(c['start'])}] {c['text']}" for c in parts)
+    headings = "\n".join(f"## {h}" for h in CLIENT_HEADINGS)
+    return f"""Park 刚做完一场 1v1 付费咨询，现在要发给客户一份会后纪要。请你以 Park 的口吻（第一人称「我」，称客户为「你」）写。
+
+客户：{name}（这是 Park 自己写的，客户的名字以这里为准；转写里的同音字、别字不算）
+
+下面是 Park 自己的复盘总结（内部用，里面有很多**不能给客户看**的东西）和整场录音的机器转写（有错别字、没分说话人）。
+
+<内部总结>
+{summary}
+</内部总结>
+
+<转写>
+{body}
+</转写>
+
+写作要求：
+- 这是会议纪要 + takeaway，给客户看的。简洁、具体、能执行，读完两三分钟。
+- 只写录音里真的聊过的内容。数字只用客户自己说过的，口径要准（比如客户说的是销售额，就写销售额，不要写成利润）；录音里没谈的价格、报价、承诺一律不写。
+- **绝对不能出现**：对这单生意的成交判断、报价策略、「素材」「选题」「复盘」「下次改进」、对客户的内部评价、Park 自己的定位宣传、任何平台引流字样。
+- 不附转写原文，不写时间戳。
+- Park 答应客户要做的事，放进「下一步」的「我这边」；客户自己说要做的，放进「你那边」。
+
+严格按下面格式输出，不要输出别的：
+
+称呼：（客户的称呼，以上面「客户」一栏里的名字为准，例如「阿皮」；看不出名字就写「你好」）
+标题：（一句话概括这次咨询，15 字以内）
+
+{headings}
+
+每个二级标题下用 2–5 条「- 」开头的要点，可以用 **加粗** 标出关键词。「下一步」下面分两组：「**我这边**」和「**你那边**」，各自再列要点。
+"""
+
+
+def parse_client(output: str) -> dict[str, str]:
+    text = (output or "").strip()
+    call = re.search(r"^称呼[:：]\s*(.+)$", text, re.M)
+    title = re.search(r"^标题[:：]\s*(.+)$", text, re.M)
+    body = text[text.find("## "):] if "## " in text else ""
+    missing = [h for h in CLIENT_HEADINGS if f"## {h}" not in body]
+    if not body or missing:
+        raise ConsultError(f"客户版没有按格式返回（缺：{'、'.join(missing) or '正文'}），可以点重试")
+    return {"call": (call.group(1).strip() if call else "你好"), "title": (title.group(1).strip() if title else "咨询纪要"), "body": body}
+
+
+LOGO = ('<svg viewBox="0 0 120 120" width="40" height="40" aria-hidden="true">'
+        '<path d="M14 66 Q30 28 48 86" fill="none" stroke="#B7B0A3" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M48 86 Q76 88 106 22" fill="none" stroke="#15171C" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<circle cx="48" cy="86" r="9" fill="#E2461F"/></svg>')
+
+
+def render_client(client: dict[str, str], *, day: date) -> str:
+    import html
+
+    import markdown as md
+
+    body = md.markdown(client["body"], extensions=["sane_lists"])
+    esc = html.escape
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(client['title'])} · 帕克动手</title>
+<style>
+:root{{--ink:#15171C;--ink-2:#5F5A51;--stone:#B7B0A3;--red:#E2461F;--paper:#F4F1EA;--card:#FFFFFF;--line:#E4DFD4}}
+*{{box-sizing:border-box}}
+body{{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 "PingFang SC","Noto Sans SC","Hiragino Sans GB",system-ui,sans-serif;-webkit-font-smoothing:antialiased}}
+.page{{max-width:720px;margin:0 auto;padding:40px 20px 56px}}
+header{{display:flex;align-items:center;gap:12px;padding-bottom:18px;border-bottom:1px solid var(--line)}}
+.brand b{{display:block;font-family:"Songti SC","Noto Serif SC",serif;font-weight:900;font-size:20px;letter-spacing:.06em;line-height:1.2}}
+.brand span{{font-size:12px;color:var(--ink-2);letter-spacing:.04em}}
+.meta{{margin:28px 0 6px;font-size:13px;color:var(--ink-2);letter-spacing:.04em}}
+h1{{font-family:"Songti SC","Noto Serif SC",serif;font-weight:900;font-size:28px;line-height:1.35;margin:0 0 18px}}
+.hello{{margin:0 0 8px}}
+.card{{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:6px 24px 18px;margin-top:18px}}
+h2{{font-family:"Songti SC","Noto Serif SC",serif;font-size:19px;margin:22px 0 8px;padding-left:12px;border-left:4px solid var(--red);line-height:1.3}}
+ul,ol{{margin:0;padding-left:1.25em}}
+li{{margin:6px 0}}
+li::marker{{color:var(--stone)}}
+strong{{font-weight:700}}
+p{{margin:10px 0}}
+footer{{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}}
+footer b{{color:var(--ink)}}
+@media print{{body{{background:#fff}}.card{{border:0;padding:0}}}}
+</style>
+</head>
+<body>
+<div class="page">
+<header>{LOGO}<div class="brand"><b>帕克动手</b><span>企业家的 AI 产品经理</span></div></header>
+<div class="meta">咨询纪要 · {day.year} 年 {day.month} 月 {day.day} 日</div>
+<h1>{esc(client['title'])}</h1>
+<p class="hello">{esc(client['call'])}，这是我们这次聊的要点和接下来要做的事。</p>
+<div class="card">
+{body}
+</div>
+<footer><span><b>帕克动手</b> · PARK &amp; CO.</span><span>不交报告，交结果。</span></footer>
+</div>
+</body>
+</html>
+"""
+
+
 # -- 笔记 -------------------------------------------------------------------------
 
 def _cell(text: str) -> str:
     return re.sub(r"\s*\n\s*", "<br>", (text or "").strip()).replace("|", "\\|") or "—"
 
 
-def render(*, name: str, day: date, audio: Path, parts: list[dict[str, Any]], analysis: dict[str, Any]) -> str:
+def render(*, name: str, day: date, audio: Path, parts: list[dict[str, Any]], analysis: dict[str, Any], client_file: str | None = None) -> str:
     duration = clock(parts[-1]["end"]) if parts else "00:00"
+    client_line = f"\n> 发给客户的版本：[[{client_file}]]（只有纪要和 takeaway，不带转写）" if client_file else ""
     rows = "\n".join(
         f"| {clock(c['start'])} | {_cell(c['text'])} | {_cell(analysis['notes'].get(c['i'], ''))} |" for c in parts
     )
@@ -252,7 +380,7 @@ cssclasses: [consult]
 
 # {day:%m%d} · {name} · 咨询记录
 
-> 录音 {duration}。下面先是整场总结；「逐段对照」左边是机器转写的原话（有错字、没分说话人），右边是这一段的分析。
+> 录音 {duration}。这是给我自己看的版本：先是整场总结，「逐段对照」左边是机器转写的原话（有错字、没分说话人），右边是这一段的分析。{client_line}
 
 {analysis['summary']}
 
@@ -277,18 +405,38 @@ def note_path(vault: Path, name: str) -> Path:
 
 # -- 一整趟 ---------------------------------------------------------------------
 
+def _cached(folder: Path, name: str, make: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    path = folder / name
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    value = make()
+    path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    return value
+
+
 def run(folder: Path, vault: Path, *, transcriber: Transcriber | None = None, analyzer: Analyzer | None = None) -> Path:
     state = load_state(folder)
     name, day = state.get("name") or folder.name, date.fromisoformat(state.get("day") or date.today().isoformat())
+    ask = analyzer or cli_analyzer
     save_state(folder, stage="transcribing", error=None, pid=os.getpid())
     parts = chunks(transcribe(folder, transcriber=transcriber))
     save_state(folder, stage="analyzing", minutes=round(parts[-1]["end"] / 60))
-    analysis = parse((analyzer or cli_analyzer)(prompt(name, parts)), len(parts))
-    markdown = render(name=name, day=day, audio=audio_of(folder) or folder, parts=parts, analysis=analysis)
+    analysis = _cached(folder, "analysis.json", lambda: parse(ask(prompt(name, parts)), len(parts)))
+    analysis["notes"] = {int(k): v for k, v in analysis["notes"].items()}
+    save_state(folder, stage="client")
+    client = _cached(folder, "client.json", lambda: parse_client(ask(client_prompt(name, parts, analysis["summary"]))))
+
     target = note_path(vault, folder.name)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(markdown, encoding="utf-8")
-    save_state(folder, stage="done", note=str(target), missing=analysis["missing"], pid=None)
+    page = render_client(client, day=day)
+    (folder / "客户版.html").write_text(page, encoding="utf-8")
+    client_path = target.parent / f"{folder.name}{CLIENT_SUFFIX}"
+    client_path.write_text(page, encoding="utf-8")
+    target.write_text(render(name=name, day=day, audio=audio_of(folder) or folder, parts=parts,
+                             analysis=analysis, client_file=client_path.name), encoding="utf-8")
+    save_state(folder, stage="done", note=str(target), client=str(client_path), missing=analysis["missing"], pid=None)
     return target
 
 

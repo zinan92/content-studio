@@ -54,19 +54,67 @@ def test_note_path_never_overwrites_what_park_wrote(tmp_path: Path) -> None:
     assert consult.note_path(tmp_path, "0928-阿平") == folder / "0928-阿平 转写.md"
 
 
+CLIENT = """称呼：阿平
+标题：从零花钱生意到平台的第一步
+
+## 你现在的情况
+- 年销售额 150–200 万，三四个人
+
+## 这次聊的核心问题
+- 获客 ROI
+
+## 我的判断
+- **供应链**是你的牌
+
+## 建议你做的
+- 先做最小验证
+
+## 下一步
+**我这边**
+- 发调研报告
+
+**你那边**
+- 定第一个场景
+"""
+
+
+def _fake(prompt: str) -> str:
+    return CLIENT if "会后纪要" in prompt else _output(2)
+
+
+def test_client_version_is_notes_only_and_branded() -> None:
+    client = consult.parse_client(CLIENT)
+    assert client["call"] == "阿平"
+    page = consult.render_client(client, day=date(2026, 9, 28))
+    assert "帕克动手" in page and "企业家的 AI 产品经理" in page and "2026 年 9 月 28 日" in page
+    assert "<strong>供应链</strong>" in page and "阿平，这是我们这次聊的要点" in page
+    with pytest.raises(consult.ConsultError, match="下一步"):
+        consult.parse_client(CLIENT.split("## 下一步")[0])
+
+
+def test_client_prompt_keeps_internal_sections_out() -> None:
+    text = consult.client_prompt("阿皮", consult.chunks(SEGMENTS), "## 成交信号与下一步\n报价")
+    assert "绝对不能出现" in text and "不附转写" in text and "客户：阿皮" in text
+
+
 def test_run_transcribes_once_then_writes_the_note(tmp_path: Path) -> None:
     job = tmp_path / "jobs" / "0928-阿平"
     job.mkdir(parents=True)
-    (job / "audio.m4a").write_bytes(b"x")
+    (job / "原件.m4a").write_bytes(b"x")
     consult.save_state(job, name="阿平", day="2026-09-28")
     vault = tmp_path / "vault"
     calls = []
-    note = consult.run(job, vault, transcriber=lambda a: calls.append(a) or SEGMENTS, analyzer=lambda p: _output(2))
+    asked = []
+    note = consult.run(job, vault, transcriber=lambda a: calls.append(a) or SEGMENTS, analyzer=lambda p: asked.append(p) or _fake(p))
     assert note == vault / consult.FOLDER / "0928-阿平.md"
     assert "第 2 段的分析" in note.read_text()
+    assert "[[0928-阿平 · 客户版.html]]" in note.read_text()
+    client = vault / consult.FOLDER / "0928-阿平 · 客户版.html"
+    assert "从零花钱生意到平台的第一步" in client.read_text() and "我在宁波做小家电" not in client.read_text()
+    assert (job / "转写.txt").read_text().startswith("[00:00] 你好 能听到吗")
     assert consult.load_state(job)["stage"] == "done"
-    consult.run(job, vault, transcriber=lambda a: calls.append(a) or SEGMENTS, analyzer=lambda p: _output(2))
-    assert len(calls) == 1  # 第二次直接读 transcript.json
+    consult.run(job, vault, transcriber=lambda a: calls.append(a) or SEGMENTS, analyzer=lambda p: asked.append(p) or _fake(p))
+    assert len(calls) == 1 and len(asked) == 2  # 第二次转写、分析、客户版都读缓存
 
 
 def test_clean_drops_whisper_loops() -> None:
