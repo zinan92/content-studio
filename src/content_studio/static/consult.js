@@ -28,7 +28,7 @@ async function loadConsults() {
     const act = done
       ? `<span class="cs-acts"><a class="btn small" href="${esc(r.obsidian)}" title="总结 + 转写和逐段分析">我的版本</a>`
         + (r.client ? `<a class="btn small primary" href="${esc(r.client)}" target="_blank" rel="noopener" title="纪要 + takeaway，不带转写">客户版</a>`
-          + `<button class="btn small" type="button" data-cs-reveal="${esc(r.slug)}" data-what="client" title="在 Finder 里找到客户版 HTML，拖进微信发给客户">发给客户</button>` : '')
+          + `<button class="btn small" type="button" data-cs-reveal="${esc(r.slug)}" data-what="client" title="在 Finder 里选中客户版 PDF，拖进微信发给客户">发给客户</button>` : '')
         + `<button class="btn small" type="button" data-cs-reveal="${esc(r.slug)}" data-what="folder" title="本机留的原件和转写文字">原件</button></span>`
       : (r.stage === 'failed' || r.stage === 'interrupted') ? `<button class="btn small" type="button" data-cs-retry="${esc(r.slug)}">重试</button>` : '';
     const note = r.error ? `<small class="cs-err">${esc(r.error)}</small>` : r.minutes ? `<small>${r.minutes} 分钟</small>` : '';
@@ -42,7 +42,7 @@ $('#csCancel').onclick = () => { clearTimeout(CS.timer); $('#consultDlg').close(
 $('#csList').onclick = async (e) => {
   const reveal = e.target.dataset && e.target.dataset.csReveal;
   if (reveal) {
-    try { await api(`/api/consults/${encodeURIComponent(reveal)}/reveal?what=${e.target.dataset.what}`, { method: 'POST' }); toast(e.target.dataset.what === 'client' ? '已在 Finder 里选中客户版，拖进微信就能发' : '已在 Finder 里打开'); } catch (err) { toast(err.message); }
+    try { await api(`/api/consults/${encodeURIComponent(reveal)}/reveal?what=${e.target.dataset.what}`, { method: 'POST' }); toast(e.target.dataset.what === 'client' ? '已在 Finder 里选中客户版 PDF，拖进微信就能发' : '已在 Finder 里打开'); } catch (err) { toast(err.message); }
     return;
   }
   const slug = e.target.dataset && e.target.dataset.csRetry;

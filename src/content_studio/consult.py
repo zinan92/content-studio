@@ -2,10 +2,11 @@
 
 Park 9/28：做完一单 1v1 咨询，把录音（语音备忘录的 m4a）或录像丢进工作台：
 - 本机留两样：原件（原件.m4a / 原件.mp4）和文字（转写.txt），都在工作目录里。
-- 给 Park 的：vault 010_咨询/ 一篇笔记，最上面整场总结（含成交信号、素材、复盘），
+- 一个客户一个文件夹：vault 010_咨询/<客户>/，这个客户的所有东西都放这里（Park 9/28）。
+- 给 Park 的：「MMDD 咨询记录.md」，最上面整场总结（含成交信号、素材、复盘），
   下面左边转写原文、右边逐段分析。
-- 给客户的：同目录一份「· 客户版.html」，只有会议纪要和 takeaway，不附转写，
-  也不带任何只给 Park 看的东西（成交判断、报价策略、素材、复盘）。Park 直接发给客户。
+- 给客户的：「MMDD 客户版.html」和同名 PDF，只有会议纪要和 takeaway，不附转写，
+  也不带任何只给 Park 看的东西（成交判断、报价策略、素材、复盘）。Park 直接发 PDF。
 
 - 转写本机跑 mlx-whisper，原文不经模型改写：45 分钟的对话让模型整段抄一遍，
   会截断、会悄悄改字（口播那边就是这样才加了漂移守卫）。左栏永远是 whisper 的原话。
@@ -33,7 +34,8 @@ MARKER = "generated_by: 内容工作台"
 MEDIA_SUFFIXES = (".m4a", ".mp3", ".wav", ".aac", ".caf", ".mp4", ".mov", ".m4v", ".webm", ".mkv")
 ORIGINAL = "原件"
 TEXT_FILE = "转写.txt"
-CLIENT_SUFFIX = " · 客户版.html"
+NOTE_NAME = "{day:%m%d} 咨询记录.md"
+CLIENT_NAME = "{day:%m%d} 客户版"
 CHUNK_SECONDS = 150
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
 POSITIONING = Path("~/.claude/skills/park-content-qa/positioning.md")
@@ -304,12 +306,39 @@ LOGO = ('<svg viewBox="0 0 120 120" width="40" height="40" aria-hidden="true">'
         '<circle cx="48" cy="86" r="9" fill="#E2461F"/></svg>')
 
 
+def _list_breaks(text: str) -> str:
+    """「**我这边**」下一行紧跟「- 」时，Markdown 不认成列表（9/28 客户版就挤成了一段），先补空行。"""
+    out: list[str] = []
+    for line in text.splitlines():
+        if re.match(r"\s*([-*]|\d+\.)\s", line) and out and out[-1].strip() and not re.match(r"\s*([-*]|\d+\.)\s", out[-1]):
+            out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
+def to_pdf(page: Path, pdf: Path) -> Path:
+    """用本机 Playwright 的 Chromium 按 A4 打印。系统 Chrome 的 --print-to-pdf 打完不退出，别用。"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise ConsultError("这台机器上没有 playwright，出不了 PDF") from exc
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            tab = browser.new_page()
+            tab.goto(page.resolve().as_uri())
+            tab.pdf(path=str(pdf), prefer_css_page_size=True, print_background=True)
+        finally:
+            browser.close()
+    return pdf
+
+
 def render_client(client: dict[str, str], *, day: date) -> str:
     import html
 
     import markdown as md
 
-    body = md.markdown(client["body"], extensions=["sane_lists"])
+    body = md.markdown(_list_breaks(client["body"]), extensions=["sane_lists"])
     esc = html.escape
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -337,7 +366,8 @@ strong{{font-weight:700}}
 p{{margin:10px 0}}
 footer{{margin-top:36px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-2);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}}
 footer b{{color:var(--ink)}}
-@media print{{body{{background:#fff}}.card{{border:0;padding:0}}}}
+@page{{size:A4;margin:14mm 12mm}}
+@media print{{body{{background:#fff}}.page{{padding:0;max-width:none}}.card{{border:0;padding:0}}h2{{break-after:avoid}}li{{break-inside:avoid}}}}
 </style>
 </head>
 <body>
@@ -364,7 +394,7 @@ def _cell(text: str) -> str:
 
 def render(*, name: str, day: date, audio: Path, parts: list[dict[str, Any]], analysis: dict[str, Any], client_file: str | None = None) -> str:
     duration = clock(parts[-1]["end"]) if parts else "00:00"
-    client_line = f"\n> 发给客户的版本：[[{client_file}]]（只有纪要和 takeaway，不带转写）" if client_file else ""
+    client_line = f"\n> 发给客户的版本：[[{client_file}]]（只有纪要和 takeaway，不带转写；同名 HTML 也在这个文件夹）" if client_file else ""
     rows = "\n".join(
         f"| {clock(c['start'])} | {_cell(c['text'])} | {_cell(analysis['notes'].get(c['i'], ''))} |" for c in parts
     )
@@ -392,14 +422,19 @@ cssclasses: [consult]
 """
 
 
-def note_path(vault: Path, name: str) -> Path:
+def client_dir(vault: Path, name: str) -> Path:
+    """一个客户一个文件夹，名字就是上传时写的客户名。"""
+    clean = re.sub(r"[\\/:*?\"<>|\n\r\t]+", " ", name or "").strip() or "客户"
+    return vault / FOLDER / clean
+
+
+def note_path(folder: Path, day: date) -> Path:
     """空文件或工作台写过的同名文件直接写；Park 手写过的不碰，另存「… 转写」。"""
-    folder = vault / FOLDER
-    target = folder / f"{name}.md"
+    target = folder / NOTE_NAME.format(day=day)
     if target.exists():
         text = target.read_text(encoding="utf-8")
         if text.strip() and MARKER not in text:
-            target = folder / f"{name} 转写.md"
+            target = target.with_name(f"{target.stem} 转写.md")
     return target
 
 
@@ -428,15 +463,23 @@ def run(folder: Path, vault: Path, *, transcriber: Transcriber | None = None, an
     save_state(folder, stage="client")
     client = _cached(folder, "client.json", lambda: parse_client(ask(client_prompt(name, parts, analysis["summary"]))))
 
-    target = note_path(vault, folder.name)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    home = client_dir(vault, name)
+    home.mkdir(parents=True, exist_ok=True)
+    target = note_path(home, day)
     page = render_client(client, day=day)
     (folder / "客户版.html").write_text(page, encoding="utf-8")
-    client_path = target.parent / f"{folder.name}{CLIENT_SUFFIX}"
+    client_path = home / f"{CLIENT_NAME.format(day=day)}.html"
     client_path.write_text(page, encoding="utf-8")
+    pdf_error = None
+    try:
+        to_pdf(client_path, client_path.with_suffix(".pdf"))
+    except Exception as exc:  # noqa: BLE001 - PDF 出不来不挡住笔记，窗口里会显示
+        pdf_error = f"客户版 PDF 没出来：{str(exc)[:160]}"
     target.write_text(render(name=name, day=day, audio=audio_of(folder) or folder, parts=parts,
-                             analysis=analysis, client_file=client_path.name), encoding="utf-8")
-    save_state(folder, stage="done", note=str(target), client=str(client_path), missing=analysis["missing"], pid=None)
+                             analysis=analysis, client_file=client_path.with_suffix(".pdf").name if not pdf_error else client_path.name),
+                      encoding="utf-8")
+    save_state(folder, stage="done", note=str(target), client=str(client_path), pdf=None if pdf_error else str(client_path.with_suffix(".pdf")),
+               error=pdf_error, missing=analysis["missing"], pid=None)
     return target
 
 
