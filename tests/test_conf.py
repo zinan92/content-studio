@@ -21,6 +21,10 @@ PARK_VALUES = {
     "skills.koubo": "~/.agents/skills/ask-park-video",
     "skills.gzh_design": "~/.claude/skills/gzh-design",
     "skills.shots": "~/.agents/skills/video-shotcraft/references/shots",
+    "update.branch": "main",
+    "update.remote": "origin",
+    "service.label": "com.wendy.content-studio",
+    "service.restart": "~/.local/bin/content-studio-restart",
 }
 
 

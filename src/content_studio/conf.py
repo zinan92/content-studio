@@ -33,6 +33,12 @@ ENV_MAP: dict[str, tuple[str, str]] = {
     "skills.koubo": ("CONTENT_STUDIO_KOUBO_SKILL", "~/.agents/skills/ask-park-video"),
     "skills.gzh_design": ("CONTENT_STUDIO_GZH_SKILL", "~/.claude/skills/gzh-design"),
     "skills.shots": ("CONTENT_STUDIO_SHOTS", "~/.agents/skills/video-shotcraft/references/shots"),
+    # 「检查更新」拉哪个分支；客户装机时填 stable（Park 挑好的版本），Park 自己是 main
+    "update.branch": ("CONTENT_STUDIO_UPDATE_BRANCH", "main"),
+    "update.remote": ("CONTENT_STUDIO_UPDATE_REMOTE", "origin"),
+    # 后台服务：launchd 的名字和安全重启脚本
+    "service.label": ("CONTENT_STUDIO_SERVICE_LABEL", "com.wendy.content-studio"),
+    "service.restart": ("CONTENT_STUDIO_RESTART", "~/.local/bin/content-studio-restart"),
 }
 
 # 品牌：工作台左上角、给客户的纪要和报告。不填 = 帕克动手。

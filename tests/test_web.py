@@ -1456,3 +1456,12 @@ def test_brand_defaults_to_park_and_logo_is_optional(client: TestClient) -> None
     brand = client.get("/api/state").json()["brand"]
     assert brand["name"] == "帕克动手" and brand["slogan"] == "企业家的 AI 产品经理" and brand["logo"] == ""
     assert client.get("/api/brand/logo").status_code == 404
+
+
+def test_update_endpoints_use_the_injected_git(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from content_studio import updater
+
+    monkeypatch.setattr(updater, "_run", lambda args: (0, "feat/dev") if args[1] == "rev-parse" else (0, ""))
+    st = client.get("/api/update?fetch=false").json()
+    assert st["can_update"] is False and "开发机" in st["reason"]
+    assert client.post("/api/update").status_code == 409

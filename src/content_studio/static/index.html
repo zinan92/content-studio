@@ -169,6 +169,10 @@
     <!-- SETTINGS -->
     <section class="view" id="v-settings" data-stage="set">
       <header class="page-h"><div><div class="stage-eyebrow">设置</div><h1>设置与 Skills</h1><p>只保存在本机。</p></div></header>
+      <div class="panel up-panel">
+        <div class="panel-h"><h2>版本与更新</h2><small>从 GitHub 拉新版本，装好后自动重启</small></div>
+        <div id="updateBody"></div>
+      </div>
       <div class="panel">
         <form class="settings" id="settingsForm">
           <label><span>Obsidian 库路径</span><input id="setVault" autocomplete="off" placeholder="~/my-vault"><small id="setVaultNote"></small></label>
@@ -230,6 +234,7 @@
 <script src="/static/positioning.js"></script>
 <script src="/static/anna.js"></script>
 <script src="/static/consult.js"></script>
+<script src="/static/update.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

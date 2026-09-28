@@ -1,0 +1,17 @@
+{
+  "_说明": "装机和更新用的依赖清单。装机脚本按它把东西拉到 path；工作台的「检查更新」只更新 content-studio 自己，其余只报告装没装。access=private 的仓库客户拉不到，要 Park 给权限或到场装；source 为空的还没有能拉的地方。",
+  "app": {
+    "repo": "https://github.com/zinan92/content-studio.git",
+    "customer_branch": "stable"
+  },
+  "deps": [
+    {"name": "content-downloader", "feature": "抖音作品下载、对标拆解", "repo": "https://github.com/zinan92/content-downloader.git", "ref": "main", "path": "~/work/content-downloader", "access": "public", "required": true},
+    {"name": "content-toolkit", "feature": "视频号、B 站的登录和检查", "repo": "https://github.com/zinan92/content-toolkit.git", "ref": "main", "path": "~/content-toolkit", "access": "public", "required": true},
+    {"name": "content-ops", "feature": "视频号、B 站、YouTube 上传", "repo": "https://github.com/zinan92/content-ops.git", "ref": "codex/workbench-p0-response-contract", "path": "~/work/content-ops", "access": "private", "required": true},
+    {"name": "wechat-xingqiu", "feature": "研习室（小程序）发布，只有 Park 有", "repo": "https://github.com/zinan92/wechat-xingqiu.git", "ref": "main", "path": "~/work/wechat-xingqiu-shell", "access": "private", "required": false},
+    {"name": "gzh-design", "feature": "公众号排版", "repo": "https://github.com/isjiamu/gzh-design-skill.git", "ref": "main", "path": "~/.claude/skills/gzh-design", "access": "third-party", "required": false},
+    {"name": "ian-xiaohei-illustrations", "feature": "文章配图风格", "repo": "https://github.com/helloianneo/ian-xiaohei-illustrations.git", "ref": "main", "path": "~/.agents/skill-sources/ian-xiaohei-illustrations", "access": "third-party", "required": false},
+    {"name": "ask-park-video", "feature": "口播剪辑工作表", "repo": "", "ref": "", "path": "~/.agents/skills/ask-park-video", "access": "no-source", "required": false},
+    {"name": "video-shotcraft", "feature": "镜头方案检查", "repo": "", "ref": "", "path": "~/.agents/skills/video-shotcraft", "access": "no-source", "required": false}
+  ]
+}
