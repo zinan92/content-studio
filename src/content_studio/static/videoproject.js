@@ -212,8 +212,8 @@ async function renderNow(topic, info) {
     const pct = info.visual_target === null || info.visual_target === undefined ? 30 : Math.round(info.visual_target * 100);
     box.innerHTML = `<div class="vp-now todo"><div class="vp-now-h"><span class="chip busy">该跑了</span>
         <b>Step ${info.current_step} · ${esc(step.name || '')}</b><span class="spacer"></span>
-        ${(info.current_step || 1) <= 11 ? `<label class="vp-vis" title="正文里有动效的时长占比。只给这个数，挑哪几处由机器定">动效占正文 <input id="vpVis" type="number" min="0" max="100" step="5" value="${pct}"> %</label>` : ''}
         ${data.busy_elsewhere ? '<span class="muted">另一个项目正在跑</span>' : '<button class="btn small primary" type="button" id="runStart">让机器跑到下一个审批门</button>'}</div>
+      ${(info.current_step || 1) <= 11 ? specRow(info, pct) : ''}
       ${bar}<p class="vp-now-say">${early ? '先确认下面的粗剪就是这一条，再让机器跑：它会清点素材、查规格、对字幕、做好标 Hook 的表，然后停下等你标 Hook。' : '在这台 Mac 上后台跑 ask-park-video，遇到要你拍板的地方、阻塞或全部完成就停。随时能中止。'}</p>
       ${early ? '<div id="vpNowMedia"></div>' : `<p class="vp-now-need">这一步在等：${esc(step.evidence || '')}</p>`}</div>${last}`;
   }
@@ -222,6 +222,13 @@ async function renderNow(topic, info) {
   const fold = $('#vpMedia');
   if (upTop) { if (fold) fold.innerHTML = '<p class="muted">在最上面那张卡片里。</p>'; renderMedia(topic, upTop); }
   else if (fold && !(info.gate && info.gate.key === 'H1' && !running)) renderMedia(topic, fold);  // H1 时由审批卡片放上面
+  $$('.vp-spec select').forEach((sel) => (sel.onchange = async () => {
+    try {
+      await api(`/api/topics/${topic.id}/video-project/spec`, { method: 'PUT', body: { [sel.dataset.spec]: sel.value } });
+      toast(`记下了：${sel.closest('label').dataset.label} → ${sel.selectedOptions[0].textContent}`);
+      delete VP.cache[topic.id];
+    } catch (err) { toast(err.message); }
+  }));
   const vis = $('#vpVis');
   const saveVis = async () => {
     if (!vis) return;
@@ -393,4 +400,20 @@ async function renderOpening(topic) {
   $('#opRun').onclick = async () => {
     try { const res = await api(`/api/topics/${topic.id}/opening`, { method: 'POST' }); toast(res.message); renderOpening(topic); } catch (err) { toast(err.message); }
   };
+}
+
+
+/* 剪辑规格：从剪映导出后 Park 手动选，机器照做、不再判断（ask-park-video 的 Park's manual spec） */
+const VP_SPEC = [
+  ['hook', 'Hook', [['yes', '要剪 Hook'], ['no', '不剪 Hook']], 'yes'],
+  ['captions', '字幕', [['generate', '流程来加字幕'], ['burned_in', '剪映里已经加好']], 'generate'],
+  ['layout', '版式', [['split-4x3', '横屏 · 左脸右屏'], ['vertical-full-overlay', '竖屏 · 全屏叠卡片']], 'split-4x3'],
+  ['bgm', '背景音乐', [['none', '不加'], ['light', '加轻音乐']], 'none'],
+];
+function specRow(info, pct) {
+  const spec = info.spec || {};
+  const hookNow = spec.hook || (info.hook_skipped ? 'no' : 'yes');
+  const cur = { ...spec, hook: hookNow };
+  return `<div class="vp-spec" title="从剪映拿出来之后由你选，机器照做">${VP_SPEC.map(([key, label, opts, dflt]) => `<label data-label="${label}"><span>${label}</span><select data-spec="${key}">${opts.map(([v, t]) => `<option value="${v}"${(cur[key] || dflt) === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`).join('')}
+    <label class="vp-vis" data-label="动效" title="正文里有动效的时长占比。只给这个数，挑哪几处由机器定"><span>动效占正文</span><span><input id="vpVis" type="number" min="0" max="100" step="5" value="${pct}"> %</span></label></div>`;
 }

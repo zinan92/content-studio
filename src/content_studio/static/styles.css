@@ -1598,3 +1598,9 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .up-deps li span{color:var(--ink-2)}
 .up-deps li em{font-style:normal;font-size:12px}
 .up-deps li.ok em{color:var(--save)} .up-deps li.miss em{color:var(--warn)} .up-deps li.off em{color:var(--ink-3)}
+
+/* 剪辑规格 */
+.vp-spec{display:flex;flex-wrap:wrap;gap:10px 14px;margin:10px 0 4px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:10px;background:var(--sunk)}
+.vp-spec label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink-3)}
+.vp-spec select,.vp-spec input{font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.vp-spec input{width:64px}

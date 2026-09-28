@@ -2345,6 +2345,17 @@ def create_app(
         store.log_event("edit", f"《{title}》{'Hook' if what == 'hook' else '整条'}在外面做完了，已记下", topic_id)
         return {**result, "message": "记下了：Hook 在外面剪好了" if what == "hook" else "记下了：整条在外面做完了，可以去发布台"}
 
+    @app.put("/api/topics/{topic_id}/video-project/spec")
+    def koubo_spec(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """Park 从剪映导出后手动选的剪辑规格：Hook、字幕、版式、背景音乐。"""
+        from . import koubo
+
+        try:
+            spec = koubo.set_spec(_koubo_dir(topic_id), {k: v for k, v in payload.items() if v is not None})
+        except koubo.KouboError as exc:
+            raise ValueError(str(exc)) from None
+        return {"spec": spec}
+
     @app.put("/api/topics/{topic_id}/video-project/visual-target")
     def koubo_visual_target(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         from . import koubo
