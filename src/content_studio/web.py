@@ -1471,13 +1471,16 @@ def create_app(
         with consult_lock:
             running = row["slug"] in consult_running
         stage = row.get("stage")
-        if stage in ("queued", "transcribing", "analyzing") and not running:
+        if stage in ("queued", "transcribing", "analyzing", "client") and not running:
             stage = "interrupted"
         note = row.get("note")
+        slug_q = quote(row["slug"])
         return {
             "slug": row["slug"], "name": row.get("name"), "day": row.get("day"), "stage": stage, "running": running,
             "error": row.get("error"), "minutes": row.get("minutes"), "note": note, "missing": row.get("missing") or [],
             "obsidian": f"obsidian://open?path={quote(note)}" if note else None,
+            "client": f"/api/consults/{slug_q}/client.html" if row.get("client") else None,
+            "client_file": row.get("client"),
         }
 
     def start_consult(slug: str) -> bool:
@@ -1521,8 +1524,8 @@ def create_app(
         if upload is None or not getattr(upload, "filename", ""):
             raise HTTPException(status_code=400, detail="没收到录音文件")
         suffix = Path(upload.filename).suffix.lower()
-        if suffix not in consult.AUDIO_SUFFIXES:
-            raise HTTPException(status_code=400, detail=f"不认识这种文件：{suffix or '没有扩展名'}（支持 m4a、mp3、wav 等）")
+        if suffix not in consult.MEDIA_SUFFIXES:
+            raise HTTPException(status_code=400, detail=f"不认识这种文件：{suffix or '没有扩展名'}（支持 m4a、mp3、wav、mp4、mov 等）")
         if not name:
             raise HTTPException(status_code=400, detail="写一下客户是谁")
         day = parse_day(str(form.get("day") or "") or None)
@@ -1532,10 +1535,12 @@ def create_app(
             if slug in consult_running:
                 raise HTTPException(status_code=409, detail="这一场正在处理，等它做完")
         folder.mkdir(parents=True, exist_ok=True)
-        for old in folder.glob("audio.*"):
+        # 同一场重新上传：原件和之前的转写、分析、客户版都作废
+        for old in [*folder.glob("audio.*"), *folder.glob(f"{consult.ORIGINAL}.*")]:
             old.unlink()
-        (folder / "transcript.json").unlink(missing_ok=True)
-        with (folder / f"audio{suffix}").open("wb") as out:
+        for cache in ("transcript.json", consult.TEXT_FILE, "analysis.json", "client.json", "客户版.html"):
+            (folder / cache).unlink(missing_ok=True)
+        with (folder / f"{consult.ORIGINAL}{suffix}").open("wb") as out:
             while chunk := await upload.read(1 << 20):
                 out.write(chunk)
         consult.save_state(folder, name=consult.slug(name, day)[5:], day=day.isoformat(), original=upload.filename,
@@ -1543,13 +1548,38 @@ def create_app(
         start_consult(slug)
         return {"consult": _consult_row({"slug": slug, **consult.load_state(folder)})}
 
-    @app.post("/api/consults/{slug}/retry")
-    def retry_consult(slug: str) -> dict[str, Any]:
+    def _consult_folder(slug: str) -> Path:
         from . import consult
 
         folder = consult.root() / slug
         if folder.parent != consult.root() or not (folder / "state.json").is_file():
             raise HTTPException(status_code=404, detail="找不到这一场")
+        return folder
+
+    @app.get("/api/consults/{slug}/client.html")
+    def consult_client(slug: str) -> Response:
+        page = _consult_folder(slug) / "客户版.html"
+        if not page.is_file():
+            raise HTTPException(status_code=404, detail="客户版还没做好")
+        return FileResponse(page, media_type="text/html; charset=utf-8")
+
+    @app.post("/api/consults/{slug}/reveal")
+    def reveal_consult(slug: str, what: str = "folder") -> dict[str, Any]:
+        """在 Finder 里指给 Park 看：客户版（发给客户用）或本机留的原件和文字。"""
+        from . import consult
+
+        folder = _consult_folder(slug)
+        state = consult.load_state(folder)
+        target = Path(state["client"]) if what == "client" and state.get("client") else (consult.audio_of(folder) or folder)
+        if sys.platform == "darwin" and not os.environ.get("CONTENT_STUDIO_NO_OPEN"):
+            subprocess.Popen(["open", "-R", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"path": str(target)}
+
+    @app.post("/api/consults/{slug}/retry")
+    def retry_consult(slug: str) -> dict[str, Any]:
+        from . import consult
+
+        folder = _consult_folder(slug)
         start_consult(slug)
         return {"consult": _consult_row({"slug": slug, **consult.load_state(folder)})}
 

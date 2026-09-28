@@ -1521,6 +1521,7 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 #csFile{padding:8px}
 .cs-list{display:flex;flex-direction:column;border-top:1px solid var(--line-soft);margin-top:4px}
 .cs-list:empty{display:none}
+.cs-acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .cs-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
 .cs-row small{display:block;color:var(--ink-2);font-size:11.5px;margin-top:2px}
 .cs-row .cs-err,.cs-err{color:var(--warn)}

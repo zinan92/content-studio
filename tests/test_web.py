@@ -1419,10 +1419,12 @@ def test_triage_back_is_a_real_state_and_the_log_names_it(client: TestClient, tm
 def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
     monkeypatch.setattr(consult, "whisper_transcriber", lambda audio: [{"start": 0.0, "end": 5.0, "text": "你好"}, {"start": 200.0, "end": 210.0, "text": "先别投流"}])
-    monkeypatch.setattr(consult, "cli_analyzer", lambda prompt: "=== 总结 ===\n## 一句话\n" + "客户卡在订单下滑。" * 12 + "\n=== 逐段 ===\n[1] 开场\n[2] 诊断")
+    client_md = "称呼：阿平\n标题：先验证\n\n" + "".join(f"## {h}\n- 要点\n\n" for h in consult.CLIENT_HEADINGS)
+    monkeypatch.setattr(consult, "cli_analyzer", lambda prompt: client_md if "会后纪要" in prompt else
+                        "=== 总结 ===\n## 一句话\n" + "客户卡在订单下滑。" * 12 + "\n=== 逐段 ===\n[1] 开场\n[2] 诊断")
     bad = client.post("/api/consults", files={"file": ("a.txt", b"x")}, data={"name": "阿平"})
     assert bad.status_code == 400
-    res = client.post("/api/consults", files={"file": ("rec.m4a", b"audio")}, data={"name": "阿平", "day": "2026-09-28"})
+    res = client.post("/api/consults", files={"file": ("rec.mp4", b"video")}, data={"name": "阿平", "day": "2026-09-28"})
     assert res.status_code == 200, res.text
     assert res.json()["consult"]["slug"] == "0928-阿平"
     for _ in range(50):
@@ -1434,3 +1436,7 @@ def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path,
     assert row["obsidian"].startswith("obsidian://open?path=")
     assert (tmp_path / "vault-default" / consult.FOLDER / "0928-阿平.md").is_file()
     assert json.loads((tmp_path / "consults" / "0928-阿平" / "transcript.json").read_text())["segments"]
+    assert (tmp_path / "consults" / "0928-阿平" / "原件.mp4").read_bytes() == b"video"
+    page = client.get(row["client"])
+    assert page.status_code == 200 and "先验证" in page.text and "先别投流" not in page.text
+    assert client.post("/api/consults/0928-阿平/reveal?what=client").json()["path"].endswith("0928-阿平 · 客户版.html")
