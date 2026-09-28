@@ -67,4 +67,14 @@ def test_nothing_new_means_no_restart() -> None:
 def test_manifest_lists_every_dependency_with_its_access() -> None:
     names = {d["name"]: d for d in updater.deps()}
     assert {"content-downloader", "content-ops", "wechat-xingqiu", "ask-park-video"} <= set(names)
-    assert names["content-ops"]["access"] == "private" and names["ask-park-video"]["access"] == "no-source"
+    assert names["content-ops"]["access"] == "public" and names["ask-park-video"]["access"] == "public"
+
+
+def test_every_dependency_comes_from_parks_own_github() -> None:
+    """别人的开源项目用 Park 名下的副本：原作者删库或闭源，装机和更新都不受影响。"""
+    import json
+
+    for d in json.loads(updater.MANIFEST.read_text(encoding="utf-8"))["deps"]:
+        assert d["repo"].startswith("https://github.com/zinan92/"), d["name"]
+        if d["access"] == "fork":
+            assert d.get("upstream"), d["name"]
