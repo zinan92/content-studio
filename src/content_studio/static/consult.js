@@ -15,7 +15,7 @@ const CS_COLS = [
   ['首次咨询收费', '初始咨询收费', '例如：1000 元 / 1 小时'],
   ['画像', '一句话定位 · 体量', '做什么、多大体量'],
   ['微信名', '微信名', ''],
-  ['后续方案', '后续要不要出方案', ''],
+  ['后续方案', '后续方案', ''],
   ['报价', '怎么报价', '例如：方案 3 万，分两期'],
 ];
 
@@ -36,10 +36,10 @@ function clientField(row, [key, , hint]) {
   const v = row.profile[key] || '';
   const data = `data-client="${esc(row.name)}" data-field="${esc(key)}"`;
   if (key === '后续方案') {
-    return `<select class="cl-in" ${data}>${CS_PLAN.map((o) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
+    return `<select class="cl-in" ${data} title="后续要不要出更重的方案">${CS_PLAN.map((o) => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
   }
   if (key === '画像') return `<textarea class="cl-in" rows="${Math.min(6, Math.max(2, Math.ceil(v.length / 13)))}" ${data} placeholder="${esc(hint)}">${esc(v)}</textarea>`;
-  return `<input class="cl-in" ${data} value="${esc(v)}" placeholder="${esc(hint)}" autocomplete="off">`;
+  return `<input class="cl-in" ${data} value="${esc(v)}" title="${esc(v)}" placeholder="${esc(hint)}" autocomplete="off">`;
 }
 
 function jobLine(c) {
