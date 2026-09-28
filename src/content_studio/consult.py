@@ -25,11 +25,12 @@ from pathlib import Path
 import re
 from typing import Any, Callable
 
+from . import conf
 from .writer import cli_write
 
 ROOT_ENV = "CONTENT_STUDIO_CONSULTS"
 DEFAULT_ROOT = Path("~/.config/content-studio/consults")
-FOLDER = "010_咨询"
+FOLDER = conf.value("consult.folder")
 MARKER = "generated_by: 内容工作台"
 MEDIA_SUFFIXES = (".m4a", ".mp3", ".wav", ".aac", ".caf", ".mp4", ".mov", ".m4v", ".webm", ".mkv")
 ORIGINAL = "原件"
@@ -38,7 +39,6 @@ NOTE_NAME = "{day:%m%d} 咨询记录.md"
 CLIENT_NAME = "{day:%m%d} 客户版"
 CHUNK_SECONDS = 150
 WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
-POSITIONING = Path("~/.claude/skills/park-content-qa/positioning.md")
 ANALYZE_COMMAND = (
     "claude -p --model opus --output-format text "
     "--disallowedTools Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Skill,Task"
@@ -176,7 +176,7 @@ def clock(seconds: float) -> str:
 
 def _positioning() -> str:
     try:
-        text = POSITIONING.expanduser().read_text(encoding="utf-8")
+        text = (conf.path("standards").parent / "positioning.md").read_text(encoding="utf-8")
     except OSError:
         return ""
     return text.split("## 飞轮")[0].strip()[:4000]
@@ -336,10 +336,23 @@ def to_pdf(page: Path, pdf: Path) -> Path:
     return pdf
 
 
-def render_client(client: dict[str, str], *, day: date) -> str:
+def brand_logo(b: dict[str, str]) -> str:
+    """客户的 logo（SVG 文件）内联进去；没配就用对勾。"""
+    if b.get("logo"):
+        try:
+            svg = Path(b["logo"]).expanduser().read_text(encoding="utf-8")
+            return re.sub(r"<svg\b", '<svg width="40" height="40" aria-hidden="true"', svg, count=1)
+        except OSError:
+            pass
+    return LOGO
+
+
+def render_client(client: dict[str, str], *, day: date, brand: dict[str, str] | None = None) -> str:
     import html
 
     import markdown as md
+
+    b = brand or conf.brand()
 
     body = md.markdown(_list_breaks(client["body"]), extensions=["sane_lists"])
     esc = html.escape
@@ -348,7 +361,7 @@ def render_client(client: dict[str, str], *, day: date) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(client['title'])} · 帕克动手</title>
+<title>{esc(client['title'])} · {esc(b['name'])}</title>
 <style>
 :root{{--ink:#15171C;--ink-2:#5F5A51;--stone:#B7B0A3;--red:#E2461F;--paper:#F4F1EA;--card:#FFFFFF;--line:#E4DFD4}}
 *{{box-sizing:border-box}}
@@ -375,14 +388,14 @@ footer b{{color:var(--ink)}}
 </head>
 <body>
 <div class="page">
-<header>{LOGO}<div class="brand"><b>帕克动手</b><span>企业家的 AI 产品经理</span></div></header>
+<header>{brand_logo(b)}<div class="brand"><b>{esc(b['name'])}</b><span>{esc(b['slogan'])}</span></div></header>
 <div class="meta">咨询纪要 · {day.year} 年 {day.month} 月 {day.day} 日</div>
 <h1>{esc(client['title'])}</h1>
 <p class="hello">{esc(client['call'])}，这是我们这次聊的要点和接下来要做的事。</p>
 <div class="card">
 {body}
 </div>
-<footer><span><b>帕克动手</b> · PARK &amp; CO.</span><span>不交报告，交结果。</span></footer>
+<footer><span><b>{esc(b['name'])}</b>{' · ' + esc(b['en']) if b['en'] else ''}</span><span>{esc(b['promise'])}</span></footer>
 </div>
 </body>
 </html>

@@ -8,6 +8,7 @@ import sys
 
 import httpx
 
+from . import conf
 from .paths import config_dir
 from .creator_metrics import (
     CREATOR_MANAGE_URL,
@@ -101,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_plan = commands.add_parser("check-visual-plan", help="视觉规格的算术检查（在叫评审之前跑）")
     check_plan.add_argument("project", type=Path, help="口播项目目录")
-    check_plan.add_argument("--shots", type=Path, default=Path("~/.agents/skills/video-shotcraft/references/shots"))
+    check_plan.add_argument("--shots", type=Path, default=conf.path("skills.shots"))
 
     phone = commands.add_parser("phone-preview", help="成片压成 540p、切成每段不超过 28 MB 的手机预览")
     phone.add_argument("project", type=Path, help="口播项目目录，或配置根目录下的项目名")

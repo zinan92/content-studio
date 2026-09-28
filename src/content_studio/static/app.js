@@ -232,6 +232,7 @@ function renderChrome() {
   const shipped = S.mine.videos.filter((v) => !v.is_image_post && v.published_at && new Date(v.published_at).getTime() >= weekAgo).length;
   $('#navOut').textContent = shipped ? `${shipped} 条/周` : '';
   renderPlatformStrip();
+  applyBrand(S.state.brand);
   const failedJobs = S.jobs.filter((j) => j.stage === 'failed').length;
   $('#qSummary').textContent = `${st.active_jobs ? `${st.active_jobs} 条进行中` : '没有进行中的'}${failedJobs ? ` · ${failedJobs} 条失败` : ''}`;
   paintChrome(S.view);
@@ -283,6 +284,19 @@ function renderView() {
   if (S.view === 'radar') renderRadar();
   if (S.view === 'report') { renderReport(); renderQueue(); }
   if (window.renderAnna) window.renderAnna();
+}
+
+/* 品牌：profile.yaml 的 brand 项；不填就是 index.html 里写的帕克动手，这里什么都不改 */
+function applyBrand(b) {
+  if (!b || !b.name) return;
+  if ($('#brandName').textContent !== b.name) { $('#brandName').textContent = b.name; document.title = `${b.name} · 内容工作台`; }
+  if ($('#brandSlogan').textContent !== b.slogan) $('#brandSlogan').textContent = b.slogan;
+  const mark = $('.brand-mark');
+  if (b.logo && mark && mark.tagName.toLowerCase() === 'svg') {
+    const img = document.createElement('img');
+    img.className = 'brand-mark'; img.src = b.logo; img.alt = '';
+    mark.replaceWith(img);
+  }
 }
 
 /* ================= SETTINGS ================= */

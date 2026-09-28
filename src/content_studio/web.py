@@ -478,6 +478,17 @@ def create_app(
         out["path"] = profile.get("_path")
         return out
 
+    @app.get("/api/brand/logo")
+    def brand_logo() -> Response:
+        """profile.yaml 里 brand.logo 指的 SVG；没配就 404，前端保留对勾。"""
+        from . import conf
+
+        logo = conf.brand()["logo"]
+        path = Path(logo).expanduser() if logo else None
+        if not path or not path.is_file() or path.suffix.lower() != ".svg":
+            raise HTTPException(status_code=404, detail="没有配置 logo")
+        return FileResponse(path, media_type="image/svg+xml")
+
     @app.get("/api/state")
     def state() -> dict[str, Any]:
         try:
@@ -486,7 +497,11 @@ def create_app(
         except CookieFileError as exc:
             cookies = {"ok": False, "message": str(exc)}
         jobs = store.jobs(500)
+        from . import conf
+
+        b = conf.brand()
         return {
+            "brand": {**b, "logo": "/api/brand/logo" if b["logo"] else ""},
             "settings": store.settings(),
             "self_account": store.self_account(),
             "my_accounts": [

@@ -14,19 +14,21 @@ import subprocess
 import sys
 from typing import Any
 
+from . import conf
+
 CONTENT_OPS = Path(os.environ.get("CONTENT_OPS_PATH", "~/work/content-ops")).expanduser()
-PUBLISH_ROOT = Path("~/content-toolkit/capabilities/publish").expanduser()
+PUBLISH_ROOT = conf.path("paths.publish_toolkit")
 CONFIRM_WINDOW_SECONDS = 30 * 60
 RUN_TIMEOUT_SECONDS = 45 * 60
 
-XINGQIU = Path("~/work/wechat-xingqiu-shell").expanduser()
+XINGQIU = conf.path("paths.xingqiu")
 
 
 def _secret(section: str, key: str) -> str:
     try:
         import yaml
 
-        data = yaml.safe_load(Path("~/.config/park/secrets.yaml").expanduser().read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(conf.path("paths.secrets").read_text(encoding="utf-8")) or {}
         return str((data.get(section) or {}).get(key) or "")
     except Exception:  # noqa: BLE001 - 没配就是空，调用方会说缺什么
         return ""
@@ -76,7 +78,7 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         # 纯文字，没有视频：Park 说主要发文字，而发视频要走分块上传接口和付费层。
         # 凭据不是文件而是 secrets.yaml 里的一段，所以 credential 指向那个文件，
         # readiness 只看得见「文件在不在」——真正齐不齐由 x_post.load_credentials 说了算。
-        "credential": Path("~/.config/park/secrets.yaml").expanduser(),
+        "credential": conf.path("paths.secrets"),
         "needs_keys": ("x", ("api_key", "api_secret", "access_token", "access_secret")),
         "login_hint": "在 developer.x.com 建应用（权限选 Read and Write），把四个密钥写进 ~/.config/park/secrets.yaml 的 x: 段",
         "no_video": True,
@@ -92,7 +94,7 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "copy_key": "miniprogram",
         # 9/24 Park：研习室要一键发。云函数 admin-api 认「工作台钥匙」（zinan92/wechat-xingqiu#338），
         # 本机脚本用网页后台同一套转换；同一选题再发会更新同一篇（brief_id 固定）。
-        "credential": Path("~/.config/park/secrets.yaml").expanduser(),
+        "credential": conf.path("paths.secrets"),
         "needs_keys": ("yanxishi", ("workbench_key", "env_id")),
         "secret_env": {"WORKBENCH_KEY": ("yanxishi", "workbench_key")},
         "login_hint": "研习室工作台钥匙在 ~/.config/park/secrets.yaml 的 yanxishi: 段（workbench_key、env_id），云函数 admin-api 存它的哈希",
@@ -108,7 +110,7 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "copy_key": "wechat_mp",
         # 9/24 Park：公众号要一键发。研习室那篇文章排好版（橄榄手记）+ 公众号封面，进草稿箱；
         # 群发由 Park 在公众号后台自己点。
-        "credential": Path("~/.config/park/secrets.yaml").expanduser(),
+        "credential": conf.path("paths.secrets"),
         "needs_keys": ("wechat", ("appid", "secret")),
         "login_hint": "公众号后台 → 设置与开发 → 基本配置：AppID、AppSecret 写进 ~/.config/park/secrets.yaml 的 wechat: 段，并把这台机器的 IP 加进白名单",
         "no_video": True,
@@ -121,7 +123,7 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
     "youtube": {
         "label": "YouTube",
         "copy_key": "youtube",
-        "credential": Path("~/.config/park/youtube-token.json").expanduser(),
+        "credential": conf.path("paths.youtube_token"),
         "probe": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "check"],
         "probe_ok": "token_valid",
         "login_hint": f"python3 {CONTENT_OPS}/scripts/youtube_channel.py auth",
