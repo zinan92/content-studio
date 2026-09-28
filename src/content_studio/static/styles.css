@@ -1516,7 +1516,8 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 /* 咨询录音 */
 .rail-consult{border:1px dashed #2A3038;background:transparent;color:var(--rail-ink);text-align:left;padding:9px 14px;border-radius:10px;cursor:pointer;font-size:13px;display:flex;flex-direction:column;gap:2px}
 .rail-consult small{font-size:11px;color:var(--rail-dim)}
-.rail-consult:hover{background:var(--rail-2)}
+.rail-consult:hover,.rail-consult.on{background:var(--rail-2)}
+.rail-consult.on{border-style:solid;border-color:var(--rail-dim)}
 .cs-meta{display:grid;grid-template-columns:1fr 150px;gap:8px}
 #csFile{padding:8px}
 .cs-list{display:flex;flex-direction:column;border-top:1px solid var(--line-soft);margin-top:4px}
@@ -1530,3 +1531,27 @@ a.btn:hover{border-color:var(--accent);color:var(--accent)}
 .cs-stage.cs-done{color:var(--save)}
 .cs-stage.cs-failed,.cs-stage.cs-interrupted{color:var(--warn)}
 .cs-stage.cs-transcribing,.cs-stage.cs-analyzing,.cs-stage.cs-queued{color:var(--accent)}
+
+/* 咨询客户页 */
+.cl-wrap{overflow-x:auto;margin-top:18px}
+.cl-table{border-collapse:collapse;width:100%;min-width:1180px;font-size:13.5px}
+.cl-table th,.cl-table td{padding:12px 10px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:top}
+.cl-table thead th{font-size:12px;font-weight:600;color:var(--ink-3);background:var(--sunk);white-space:nowrap;position:sticky;top:0}
+.cl-table tbody tr:last-child>*{border-bottom:0}
+.cl-table tbody th{min-width:120px}
+.cl-table tbody th b{display:block;font-size:14.5px}
+.cl-table tbody th small{color:var(--ink-3);font-weight:400;font-size:12px}
+.cl-in{width:100%;min-width:110px;border:1px solid transparent;border-radius:8px;background:transparent;padding:6px 8px;font:inherit;color:var(--ink);resize:vertical}
+.cl-in:hover{border-color:var(--line)}
+.cl-in:focus{border-color:var(--accent);background:var(--surface);outline:none}
+.cl-in::placeholder{color:var(--ink-3)}
+textarea.cl-in{min-width:200px;line-height:1.55}
+.cl-sum{min-width:250px}
+.cl-cs{display:flex;flex-direction:column;gap:4px;padding:2px 0 10px}
+.cl-cs+.cl-cs{border-top:1px dashed var(--line-soft);padding-top:10px}
+.cl-cs>div{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.cl-cs a{color:var(--ink);font-weight:600;text-underline-offset:3px}
+.cl-cs .linklike{font-size:12px;color:var(--ink-3)}
+.cl-k{font-size:12px;color:var(--ink-3);min-width:5em}
+.cl-none{color:var(--ink-3);font-size:12px}
+.cl-foot{margin:10px 2px 0;font-size:12px;color:var(--ink-3)}

@@ -135,7 +135,7 @@ function railKey(view) {
 
 function paintChrome(view) {
   const key = railKey(view);
-  $$('.flow button, .rail-set, .rail-pos').forEach((b) => b.classList.toggle('on', b.dataset.view === key));
+  $$('.flow button, .rail-set, .rail-pos, .rail-consult').forEach((b) => b.classList.toggle('on', b.dataset.view === key));
   document.body.dataset.stage = ($(`#v-${view}`) || {}).dataset ? $(`#v-${view}`).dataset.stage : '';
   $$('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + view));
   $$('[data-subnav]').forEach((nav) => {
@@ -171,7 +171,7 @@ function readHash() {
 }
 
 function bindNav() {
-  $$('.flow button, .rail-set, .rail-pos').forEach((b) => (b.onclick = () => go(b.dataset.view)));
+  $$('.flow button, .rail-set, .rail-pos, .rail-consult').forEach((b) => (b.onclick = () => go(b.dataset.view)));
 }
 window.addEventListener('popstate', () => go(readHash(), { push: false }));
 

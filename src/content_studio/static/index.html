@@ -23,7 +23,7 @@
       <button type="button" data-view="output" data-stage="out"><i class="node"></i><span class="flow-k">04</span><span class="flow-t">已发出<small>数据和复盘</small></span><b class="count" id="navOut"></b></button>
     </nav>
     <button type="button" class="rail-anna" id="railAnna"><i class="an-dot"></i><span>Anna<small>内容主编 · 叫她过来</small></span></button>
-    <button type="button" class="rail-consult" id="consultBtn">上传咨询录音<small>出两份：给我的 · 给客户的</small></button>
+    <button type="button" class="rail-consult" data-view="consults">咨询客户<small>档案 · 录音 · 两份 summary</small></button>
     <button type="button" class="rail-set" data-view="settings">设置与 Skills</button>
     <div class="rail-foot">
       <div class="plat-strip" id="platStrip" aria-label="平台连接状态"></div>
@@ -157,6 +157,14 @@
     <section class="view wide" id="v-positioning" data-stage="pos">
       <div id="positioningBody"></div>
     </section>
+    <!-- CONSULTS -->
+    <section class="view wide" id="v-consults" data-stage="set">
+      <header class="page-h">
+        <div><div class="stage-eyebrow">咨询客户</div><h1>客户</h1><p>一个客户一行。来源、收费、微信名、后续方案和报价你来填；定位从录音里自动提一句；右边是每一场的两份 summary。</p></div>
+        <button class="btn primary" type="button" id="consultUpload">上传咨询录音</button>
+      </header>
+      <div id="clientsBody"></div>
+    </section>
     <!-- SETTINGS -->
     <section class="view" id="v-settings" data-stage="set">
       <header class="page-h"><div><div class="stage-eyebrow">设置</div><h1>设置与 Skills</h1><p>只保存在本机。</p></div></header>
@@ -203,7 +211,6 @@
     <div class="cs-meta"><input id="csName" placeholder="客户是谁，例如「〇 抖音客户」" aria-label="客户" autocomplete="off"><input type="date" id="csDay" aria-label="咨询日期"></div>
     <div class="detect" id="csMsg"></div>
     <div class="dlg-actions"><button type="button" class="btn" id="csCancel">关闭</button><button class="btn primary" type="submit" id="csSubmit">上传并开始</button></div>
-    <div class="cs-list" id="csList"></div>
   </form>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -221,7 +228,7 @@
 <script src="/static/skills.js"></script>
 <script src="/static/positioning.js"></script>
 <script src="/static/anna.js"></script>
-<script src="/static/app.js"></script>
 <script src="/static/consult.js"></script>
+<script src="/static/app.js"></script>
 </body>
 </html>

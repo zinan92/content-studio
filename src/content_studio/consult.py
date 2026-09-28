@@ -282,6 +282,7 @@ def client_prompt(name: str, parts: list[dict[str, Any]], summary: str) -> str:
 
 称呼：（客户的称呼，以上面「客户」一栏里的名字为准，例如「阿皮」；看不出名字就写「你好」）
 标题：（一句话概括这次咨询，15 字以内）
+画像：（只给 Park 内部用、不会出现在纪要里：一句话说客户做什么、多大体量，只用录音里说过的数字，例如「宁波 POD 数码印刷，年销售额 150–200 万，三四个人」）
 
 {headings}
 
@@ -293,11 +294,13 @@ def parse_client(output: str) -> dict[str, str]:
     text = (output or "").strip()
     call = re.search(r"^称呼[:：]\s*(.+)$", text, re.M)
     title = re.search(r"^标题[:：]\s*(.+)$", text, re.M)
+    portrait = re.search(r"^画像[:：]\s*(.+)$", text, re.M)
     body = text[text.find("## "):] if "## " in text else ""
     missing = [h for h in CLIENT_HEADINGS if f"## {h}" not in body]
     if not body or missing:
         raise ConsultError(f"客户版没有按格式返回（缺：{'、'.join(missing) or '正文'}），可以点重试")
-    return {"call": (call.group(1).strip() if call else "你好"), "title": (title.group(1).strip() if title else "咨询纪要"), "body": body}
+    return {"call": (call.group(1).strip() if call else "你好"), "title": (title.group(1).strip() if title else "咨询纪要"), "body": body,
+            "portrait": portrait.group(1).strip() if portrait else ""}
 
 
 LOGO = ('<svg viewBox="0 0 120 120" width="40" height="40" aria-hidden="true">'
@@ -438,6 +441,61 @@ def note_path(folder: Path, day: date) -> Path:
     return target
 
 
+# -- 客户档案 ---------------------------------------------------------------------
+# 工作台「客户」页的一行 = 010_咨询/<客户>/ 一个文件夹。Park 填的来源、收费、微信名、
+# 后续方案和报价存在文件夹里的「客户档案.md」frontmatter：Obsidian 里也能直接看、直接改。
+
+PROFILE = "客户档案.md"
+PROFILE_FIELDS = ("来源", "首次咨询收费", "画像", "微信名", "后续方案", "报价")
+
+
+def read_profile(home: Path) -> dict[str, str]:
+    import yaml
+
+    try:
+        text = (home / PROFILE).read_text(encoding="utf-8")
+    except OSError:
+        return {k: "" for k in PROFILE_FIELDS}
+    match = re.match(r"^---\n(.*?)\n---", text, re.S)
+    data = (yaml.safe_load(match.group(1)) if match else None) or {}
+    return {k: "" if data.get(k) is None else str(data.get(k)) for k in PROFILE_FIELDS}
+
+
+def write_profile(home: Path, changes: dict[str, Any]) -> dict[str, str]:
+    """只改 frontmatter 里这几项；正文（Park 在 Obsidian 里记的）原样保留。"""
+    import yaml
+
+    current = read_profile(home)
+    current.update({k: str(v or "").strip() for k, v in changes.items() if k in PROFILE_FIELDS})
+    path = home / PROFILE
+    try:
+        old = path.read_text(encoding="utf-8")
+        body = re.sub(r"^---\n.*?\n---\n?", "", old, count=1, flags=re.S)
+    except OSError:
+        body = f"\n# {home.name} · 客户档案\n\n工作台「客户」页会读写上面这几项；下面随便记。\n"
+    front = yaml.safe_dump({"type": "client", **current}, allow_unicode=True, sort_keys=False).strip()
+    home.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\n{front}\n---\n{body}", encoding="utf-8")
+    return current
+
+
+def clients(vault: Path) -> list[dict[str, Any]]:
+    """每个客户一行：档案 + 这个客户每一场咨询（最新在前）。还在转写、没建文件夹的也列出来。"""
+    base = vault / FOLDER
+    rows: dict[str, dict[str, Any]] = {}
+    if base.is_dir():
+        for home in base.iterdir():
+            if home.is_dir() and not home.name.startswith("."):
+                rows[home.name] = {"name": home.name, "profile": read_profile(home), "consults": []}
+    for job in jobs():
+        name = client_dir(vault, job.get("name") or "").name
+        row = rows.setdefault(name, {"name": name, "profile": {k: "" for k in PROFILE_FIELDS}, "consults": []})
+        row["consults"].append(job)
+    for row in rows.values():
+        row["latest"] = max((c.get("day") or "" for c in row["consults"]), default="")
+    return sorted(rows.values(), key=lambda r: (r["latest"], r["name"]), reverse=True)
+
+
 # -- 一整趟 ---------------------------------------------------------------------
 
 def _cached(folder: Path, name: str, make: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -465,6 +523,8 @@ def run(folder: Path, vault: Path, *, transcriber: Transcriber | None = None, an
 
     home = client_dir(vault, name)
     home.mkdir(parents=True, exist_ok=True)
+    if client.get("portrait") and not read_profile(home)["画像"]:
+        write_profile(home, {"画像": client["portrait"]})
     target = note_path(home, day)
     page = render_client(client, day=day)
     (folder / "客户版.html").write_text(page, encoding="utf-8")

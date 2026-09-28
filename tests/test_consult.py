@@ -144,3 +144,31 @@ def test_to_pdf_prints_a_real_pdf(tmp_path: Path) -> None:
     except Exception as exc:  # 没装浏览器内核的机器上跳过
         pytest.skip(f"chromium unavailable: {exc}")
     assert pdf.read_bytes()[:4] == b"%PDF"
+
+
+def test_profile_keeps_what_park_wrote_in_obsidian(tmp_path: Path) -> None:
+    home = tmp_path / consult.FOLDER / "阿皮"
+    consult.write_profile(home, {"来源": "抖音", "不认识": "x"})
+    text = (home / consult.PROFILE).read_text()
+    (home / consult.PROFILE).write_text(text + "\n他喜欢晚上聊。\n")
+    got = consult.write_profile(home, {"报价": "方案 3 万"})
+    assert got["来源"] == "抖音" and got["报价"] == "方案 3 万" and "不认识" not in got
+    assert "他喜欢晚上聊。" in (home / consult.PROFILE).read_text()
+    assert consult.read_profile(home)["报价"] == "方案 3 万"
+
+
+def test_clients_groups_consults_by_client_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "jobs"))
+    (tmp_path / "vault" / consult.FOLDER / "老客户").mkdir(parents=True)
+    for slug, day in (("0928-阿皮", "2026-09-28"), ("1005-阿皮", "2026-10-05")):
+        (tmp_path / "jobs" / slug).mkdir(parents=True)
+        consult.save_state(tmp_path / "jobs" / slug, name="阿皮", day=day)
+    rows = consult.clients(tmp_path / "vault")
+    assert [r["name"] for r in rows] == ["阿皮", "老客户"]
+    assert len(rows[0]["consults"]) == 2 and rows[1]["consults"] == []
+
+
+def test_portrait_is_parsed_for_park_only() -> None:
+    client = consult.parse_client(CLIENT.replace("标题：", "画像：宁波 POD 数码印刷，年销售额 150–200 万\n标题："))
+    assert client["portrait"].startswith("宁波")
+    assert "宁波 POD" not in consult.render_client(client, day=date(2026, 9, 28))
