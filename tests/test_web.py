@@ -8,7 +8,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from content_studio import outline, web
+from content_studio import consult, outline, web
 from content_studio.store import StudioStore
 from content_studio.worker import TeardownWorker, WorkerConfig
 
@@ -1414,3 +1414,23 @@ def test_triage_back_is_a_real_state_and_the_log_names_it(client: TestClient, tm
     item = next(i for i in client.get("/api/vault/inbox", params={"days": 30}).json()["items"] if i["path"].endswith("n.md"))
     assert item["triage"] == "back" and item["used_by"] is None
     assert client.put("/api/vault/triage", json={"path": "003_park原始输出/n.md", "status": "nope"}).status_code == 400
+
+
+def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    monkeypatch.setattr(consult, "whisper_transcriber", lambda audio: [{"start": 0.0, "end": 5.0, "text": "你好"}, {"start": 200.0, "end": 210.0, "text": "先别投流"}])
+    monkeypatch.setattr(consult, "cli_analyzer", lambda prompt: "=== 总结 ===\n## 一句话\n" + "客户卡在订单下滑。" * 12 + "\n=== 逐段 ===\n[1] 开场\n[2] 诊断")
+    bad = client.post("/api/consults", files={"file": ("a.txt", b"x")}, data={"name": "阿平"})
+    assert bad.status_code == 400
+    res = client.post("/api/consults", files={"file": ("rec.m4a", b"audio")}, data={"name": "阿平", "day": "2026-09-28"})
+    assert res.status_code == 200, res.text
+    assert res.json()["consult"]["slug"] == "0928-阿平"
+    for _ in range(50):
+        row = client.get("/api/consults").json()["consults"][0]
+        if row["stage"] == "done":
+            break
+        time.sleep(0.05)
+    assert row["stage"] == "done", row
+    assert row["obsidian"].startswith("obsidian://open?path=")
+    assert (tmp_path / "vault-default" / consult.FOLDER / "0928-阿平.md").is_file()
+    assert json.loads((tmp_path / "consults" / "0928-阿平" / "transcript.json").read_text())["segments"]

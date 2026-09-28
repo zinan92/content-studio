@@ -39,6 +39,7 @@
     <section class="view" id="v-input" data-stage="in">
       <header class="page-h">
         <div><div class="stage-eyebrow">01 · 进项</div><h1>进来了什么</h1><p id="inIntro">Newsletter、Clippings、我收藏的、我写的。值得做的点「拿来做」，它会进加工中。</p></div>
+        <button class="btn" type="button" id="consultBtn">上传咨询录音</button>
       </header>
       <div id="inputBody"></div>
     </section>
@@ -194,6 +195,17 @@
 <dialog id="pubDlg" class="pub-dlg" aria-label="平台发布"></dialog>
 <dialog id="coverDlg" class="pub-dlg cover-dlg" aria-label="做封面"></dialog>
 <dialog id="copyDlg" class="pub-dlg" aria-label="写标题和简介"></dialog>
+<dialog id="consultDlg" aria-label="上传咨询录音">
+  <form class="dlg" id="consultForm">
+    <h2>上传咨询录音</h2>
+    <p>转成文字并分析，写进 Obsidian 的 010_咨询/：左边原话，右边逐段分析，最上面是整场总结。</p>
+    <input type="file" id="csFile" accept="audio/*,.m4a,.mp3,.wav,.aac" aria-label="录音文件">
+    <div class="cs-meta"><input id="csName" placeholder="客户是谁，例如「〇 抖音客户」" aria-label="客户" autocomplete="off"><input type="date" id="csDay" aria-label="咨询日期"></div>
+    <div class="detect" id="csMsg"></div>
+    <div class="dlg-actions"><button type="button" class="btn" id="csCancel">关闭</button><button class="btn primary" type="submit" id="csSubmit">上传并开始</button></div>
+    <div class="cs-list" id="csList"></div>
+  </form>
+</dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
@@ -210,5 +222,6 @@
 <script src="/static/positioning.js"></script>
 <script src="/static/anna.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/consult.js"></script>
 </body>
 </html>
