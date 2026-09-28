@@ -2823,6 +2823,12 @@ def create_app(
             raise ValueError("这条标准已经不在了")
         return {"rules": standard.rules()}
 
+    @app.get("/api/kline/board")
+    def kline_board_api() -> dict[str, Any]:
+        """K 线日报 tab: every watchlist asset as a compact daily card (read-only)."""
+        from . import kline_board
+        return kline_board.board()
+
     @app.get("/api/vault/dailies")
     def vault_daily_history(key: str, limit: int = 30) -> dict[str, Any]:
         items = vault.daily_history(vault_path(), key, limit)

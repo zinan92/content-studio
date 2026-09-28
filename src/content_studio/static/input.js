@@ -16,6 +16,7 @@ function syncTabs() {
   const dailies = (S.state && S.state.daily_sources) || [];
   TABS.length = 1;
   dailies.forEach((d) => TABS.push({ key: d.key, label: d.label, kind: 'daily' }));
+  TABS.push({ key: 'kline', label: 'K 线日报', kind: 'kline' });
   NOTE_TABS.forEach((t) => TABS.push(t));
   if (!TABS.some((t) => t.key === C.tab)) C.tab = 'all';
 }
@@ -165,6 +166,8 @@ window.VIEWS.input = {
     } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     // 日报不是笔记列表：一期整页铺开，一条条快讯各自入选题池。
     if (def.kind === 'daily') { await renderDaily(body); return; }
+    // K 线日报：100 多个标的，一张日线卡一个，一行铺满，往下扫一遍就看完。
+    if (def.kind === 'kline') { await renderKline(body); return; }
 
     const rows = rowsFor(C.tab);
     const fresh = (C.items || []).filter((i) => noteState(i) === 'fresh').length;
@@ -347,4 +350,66 @@ async function pickDaily(key, id) {
   } catch (err) { toast(err.message); }
   D.busy[id] = false;
   renderView();
+}
+
+
+/* ================= K 线日报：紧凑网格，一个标的一张日线卡 ================= */
+const K = { data: null, loadedAt: 0 };
+
+/** 迷你日线：bars = [[o,h,l,c], ...]，三条 path，淡绿涨淡红跌。 */
+function miniCandles(bars, w = 160, h = 56) {
+  if (!bars || !bars.length) return `<svg class="k-svg" viewBox="0 0 ${w} ${h}" aria-label="无数据"></svg>`;
+  const hi = Math.max(...bars.map((b) => b[1]));
+  const lo = Math.min(...bars.map((b) => b[2]));
+  const rng = hi - lo || 1;
+  const pad = 2;
+  const step = (w - pad * 2) / bars.length;
+  const bw = Math.max(1, step * 0.62);
+  const y = (v) => pad + ((hi - v) / rng) * (h - pad * 2);
+  let wick = '', up = '', dn = '';
+  bars.forEach((b, i) => {
+    const [o, hh, ll, c] = b;
+    const x = pad + i * step + step / 2;
+    const top = y(Math.max(o, c));
+    const bot = y(Math.min(o, c));
+    wick += `M${x.toFixed(1)} ${y(hh).toFixed(1)}V${y(ll).toFixed(1)}`;
+    const body = `M${(x - bw / 2).toFixed(1)} ${top.toFixed(1)}h${bw.toFixed(1)}v${Math.max(0.8, bot - top).toFixed(1)}h-${bw.toFixed(1)}z`;
+    if (c >= o) up += body; else dn += body;
+  });
+  return `<svg class="k-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="最近 ${bars.length} 根日线"><path class="w" d="${wick}"/><path class="u" d="${up}"/><path class="d" d="${dn}"/></svg>`;
+}
+
+const kPx = (v) => {
+  if (v == null) return '—';
+  const a = Math.abs(v);
+  return v.toFixed(a >= 1000 ? 0 : a >= 10 ? 2 : a >= 1 ? 3 : 4);
+};
+const kPct = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`);
+const kCls = (v) => (v == null ? '' : v > 0 ? 'up' : v < 0 ? 'dn' : '');
+
+function klineCard(c) {
+  const tip = [c.name, c.symbol, c.sector, c.note].filter(Boolean).join(' · ');
+  return `<div class="k-card" title="${esc(tip)}">
+    <div class="k-top"><b class="k-name">${esc(c.name)}</b><span class="k-chg ${kCls(c.chg1d)}">${kPct(c.chg1d)}</span></div>
+    <div class="k-sub"><span>${esc(c.symbol)}</span><span class="num">${kPx(c.close)}</span></div>
+    ${miniCandles(c.bars)}
+    ${c.tags && c.tags.length ? `<div class="k-tags">${c.tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : c.sector ? `<div class="k-sector">${esc(c.sector)}</div>` : ''}
+  </div>`;
+}
+
+async function renderKline(body) {
+  if (!K.data || Date.now() - K.loadedAt > 10 * 60 * 1000) {
+    if (!K.data) body.innerHTML = tabBar() + '<div class="panel empty"><span class="spin"></span><span>正在读 K 线…</span></div>';
+    bindTabs(body);
+    try { K.data = await api('/api/kline/board'); K.loadedAt = Date.now(); }
+    catch (err) { body.innerHTML = tabBar() + `<div class="panel empty"><b>${esc(err.message)}</b></div>`; bindTabs(body); return; }
+  }
+  const d = K.data;
+  const groups = d.groups.map((g) => `<section class="k-group"><h3>${esc(g.label)} <small>${g.items.length}</small></h3><div class="k-grid">${g.items.map(klineCard).join('')}</div></section>`).join('');
+  body.innerHTML = tabBar() + `<div class="panel k-board">
+      <div class="k-head"><div><div class="d-eyebrow">日线 · 截至 ${esc(d.day || '—')} · ${d.count} 个标的</div>${d.conclusion ? `<h2 class="k-verdict">${esc(d.conclusion)}</h2>` : ''}</div></div>
+      ${d.count ? groups : '<div class="empty"><b>还没有 K 线数据</b><span>每天 08:15 数据更新、08:20 出 K 线日报后这里就有了。</span></div>'}
+      <p class="in-note">每张卡是最近 60 根日线。鼠标停在卡片上看宏观的一句话结论。</p>
+    </div>`;
+  bindTabs(body);
 }
