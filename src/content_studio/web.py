@@ -1565,12 +1565,13 @@ def create_app(
 
     @app.post("/api/consults/{slug}/reveal")
     def reveal_consult(slug: str, what: str = "folder") -> dict[str, Any]:
-        """在 Finder 里指给 Park 看：客户版（发给客户用）或本机留的原件和文字。"""
+        """在 Finder 里指给 Park 看：客户版 PDF（发给客户用）或本机留的原件和文字。"""
         from . import consult
 
         folder = _consult_folder(slug)
         state = consult.load_state(folder)
-        target = Path(state["client"]) if what == "client" and state.get("client") else (consult.audio_of(folder) or folder)
+        client = state.get("pdf") or state.get("client")
+        target = Path(client) if what == "client" and client else (consult.audio_of(folder) or folder)
         if sys.platform == "darwin" and not os.environ.get("CONTENT_STUDIO_NO_OPEN"):
             subprocess.Popen(["open", "-R", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"path": str(target)}

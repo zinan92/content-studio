@@ -45,13 +45,20 @@ def test_render_puts_raw_text_and_analysis_side_by_side() -> None:
 
 
 def test_note_path_never_overwrites_what_park_wrote(tmp_path: Path) -> None:
-    folder = tmp_path / consult.FOLDER
-    folder.mkdir()
-    assert consult.note_path(tmp_path, "0928-阿平") == folder / "0928-阿平.md"
-    (folder / "0928-阿平.md").write_text("")
-    assert consult.note_path(tmp_path, "0928-阿平") == folder / "0928-阿平.md"
-    (folder / "0928-阿平.md").write_text("我自己记的")
-    assert consult.note_path(tmp_path, "0928-阿平") == folder / "0928-阿平 转写.md"
+    home = consult.client_dir(tmp_path, "阿皮 抖音客户")
+    assert home == tmp_path / consult.FOLDER / "阿皮 抖音客户"
+    home.mkdir(parents=True)
+    day = date(2026, 9, 28)
+    assert consult.note_path(home, day) == home / "0928 咨询记录.md"
+    (home / "0928 咨询记录.md").write_text("")
+    assert consult.note_path(home, day) == home / "0928 咨询记录.md"
+    (home / "0928 咨询记录.md").write_text("我自己记的")
+    assert consult.note_path(home, day) == home / "0928 咨询记录 转写.md"
+
+
+def test_list_after_a_bold_label_still_renders_as_a_list() -> None:
+    page = consult.render_client({"call": "阿皮", "title": "t", "body": "## 下一步\n**我这边**\n- 发报告\n- 发链接"}, day=date(2026, 9, 28))
+    assert "<li>发报告</li>" in page and "@page" in page
 
 
 CLIENT = """称呼：阿平
@@ -97,7 +104,8 @@ def test_client_prompt_keeps_internal_sections_out() -> None:
     assert "绝对不能出现" in text and "不附转写" in text and "客户：阿皮" in text
 
 
-def test_run_transcribes_once_then_writes_the_note(tmp_path: Path) -> None:
+def test_run_transcribes_once_then_writes_the_note(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consult, "to_pdf", lambda page, pdf: pdf.write_bytes(b"%PDF") or pdf)
     job = tmp_path / "jobs" / "0928-阿平"
     job.mkdir(parents=True)
     (job / "原件.m4a").write_bytes(b"x")
@@ -106,10 +114,12 @@ def test_run_transcribes_once_then_writes_the_note(tmp_path: Path) -> None:
     calls = []
     asked = []
     note = consult.run(job, vault, transcriber=lambda a: calls.append(a) or SEGMENTS, analyzer=lambda p: asked.append(p) or _fake(p))
-    assert note == vault / consult.FOLDER / "0928-阿平.md"
+    home = vault / consult.FOLDER / "阿平"
+    assert note == home / "0928 咨询记录.md"
     assert "第 2 段的分析" in note.read_text()
-    assert "[[0928-阿平 · 客户版.html]]" in note.read_text()
-    client = vault / consult.FOLDER / "0928-阿平 · 客户版.html"
+    assert "[[0928 客户版.pdf]]" in note.read_text()
+    assert (home / "0928 客户版.pdf").read_bytes() == b"%PDF"
+    client = home / "0928 客户版.html"
     assert "从零花钱生意到平台的第一步" in client.read_text() and "我在宁波做小家电" not in client.read_text()
     assert (job / "转写.txt").read_text().startswith("[00:00] 你好 能听到吗")
     assert consult.load_state(job)["stage"] == "done"
@@ -123,3 +133,14 @@ def test_clean_drops_whisper_loops() -> None:
     loop += [{"start": 31.0, "end": 30.0, "text": "Holy shit"}, {"start": 30.0, "end": 31.0, "text": "where is my phone"}] * 5
     got = [s["text"] for s in consult.clean(loop)]
     assert got == ["你好", "嗯", "嗯", "嗯", "Holy shit", "where is my phone"]
+
+
+def test_to_pdf_prints_a_real_pdf(tmp_path: Path) -> None:
+    pytest.importorskip("playwright")
+    page = tmp_path / "c.html"
+    page.write_text(consult.render_client(consult.parse_client(CLIENT), day=date(2026, 9, 28)), encoding="utf-8")
+    try:
+        pdf = consult.to_pdf(page, tmp_path / "c.pdf")
+    except Exception as exc:  # 没装浏览器内核的机器上跳过
+        pytest.skip(f"chromium unavailable: {exc}")
+    assert pdf.read_bytes()[:4] == b"%PDF"
