@@ -40,7 +40,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # 9/29 Park：KPI 由 Claude 定，Park 照做。出摊和回私信算他的分；触达和收到私信是结果。
     # reach_daily 是 7 天平均的目标，reach_by 之前要到；dm_daily 在 dm_baseline_until 摸底完再定（0 = 还没定）。
     "kpi": {"started": "2026-09-29", "reach_daily": 10000, "reach_by": "2026-10-31", "reach_next": 20000,
-            "dm_daily": 0, "dm_baseline_until": "2026-10-06"},
+            "dm_daily": 0, "dm_baseline_until": "2026-10-06",
+            # X 互动：每天在别人的帖子下面回这么多条（9/29 Park：先定 20）
+            "x_replies_daily": 20},
 }
 
 # Kept as history only: Park collapsed 对标 and 老师 into one category on 2026-09-20, so nothing
@@ -207,6 +209,13 @@ CREATE TABLE IF NOT EXISTS dm_entries (
     received INTEGER NOT NULL,
     replied INTEGER NOT NULL,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kpi_counts (
+    day TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (day, key)
 );
 CREATE TABLE IF NOT EXISTS driver_log (
     day TEXT NOT NULL,
@@ -997,6 +1006,19 @@ class StudioStore:
                 "INSERT INTO dm_entries(day, received, replied, updated_at) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(day) DO UPDATE SET received = excluded.received, replied = excluded.replied, updated_at = excluded.updated_at",
                 (day, int(received), int(replied), now_iso()),
+            )
+
+    def kpi_counts(self, since_day: str, key: str) -> dict[str, int]:
+        return {r["day"]: int(r["value"]) for r in self._rows("SELECT day, value FROM kpi_counts WHERE key = ? AND day >= ?", (key, since_day))}
+
+    def set_kpi_count(self, day: str, key: str, value: int) -> None:
+        if value < 0:
+            raise StoreError("数不能是负数")
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO kpi_counts(day, key, value, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(day, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                (day, key, int(value), now_iso()),
             )
 
     def driver_mark(self, day: str, key: str, kind: str, reason: str | None = None) -> None:

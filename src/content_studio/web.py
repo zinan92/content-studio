@@ -211,6 +211,11 @@ class DmBody(BaseModel):
     day: str | None = None
 
 
+class CountBody(BaseModel):
+    value: int
+    day: str | None = None
+
+
 class DriverMarkBody(BaseModel):
     key: str
     reason: str | None = None
@@ -399,6 +404,7 @@ def create_app(
 ) -> FastAPI:
     from . import writer
     from . import board as board_mod
+    from . import publish_desk as publish_desk_mod
 
     store = StudioStore(store_path)
     _apply_profile(store, profile)
@@ -1290,7 +1296,9 @@ def create_app(
                 {"key": key, "label": label, "auto": auto_flag or key in pulled, "on": bool((accounts.get(key) or {}).get("on")) or auto_flag or key in pulled,
                  "handle": (accounts.get(key) or {}).get("handle") or "", "today": totals[today_key].get(key),
                  # 自动的平台今天读了没有：baseline = 今天第一次读，只能当基准，明天起才算得出涨了多少
-                 "read": read_state.get(key), "stats_url": reach.STATS_URLS.get(key)}
+                 "read": read_state.get(key), "stats_url": reach.STATS_URLS.get(key),
+                 # 9/29 注意力分层：主攻的 core=True，其余降权（页面上放右边、淡一点）
+                 "core": key in reach.CORE}
                 for key, label, auto_flag in reach.PLATFORMS
             ],
             "douyin_synced_at": me["last_synced_at"] if me else None,
@@ -3343,6 +3351,46 @@ def create_app(
             return driver.item(rung, f"card:{focus['id']}", f"{prefix}{focus['next']['text']}：《{focus['title'][:24]}》", why="正在做的这条。", go=f"work/{focus['id']}")
         return driver.item(rung, "notes:empty", f"{prefix}写下接下来要拍的", why="清单是空的。写一条，或者点「我今天不知道拍什么」。", inputs="focus_notes")
 
+    def _ship_state(today_key: str, posted: set[str], desk: dict[str, Any], cards: list[dict[str, Any]], notes: list[dict[str, Any]]) -> dict[str, Any]:
+        """A 出摊：今天这条发到哪些平台了（发视频 / 发文字），下一步是什么。
+        今天抖音发了就以那条为准；没发就是发布台手上那条（离发出最近的）。"""
+        from . import copypack, driver, reach
+
+        topic = None
+        if today_key in posted:
+            me = store.self_account()
+            vids = {v["video_id"] for v in store.videos(me["id"]) if today_plan._day(v["published_at"]) == today_key} if me else set()
+            topic = next((t for t in store.topics() if t.get("published_video_id") in vids), None)
+            if topic is None:
+                # 没对上视频号的（9/29 那条就是）：抖音链接里带着视频号，照它找
+                from .links import post_id
+
+                topic = next((t for t in store.topics() if post_id("douyin", (store.publish_records(t["id"]).get("douyin") or {}).get("url")) in vids), None)
+        if topic is None and desk.get("topic"):
+            topic = store.topic(desk["topic"]["id"])
+        records = store.publish_records(topic["id"]) if topic else {}
+        rows = {r["key"]: r for r in desk.get("platforms") or []} if desk.get("topic") and topic and desk["topic"]["id"] == topic["id"] else {}
+        accounts = store.settings()["platform_accounts"] or {}
+        platforms = []
+        for key in publish_desk_mod.SEQUENCE:
+            on = bool((accounts.get(key) or {}).get("on")) if key in accounts else key in reach.CORE or key in ("bilibili", "youtube", "wechat_mp")
+            if not on:
+                continue
+            shipped = key in records or (key == "douyin" and topic is not None and bool(topic.get("published_video_id")))
+            platforms.append({"key": key, "label": (copypack.PLATFORMS.get(key) or {}).get("label", key), "form": reach.FORM.get(key, "video"),
+                              "core": key in reach.CORE, "shipped": shipped, "skipped": bool((rows.get(key) or {}).get("skipped")),
+                              "draft": bool(((rows.get(key) or {}).get("job") or {}).get("draft")) and not shipped})
+        done_today = today_key in posted
+        nxt = _ship_action(cards, desk, notes, "tomorrow" if done_today else "ship")
+        # 抖音发了、别的平台还没发完：下一步就是把剩下的发完（出摊 = send everything out）
+        left = [p for p in platforms if not p["shipped"] and not p["skipped"]]
+        if done_today and topic and left and desk.get("topic") and desk["topic"]["id"] == topic["id"]:
+            first = left[0]
+            text = f"去{first['label']}后台点发布，回来点「发出去了」" if first["draft"] else f"发完剩下的平台：下一个是{first['label']}"
+            nxt = driver.item("ship", f"rest:{topic['id']}", text, why=f"《{topic['title'][:24]}》抖音已经发了，还差 {len(left)} 个平台。", go=f"publish/{topic['id']}", button="去发布")
+        return {"done": done_today, "topic": {"id": topic["id"], "title": topic["title"]} if topic else None,
+                "platforms": platforms, "next": nxt}
+
     @app.get("/api/today")
     def get_today() -> dict[str, Any]:
         from . import consult, copypack, driver
@@ -3353,11 +3401,11 @@ def create_app(
         posted = posted_days()
         since = (today - timedelta(days=driver.WINDOW)).isoformat()
         dms = store.dm_entries(since)
-        days = driver.kpi_days(today, posted=posted, dms=dms, started=kpi["started"])
+        xr = store.kpi_counts(since, "x_replies")
+        days = driver.kpi_days(today, posted=posted, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]))
         reach = get_reach(14)
-        notes = store.shoot_list()
         # 清单里那条的选题发出去了，这条就划掉
-        for note in notes:
+        for note in store.shoot_list():
             if note.get("topic_id"):
                 try:
                     if board_mod.is_shipped(store.topic(note["topic_id"])):
@@ -3367,91 +3415,64 @@ def create_app(
         notes = store.shoot_list()
         cards = [c for c in get_board(None)["cards"] if not (c.get("snoozed_until") and c["snoozed_until"] > tkey)]
         desk = publish_desk(None)
-        items: list[dict[str, Any]] = []
+        skipped = {r["key"] for r in store.driver_log(tkey, "skip") if r["day"] == tkey}
+        done_keys = {r["key"] for r in store.driver_log("", "done")}
 
-        # 1 机器卡住了
+        # 先处理：机器卡住了、客户交付（有才出现）
+        first: list[dict[str, Any]] = []
         try:
             load_cookie_file(cookie_path)
         except CookieFileError as exc:
-            items.append(driver.item("blocker", "cookies", "抖音登录过期了：重新导出 cookies", why=str(exc)[:120], go="settings", button="去设置"))
+            first.append(driver.item("blocker", "cookies", "抖音登录过期了：重新导出 cookies", why=str(exc)[:120], go="settings", button="去设置"))
         vs = vault_status(store.settings()["obsidian_vault"])
         if not vs["ok"]:
-            items.append(driver.item("blocker", "vault", "Obsidian 连不上", why=vs["message"], go="settings", button="去设置"))
+            first.append(driver.item("blocker", "vault", "Obsidian 连不上", why=vs["message"], go="settings", button="去设置"))
         stopped = (ops.last_full_sync or {}).get("stopped")
         if stopped:
-            items.append(driver.item("blocker", "risk", "抖音要求验证：在你的浏览器里打开抖音完成验证", why=str(stopped)[:120], manual=True))
+            first.append(driver.item("blocker", "risk", "抖音要求验证：在你的浏览器里打开抖音完成验证", why=str(stopped)[:120], manual=True))
         topic = desk.get("topic")
         for row in desk.get("platforms") or []:
             if topic and (row.get("job") or {}).get("state") == "failed" and not row["shipped"]:
-                items.append(driver.item("blocker", f"failed:{topic['id']}:{row['key']}", f"发{row['label']}失败了：去看一眼，点重试",
+                first.append(driver.item("blocker", f"failed:{topic['id']}:{row['key']}", f"发{row['label']}失败了：去看一眼，点重试",
                                          why=((row["job"] or {}).get("message") or "")[:120], go=f"publish/{topic['id']}"))
-
-        # 2 客户交付：两周内做完的咨询，客户版 PDF 还没发
         cutoff = (today - timedelta(days=14)).isoformat()
         for row in consult.jobs():
             c = _consult_row(row)
             if c["stage"] == "done" and c.get("pdf") and (c.get("day") or "") >= cutoff:
-                items.append(driver.item("client", f"consult:{c['slug']}", f"把「{c['name']}」的客户版 PDF 发过去",
+                first.append(driver.item("client", f"consult:{c['slug']}", f"把「{c['name']}」的客户版 PDF 发过去",
                                          why=f"{c['day']} 的咨询，纪要已经出来了。发没发工作台看不到，发完点「发了」。",
                                          url=c["pdf"], button="打开 PDF", manual=True))
 
-        # 3 出摊 / 5 明天出摊
-        shipped_today = tkey in posted
-        ship = _ship_action(cards, desk, notes, "tomorrow" if shipped_today else "ship")
-        if ship:
-            items.append(ship)
+        ship = _ship_state(tkey, posted, desk, cards, notes)
+        if ship["next"] and ship["next"]["key"] in skipped:
+            ship["next"] = None
 
-        # 4 回私信
-        entry = dms.get(tkey)
-        if entry is None:
-            items.append(driver.item("dm", f"dm:{tkey}", "回完今天的私信，填：收到几条、回了几条", why="每条都往「动手」引。", inputs="dm"))
-        elif entry["replied"] < entry["received"]:
-            items.append(driver.item("dm", f"dm:{tkey}", f"还有 {entry['received'] - entry['replied']} 条私信没回", why="回完改一下数。", inputs="dm"))
-
-        # 6 收尾和杂事
-        if topic:
-            rows = desk.get("platforms") or []
-            douyin_done = any(r["key"] == "douyin" and r["shipped"] for r in rows)
-            draft = next((r for r in rows if (r.get("job") or {}).get("draft") and not r["shipped"]), None)
-            if draft:
-                items.append(driver.item("wrap", f"draft:{topic['id']}:{draft['key']}", f"去{draft['label']}后台点发布，回来点「发出去了」",
-                                         why="草稿已经存进去了。", go=f"publish/{topic['id']}"))
-            elif douyin_done and desk.get("next"):
-                label = next((r["label"] for r in rows if r["key"] == desk["next"]), desk["next"])
-                items.append(driver.item("wrap", f"rest:{topic['id']}", f"发完剩下的平台：下一个是{label}", why=f"《{topic['title'][:24]}》抖音已经发了。", go=f"publish/{topic['id']}"))
-        if shipped_today:
-            # 9/29 定的两个五分钟习惯（先不算分，两周后看数据）：抖音以外唯一被证明有效过的两个入口。
-            # 视频号的分发先走朋友（朋友点赞 → 朋友的朋友），不转朋友圈就是冷启动；
-            # X 上他历史播放最高的 20 条几乎全是在大号下面的回复，不是原创帖。
-            items.append(driver.item("wrap", f"seed:{tkey}", "今天的视频号转到朋友圈，找两三个朋友点赞",
-                                     why="视频号先靠朋友分发，没人点就没人看。转完点「做完了」。", manual=True))
-            items.append(driver.item("wrap", f"xreply:{tkey}", "去 X 在两三条大号帖子下面回一句有立场的话",
-                                     why="你在 X 上被看到过的，全是回复。不带链接。回完点「做完了」。", url="https://x.com/home", button="打开 X", manual=True))
+        # 杂事：手填的平台今天的播放
+        wrap: list[dict[str, Any]] = []
         manual = [p["label"] for p in reach.get("platforms") or [] if p["on"] and not p["auto"] and p.get("today") is None and p["key"] in copypack.PLATFORMS]
         if manual:
-            items.append(driver.item("wrap", f"reach:{tkey}", f"填今天{'、'.join(manual)}的播放", why="1 分钟。概览页的格子里填。", go="output"))
+            wrap.append(driver.item("wrap", f"reach:{tkey}", f"填今天{'、'.join(manual)}的播放", why="1 分钟。概览页的格子里填。", go="output"))
 
-        skipped = {r["key"] for r in store.driver_log(tkey, "skip") if r["day"] == tkey}
-        done_keys = {r["key"] for r in store.driver_log("", "done")}
-        queue = driver.order(items, skipped=skipped, done=done_keys)
+        entry = dms.get(tkey)
         return {
             "day": tkey,
-            "now": queue[0] if queue else None,
-            "queue": queue[1:],
-            "kpi": {
-                "days": days,
-                "posted_7": sum(d["ship"] == "ok" for d in days),
-                "demerits": driver.demerits(days),
-                "dm_today": entry,
-                "reach_avg7": reach.get("avg7"),
-                "reach_target": kpi["reach_daily"], "reach_by": kpi["reach_by"], "reach_next": kpi["reach_next"],
-                "dm_target": kpi["dm_daily"], "dm_baseline_until": kpi["dm_baseline_until"],
-            },
-            "shipped_today": shipped_today,
-            "notes": notes,
+            "demerits": driver.demerits(days),
+            "days": days,
+            "first": driver.order(first, skipped=skipped, done=done_keys),
+            "ship": {**ship, "notes": notes, "suggest": suggest_state()},
+            "dm": {"entry": entry, "target": kpi["dm_daily"], "baseline_until": kpi["dm_baseline_until"]},
+            "xr": {"count": xr.get(tkey), "target": int(kpi["x_replies_daily"])},
+            "reach": {"avg7": reach.get("avg7"), "target": kpi["reach_daily"], "by": kpi["reach_by"]},
+            "wrap": driver.order(wrap, skipped=skipped, done=done_keys),
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
-            "suggest": suggest_state(),
         }
+
+    @app.put("/api/today/x-replies")
+    def put_x_replies(body: CountBody) -> dict[str, Any]:
+        day = body.day or date.today().isoformat()
+        store.set_kpi_count(day, "x_replies", body.value)
+        store.log_event("xr", f"{day} X 回复：{body.value} 条")
+        return {"ok": True}
 
     @app.post("/api/today/notes")
     def add_note(body: ShootBody) -> dict[str, Any]:
