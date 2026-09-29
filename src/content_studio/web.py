@@ -187,6 +187,7 @@ class SettingsBody(BaseModel):
     douyin_archive: str | None = None
     local_video_roots: list[str] | None = None
     platform_accounts: dict[str, dict[str, Any]] | None = None
+    tracker_keep: list[str] | None = None
     traffic_tags: dict[str, list[str]] | None = None
 
 
@@ -3708,7 +3709,10 @@ def create_app(
         me = store.self_account()
         if me is None:
             return [], {}, {}
-        videos = [v for v in store.public_videos(me["id"]) if not v["is_image_post"]]
+        keep = set(store.settings().get("tracker_keep") or [])
+        public = {v["video_id"] for v in store.public_videos(me["id"])}
+        # 抖音上藏起来的（私密）不在公开主页上；Park 点名要留的照样列（别的平台还要发）
+        videos = [v for v in store.videos(me["id"]) if not v["is_image_post"] and (v["video_id"] in public or v["video_id"] in keep)]
         topics = store.topics(include_archived=True)
         records = {t["id"]: store.publish_records(t["id"]) for t in topics}
         copies = {}
@@ -3730,7 +3734,10 @@ def create_app(
         on = {k: p for k, p in rows_all.items() if p.get("on") and k != "douyin"} or rows_all  # 除抖音外一个都没标开通时，全部列出
         # 列按发布顺序排（9/29：全平台追踪，和发布台同一个顺序）
         keys = tuple(k for k in publish_desk.SEQUENCE if k in backfill.PLATFORMS and k in on)
-        rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median, platforms=keys)
+        rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median, platforms=keys, forms=platform_forms())
+        keep = set(store.settings().get("tracker_keep") or [])
+        for r in rows:
+            r["hidden_on_douyin"] = r["video_id"] in keep
         topics = {t["id"]: t for t in store.topics(include_archived=True)}
         for r in rows:
             t = topics.get(r["topic_id"]) if r["topic_id"] else None
@@ -3765,12 +3772,12 @@ def create_app(
             cells = {}
             for p in sheet["platforms"]:
                 key = p["key"]
-                url = (r.get("links") or {}).get(key)
+                url = (r.get("links") or {}).get(key) or (r.get("old_links") or {}).get(key)
                 if key == "douyin":
                     n = (vids.get(r["video_id"]) or {}).get("views")
                     cells[key] = {"state": "views", "views": n} if n is not None else {"state": "sent"}
                     continue
-                if not r["done"].get(key):
+                if not r["done"].get(key) and key not in (r.get("old_links") or {}):
                     cells[key] = {"state": "none"}
                     continue
                 pid = links.post_id(key, url)

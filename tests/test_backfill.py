@@ -32,3 +32,19 @@ def test_queue_counts_gaps_on_every_platform_newest_first() -> None:
     assert b_row["missing"] == ["channels", "xiaohongshu", "bilibili", "wechat_mp", "miniprogram", "xiaoyuzhou"] and b_row["multiple"] == 5.0
     assert set(b.KIND) == set(b.PLATFORMS)
     assert rows[-1]["missing"] == []
+
+
+def test_old_form_records_leave_the_cell_empty_but_keep_the_link() -> None:
+    """9/29：小红书从图文改成视频。之前发的图文不算这一格发过（等补发视频），链接留在 old_links。"""
+    from content_studio import backfill
+
+    videos = [{"video_id": "v1", "title": "t", "published_at": "2026-09-20", "likes": 10}]
+    records = {1: {"xiaohongshu": {"url": "https://xhs/1", "form": "cards"}, "x": {"url": "https://x/1", "form": None}}}
+    rows = backfill.queue(videos, links={"v1": 1}, records=records, marks={}, median=10, platforms=("xiaohongshu", "x"),
+                          forms={"xiaohongshu": "video", "x": "text"})
+    r = rows[0]
+    assert r["done"] == {"xiaohongshu": None, "x": "record"}
+    assert r["missing"] == ["xiaohongshu"] and r["old_links"] == {"xiaohongshu": "https://xhs/1"}
+    # 形式一致就照旧算
+    rows = backfill.queue(videos, links={"v1": 1}, records=records, marks={}, median=10, platforms=("xiaohongshu",), forms={"xiaohongshu": "cards"})
+    assert rows[0]["done"]["xiaohongshu"] == "record"
