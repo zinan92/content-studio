@@ -576,6 +576,7 @@ async function renderFigs(dlg, topicId) {
   if (!box) return;
   let st;
   try { st = await api(`/api/topics/${topicId}/illustrate`); } catch (err) { box.innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
+  if (window.prepTick) window.prepTick('figs', st);
   const thumbs = st.images.length ? `<div class="pdl-fig-grid">${st.images.map((i) => `<a href="${i.url}" target="_blank" rel="noopener" title="${esc(i.caption)}"><img src="${i.url}" alt="${esc(i.caption)}" loading="lazy"></a>`).join('')}</div>` : '';
   if (st.running) {
     box.innerHTML = `<p class="pdl-note"><span class="spin"></span> 正在配图（小黑手绘，一张一张画），一般 5–10 分钟。</p>${thumbs}`;
@@ -609,6 +610,7 @@ async function renderWx(dlg, topicId) {
   if (!box) return;
   let st;
   try { st = await api(`/api/topics/${topicId}/layout`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
+  if (window.prepTick) window.prepTick('wx', st);
   const fresh = st.has_layout && !st.stale;
   const preview = `<button class="btn ${fresh ? 'primary' : ''}" type="button" data-wx-preview>看公众号里的样子</button>`;
   if (st.running) {
@@ -643,6 +645,7 @@ async function renderXhs(dlg, topicId) {
   if (!box) return;
   let st;
   try { st = await api(`/api/topics/${topicId}/xhs`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
+  if (window.prepTick) window.prepTick('xhs', st);
   const has = st.images.length && !st.stale;
   const note = st.running ? '<span class="spin"></span> 正在出图，十几秒'
     : st.error ? `<span class="bad">${esc(st.error)}</span>`

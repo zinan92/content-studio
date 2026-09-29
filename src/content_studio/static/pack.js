@@ -50,20 +50,23 @@ function packItems(d, t, st) {
     ? (t && t.write_state === 'running' ? ['wip', '正在照视频字幕写，一般 1–5 分钟'] : t && t.write_state === 'failed' ? ['bad', t.write_error || '上次写失败了'] : ['no', '照这条视频的字幕（剪映导出的 SRT）写成文字版'])
     : ['ok', d.article && d.article.title ? `《${d.article.title}》` : '写好了'];
   const needArt = (fn) => (d.has_article ? fn() : ['no', '先写研习室文章']);
+  // 9/29 Park：「有了文章和插图之后，才变成公众号排版、小红书图文、X 图文。」
+  const figsDone = figsReady(st);
+  const needFigs = (fn) => needArt(() => (figsDone ? fn() : ['no', '先配图']));
   const figs = needArt(() => {
     const s = st.figs || {};
     if (s.running) return ['wip', '小黑手绘，一张一张画，5–10 分钟'];
     if (s.error) return ['bad', s.error];
     return s.images && s.images.length ? ['ok', `${s.images.length} 张，已插进文章`] : ['no', '4–8 张，插在对应段落后面'];
   });
-  const wx = needArt(() => {
+  const wx = needFigs(() => {
     const s = st.wx || {};
     if (s.running) return ['wip', '正在用 gzh 排版，5–10 分钟'];
     if (s.error) return ['bad', s.error];
     if (s.has_layout && s.stale) return ['bad', '文章改过了，旧排版作废'];
     return s.has_layout ? ['ok', `gzh 排好了（${s.theme || '橄榄手记'}），公众号和研习室都用这份`] : ['no', '不排也能发，用的是基础排版'];
   });
-  const xhs = needArt(() => {
+  const xhs = needFigs(() => {
     const s = st.xhs || {};
     if (s.running) return ['wip', '正在出图'];
     if (s.error) return ['bad', s.error];
@@ -77,9 +80,53 @@ function packItems(d, t, st) {
     { key: 'figs', group: 'text', label: '插图', state: figs[0], note: figs[1] },
     { key: 'wx', group: 'text', label: '公众号排版', state: wx[0], note: wx[1] },
     { key: 'xhs', group: 'text', label: '小红书图文', state: xhs[0], note: xhs[1] },
-    { key: 'x', group: 'text', label: 'X 图文', state: d.has_article ? 'ok' : 'no', note: d.has_article ? '发的是这篇文章，封面发的时候按标题出一张纯文字横幅' : '先写研习室文章' },
+    { key: 'x', group: 'text', label: 'X 图文', ...(([state, note]) => ({ state, note }))(needFigs(() => ['ok', '发的是这篇文章和插图，封面发的时候按标题出一张纯文字横幅'])) },
   ];
 }
+
+const figsReady = (st) => Boolean(st && st.figs && !st.figs.running && st.figs.images && st.figs.images.length);
+
+/* 配图、排版、小红书出图在各自那一块里自己轮询。它们每问一次就告诉这里一声，
+   上面那一行的状态跟着变——9/29 以前只在打开页面时读一次，配图重做成功了还显示「要重做」。 */
+window.prepTick = (key, st) => {
+  if (S.view !== 'pack' || !PK.data || !PK.st) return;
+  const was = JSON.stringify(PK.st[key] || null);
+  PK.st[key] = st;
+  if (was !== JSON.stringify(st)) repaintRows();
+};
+
+function repaintRows() {
+  const d = PK.data;
+  if (!d || !d.topic) return;
+  packItems(d, PK.topic, PK.st || {}).forEach((it) => {
+    const det = $(`.pk-row[data-pk="${it.key}"]`);
+    if (!det) return;
+    det.className = `pk-row s-${it.state}`;
+    $('.pk-dot', det).innerHTML = it.state === 'wip' ? '<span class="spin"></span>' : PK_ICON[it.state];
+    $('.pk-note', det).textContent = it.note;
+    $('.pk-word', det).textContent = PK_STATE[it.state][0];
+  });
+  paintHead(d);
+  // 配图刚好了：等着它的那几行（公众号、小红书、X）解开
+  ['wx', 'xhs', 'x'].forEach((k) => { const box = $(`#pkb-${k}`); if (box && box.dataset.done === 'gated' && figsReady(PK.st)) { delete box.dataset.done; renderRow(k, box); } });
+}
+
+/* 文章写完的下一步：还没配图就是配图，配好了就是公众号排版。 */
+window.packNextStep = () => (figsReady(PK.st) ? { key: 'wx', label: '公众号排版' } : { key: 'figs', label: '配图' });
+
+/* 打开下一步那一行；配图还没配过就直接开始配。 */
+window.packNext = async (key) => {
+  const det = $(`.pk-row[data-pk="${key}"]`);
+  if (!det) return;
+  const art = $('.pk-row[data-pk="article"]');
+  if (art) { art.open = false; PK.open.delete('article'); }
+  det.open = true; PK.open.add(key);
+  det.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (key === 'figs' && PK.data && PK.data.topic && !figsReady(PK.st) && !(PK.st && PK.st.figs && PK.st.figs.running)) {
+    try { toast((await api(`/api/topics/${PK.data.topic.id}/illustrate`, { method: 'POST' })).message); } catch (err) { toast(err.message); }
+    const box = $('#pkb-figs'); if (box) { delete box.dataset.done; renderRow('figs', box); }
+  }
+};
 
 function row(it) {
   const [word] = PK_STATE[it.state];
@@ -167,6 +214,9 @@ function renderRow(key, box) {
   } else if (key === 'figs') {
     box.innerHTML = '<div id="pdlFigs"></div>';
     if (d.has_article) renderFigs(box, id); else box.innerHTML = '<p class="pdl-note">插图插在文章里，先把上面的研习室文章写好。</p>';
+  } else if (['wx', 'xhs', 'x'].includes(key) && d.has_article && !figsReady(PK.st)) {
+    box.dataset.done = 'gated';
+    box.innerHTML = '<p class="pdl-note">先配图：公众号、小红书、X 发的都是配好图的文章。配好了这里自己解开。</p>';
   } else if (key === 'wx') {
     box.innerHTML = d.has_article ? '<div class="pdl-wx" id="pdlWx"></div>' : '<p class="pdl-note">公众号发的是研习室那篇文章，先把它写好。</p>';
     if (d.has_article) renderWx(box, id);
