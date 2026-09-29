@@ -1138,6 +1138,13 @@ def create_app(
 
     # -- 触达：Park's first KPI, every platform in one number -----------------
 
+    def platform_forms() -> dict[str, str]:
+        """每个平台现在发什么（设置里选过的优先）。打包、发布台、今天都读这一份。"""
+        from . import reach
+
+        accounts = store.settings()["platform_accounts"] or {}
+        return {key: reach.form_of(key, accounts) for key, _, _ in reach.PLATFORMS}
+
     def _platform_rows(ready: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         """每个平台：发布通道有没有、登录还在不在、数据是不是自动来的。
 
@@ -1222,7 +1229,7 @@ def create_app(
                 finished = {"id": last["id"], "title": last["title"], "shipped_count": last["shipped_count"], "on_count": on_count,
                             "links": {k: {"url": v.get("url"), "label": (copypack.PLATFORMS.get(k) or {}).get("label", k)} for k, v in recs.items()}}
             return {"candidates": [], "waiting": waiting or publish_desk.waiting_for(candidates), "finished": finished,
-                    "others": candidates, "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty,
+                    "others": candidates, "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty, "forms": platform_forms(),
                     "platforms": publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready, records={}, jobs=[], entry=empty)}
         topic = store.topic(chosen["id"])
         copy = copypack.read_copy(drafts_root, topic["id"])
@@ -1251,6 +1258,7 @@ def create_app(
             "approvals": approvals.status((st := _approval_state(topic, release_info))["folder"], st["fps"]),
             "has_copy": bool(entry["title"] or entry["body"]),
             "has_article": article is not None,
+            "forms": platform_forms(),
             "next": publish_desk.next_step(rows),
             # 左边那张仿平台页面要填真的内容：文章标题、摘要、正文开头（纯文字）
             "article": _article_preview(article["markdown"]) if article else None,
@@ -1298,7 +1306,9 @@ def create_app(
                  # 自动的平台今天读了没有：baseline = 今天第一次读，只能当基准，明天起才算得出涨了多少
                  "read": read_state.get(key), "stats_url": reach.STATS_URLS.get(key),
                  # 9/29 注意力分层：主攻的 core=True，其余降权（页面上放右边、淡一点）
-                 "core": key in reach.CORE}
+                 "core": key in reach.CORE,
+                 # 发什么（视频 / 文字 / 图文）；能选的平台给出选项，设置里改，存进 platform_accounts[key].form
+                 "form": reach.form_of(key, accounts), "form_choices": [{"key": f, "label": reach.FORM_LABEL[f]} for f in reach.FORM_CHOICES.get(key, ())]}
                 for key, label, auto_flag in reach.PLATFORMS
             ],
             "douyin_synced_at": me["last_synced_at"] if me else None,
@@ -2744,7 +2754,7 @@ def create_app(
 
     def _approval_state(topic: dict[str, Any], release_info: dict[str, Any] | None = None) -> dict[str, Any]:
         """打包页每一步的定稿状态（见 approvals.py）。"""
-        from . import approvals, copypack, gzh_layout, illustrate as il
+        from . import approvals, copypack, gzh_layout, illustrate as il, reach, xhs_cards
 
         rel = release_info if release_info is not None else _release_for(topic)
         covers: list[Path] = []
@@ -2761,6 +2771,7 @@ def create_app(
             copy=(copypack.read_copy(drafts_root, topic["id"]) or {}).get("platforms"),
             covers=covers, article=il.strip_images(text) if text else None, figs=figs,
             wx=gzh_layout.state(art) if text else {},
+            xhs=(xhs_cards.state(art) if text else {}) if reach.form_of("xiaohongshu", store.settings()["platform_accounts"]) == "cards" else None,
         )
         return {"fps": fps, "folder": drafts_root / f"topic-{topic['id']}"}
 
@@ -2970,7 +2981,7 @@ def create_app(
 
         platform = str(body.get("platform") or "")
         kit = UPLOAD_KIT.get(platform)
-        if not kit:
+        if not kit or platform_forms().get(platform) not in (None, "video"):
             raise HTTPException(status_code=400, detail="这个平台没有要准备的上传文件")
         topic = store.topic(topic_id)
         video = final_video_path(topic)
@@ -3377,7 +3388,7 @@ def create_app(
             if not on:
                 continue
             shipped = key in records or (key == "douyin" and topic is not None and bool(topic.get("published_video_id")))
-            platforms.append({"key": key, "label": (copypack.PLATFORMS.get(key) or {}).get("label", key), "form": reach.FORM.get(key, "video"),
+            platforms.append({"key": key, "label": (copypack.PLATFORMS.get(key) or {}).get("label", key), "form": reach.form_of(key, accounts),
                               "core": key in reach.CORE, "shipped": shipped, "skipped": bool((rows.get(key) or {}).get("skipped")),
                               "draft": bool(((rows.get(key) or {}).get("job") or {}).get("draft")) and not shipped})
         done_today = today_key in posted
