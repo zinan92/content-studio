@@ -1843,3 +1843,4 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .rp-form{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
 .rp-form select{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
 .bf-dot.hid{color:var(--ink-3);font-size:11px;border:1px dashed var(--line)}
+.pk-lockbar.machine b{color:var(--hot)}

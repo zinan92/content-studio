@@ -194,6 +194,7 @@ class SettingsBody(BaseModel):
 class StepApproveBody(BaseModel):
     key: str
     approved: bool = True
+    by: str = "park"  # "machine"：补发提前打包时机器替他定的稿
 
 
 class WriteBody(BaseModel):
@@ -2784,7 +2785,8 @@ def create_app(
         topic = store.topic(topic_id)
         st = _approval_state(topic)
         try:
-            return {"approvals": approvals.set_approval(st["folder"], body.key, body.approved, st["fps"])}
+            by = "machine" if body.by == "machine" else "park"
+            return {"approvals": approvals.set_approval(st["folder"], body.key, body.approved, st["fps"], by=by)}
         except approvals.ApprovalError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
 

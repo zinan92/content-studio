@@ -139,7 +139,7 @@ function paintApproval(it) {
   const isLocked = it.state === 'lock';
   body.classList.toggle('pk-locked', isLocked);
   $('.pk-lock', body).innerHTML = isLocked
-    ? `<div class="pk-lockbar"><b>✓ 已定稿</b><small>${a.at ? new Date(a.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''} · 锁住了，下一步照这一版做</small><span class="spacer"></span><button class="btn small" type="button" data-unlock="${it.key}">✎ 改这一步</button></div>` : '';
+    ? `<div class="pk-lockbar ${a.by === 'machine' ? 'machine' : ''}"><b>${a.by === 'machine' ? '✓ 机器定稿（补发提前打包，你没看过）' : '✓ 已定稿'}</b><small>${a.at ? new Date(a.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''} · 锁住了，下一步照这一版做</small><span class="spacer"></span><button class="btn small" type="button" data-unlock="${it.key}">✎ 改这一步</button></div>` : '';
   const canApprove = !isLocked && a.made && PK_APPROVE[it.key] && (!dep || locked(d, dep)) && it.state !== 'wip';
   $('.pk-approve', body).innerHTML = canApprove
     ? `<button class="btn primary" type="button" data-approve="${it.key}">${PK_APPROVE[it.key]}</button><small>这一版就用它：锁住、收起来，下一步才开始。想改再点「改这一步」。</small>`
