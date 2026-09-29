@@ -34,9 +34,11 @@ def test_generate_hands_codex_the_frame_refs_and_title_and_files_the_two_covers(
         seen["files"] = sorted(p.name for p in cwd.iterdir())
         (cwd / "out" / "cover-3x4.png").write_bytes(b"p")
         (cwd / "out" / "cover-4x3.png").write_bytes(b"l")
+        (cwd / "out" / "cover-16x9.png").write_bytes(b"w")
 
     made = cover.generate(base, tmp_path / "raw.mov", at=292.0, title="做自媒体没有大流量如何月入10个", runner=runner)
-    assert made == {"竖": "final/covers/做自媒体没有大流量如何月入10个-竖封面.png", "横": "final/covers/做自媒体没有大流量如何月入10个-横封面.png"}
+    assert made == {"竖": "final/covers/做自媒体没有大流量如何月入10个-竖封面.png", "横": "final/covers/做自媒体没有大流量如何月入10个-横封面.png",
+                    "YouTube": "final/covers/做自媒体没有大流量如何月入10个-YouTube封面.png"}
     assert seen["files"] == ["out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
     assert "做自媒体没有大流量如何月入10个" in seen["text"] and "SOLE PERSON SOURCE" in seen["text"] and "STYLE REFERENCE ONLY" in seen["text"]
     assert (base / "final" / "covers" / "_old" / "旧-竖封面.jpg").is_file()
@@ -84,3 +86,14 @@ def test_long_phrase_breaks_between_words_and_keeps_punctuation_on_the_line() ->
         i += len(w)
         breaks.add(i)
     assert cover.split_title(title, breaks=breaks) == ["99%的自媒体人", "都在追求流量，", "但是变现和", "流量关系并不大"]
+
+
+def test_release_tells_16x9_from_4x3(tmp_path: Path) -> None:
+    from content_studio import release
+
+    covers = tmp_path / "final" / "covers"
+    covers.mkdir(parents=True)
+    (covers / "t-横封面.png").write_bytes(b"")
+    (covers / "t-YouTube封面.png").write_bytes(b"")
+    found = release.find_covers(tmp_path)
+    assert found["wide"] == "final/covers/t-YouTube封面.png" and found["landscape"] == "final/covers/t-横封面.png"

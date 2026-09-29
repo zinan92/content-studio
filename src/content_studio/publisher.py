@@ -408,7 +408,28 @@ def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBL
     if not result:
         result = {"ok": False, "status": "no_result", "message": (completed.stderr or completed.stdout).strip()[-400:]}
     result.setdefault("ok", completed.returncode == 0)
+    if result.get("ok") and payload["platform"] == "youtube" and result.get("video_id") and payload.get("cover"):
+        result.update(youtube_cover(str(result["video_id"]), Path(payload["cover"]), publishers=publishers))
+        if result["thumbnail"] == "failed":
+            result["message"] = f"{result.get('message') or '视频传上去了'}；{result['thumbnail_message']}"
     return result
+
+
+YOUTUBE_THUMB = Path(__file__).parent / "youtube_thumb.py"
+
+
+def youtube_cover(video_id: str, cover: Path, *, publishers: dict[str, dict[str, Any]] = PUBLISHERS,
+                  runner: Callable[..., Any] = subprocess.run) -> dict[str, Any]:
+    """9/29：YouTube 传完把打包里定稿的封面（16:9 优先）设上去。设不上不算发布失败，只在消息里说一句。"""
+    python = CONTENT_OPS / ".venv/bin/python"
+    token = (publishers.get("youtube") or {}).get("credential")
+    try:
+        done = runner([str(python), str(YOUTUBE_THUMB), "--video-id", video_id, "--image", str(cover), "--token", str(token)],
+                      capture_output=True, text=True, timeout=180, check=False)
+        got = parse_result(done.stdout) or {"ok": False, "message": (done.stderr or done.stdout).strip()[-200:]}
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        got = {"ok": False, "message": f"封面没设上：{exc}"}
+    return {"thumbnail": "set" if got.get("ok") else "failed", "thumbnail_message": got.get("message") or ""}
 
 
 def result_url(result: dict[str, Any]) -> str | None:

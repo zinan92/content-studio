@@ -78,3 +78,24 @@ def test_after_publishing_open_the_page_to_confirm() -> None:
     assert pub.confirm_url("wechat_mp", {"media_id": "m"}) == "https://mp.weixin.qq.com/"
     assert pub.confirm_url("bilibili", {"platform_url": "https://member.bilibili.com/platform/upload-manager/article", "url": "https://www.bilibili.com/video/BV1"}).startswith("https://member.bilibili.com")
     assert pub.confirm_url("youtube", {"video_id": "abc"}) == "https://studio.youtube.com/video/abc/edit"
+
+
+def test_youtube_sets_the_cover_after_upload_and_a_failure_is_only_a_note(tmp_path: Path) -> None:
+    """9/29：YouTube 传完把定稿的封面设上去；设不上不算发布失败。"""
+    import subprocess as sp
+
+    cover = tmp_path / "c.png"
+    cover.write_bytes(b"1")
+    seen = {}
+
+    def runner(argv, **kw):
+        seen["argv"] = argv
+        return sp.CompletedProcess(argv, 0, stdout='{"ok": true, "message": "封面设好了"}\n', stderr="")
+
+    assert pub.youtube_cover("vid123", cover, runner=runner) == {"thumbnail": "set", "thumbnail_message": "封面设好了"}
+    assert seen["argv"][1].endswith("youtube_thumb.py") and seen["argv"][3] == "vid123" and seen["argv"][5] == str(cover)
+
+    def refused(argv, **kw):
+        return sp.CompletedProcess(argv, 1, stdout='{"ok": false, "message": "YouTube 不让这个频道用自定义封面"}\n', stderr="")
+
+    assert pub.youtube_cover("vid123", cover, runner=refused)["thumbnail"] == "failed"
