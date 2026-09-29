@@ -101,7 +101,7 @@ const CORE_VIEWS = ['mine', 'radar', 'report', 'settings'];
 const OUTPUT_FAMILY = ['output', 'mine', 'radar', 'report'];
 const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷达'], ['report', '拆解报告']];
 const S = {
-  view: 'positioning',
+  view: 'today',
   workId: null,
   publishId: null,
   packId: null,
@@ -136,7 +136,7 @@ function railKey(view) {
 
 function paintChrome(view) {
   const key = railKey(view);
-  $$('.flow button, .rail-set, .rail-pos, .rail-consult').forEach((b) => b.classList.toggle('on', b.dataset.view === key));
+  $$('.flow button, .rail-set, .rail-pos, .rail-consult, .rail-today').forEach((b) => b.classList.toggle('on', b.dataset.view === key));
   document.body.dataset.stage = ($(`#v-${view}`) || {}).dataset ? $(`#v-${view}`).dataset.stage : '';
   $$('.view').forEach((s) => s.classList.toggle('on', s.id === 'v-' + view));
   $$('[data-subnav]').forEach((nav) => {
@@ -156,7 +156,7 @@ function go(view, { push = true } = {}) {
   renderView();
 }
 
-const OLD_ROUTES = { today: 'board', brief: 'board', topics: 'board', video: 'board', article: 'board', hot: 'board', collect: 'input', weekly: 'output', queue: 'report', skills: 'settings' };
+const OLD_ROUTES = { brief: 'board', topics: 'board', video: 'board', article: 'board', hot: 'board', collect: 'input', weekly: 'output', queue: 'report', skills: 'settings' };
 
 function readHash() {
   let [view, id] = location.hash.replace(/^#/, '').split('/');
@@ -168,12 +168,12 @@ function readHash() {
     if (!id) return 'board';
     S.workId = Number(id);
   }
-  if (!view) return 'positioning'; // 首页就是这一页
+  if (!view) return 'today'; // 9/29 Park：打开工作台先看「今天」，现在做哪一件
   return [...CORE_VIEWS, ...Object.keys(window.VIEWS)].includes(view) ? view : 'board';
 }
 
 function bindNav() {
-  $$('.flow button, .rail-set, .rail-pos, .rail-consult').forEach((b) => (b.onclick = () => go(b.dataset.view)));
+  $$('.flow button, .rail-set, .rail-pos, .rail-consult, .rail-today').forEach((b) => (b.onclick = () => go(b.dataset.view)));
 }
 window.addEventListener('popstate', () => go(readHash(), { push: false }));
 
@@ -209,6 +209,7 @@ async function refreshAll() {
   renderView();
   if (window.refreshPublishNav) window.refreshPublishNav();
   if (window.refreshPackNav) window.refreshPackNav();
+  if (window.refreshTodayBadge && S.view !== 'today') window.refreshTodayBadge();
 }
 
 function renderChrome() {
