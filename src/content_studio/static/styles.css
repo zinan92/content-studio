@@ -1698,3 +1698,42 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .pdl-draft p{margin:0;font-size:13px;color:var(--ink-2)}
 .pdl-draft small{color:var(--ink-3);font-size:12px}
 .pdl-draft input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--ink)}
+/* ===== 05 已发出 · 概览（9/29 改版）===== */
+.ov-kpi{display:grid;grid-template-columns:1.3fr repeat(3,1fr) 1.6fr;gap:12px;align-items:stretch;margin-bottom:14px}
+.ov-k{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ov-k span{font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+.ov-k b{font-size:28px;font-weight:800;line-height:1.1;color:var(--ink)}
+.ov-k.main b{font-size:40px;color:var(--accent)}
+.ov-k small{font-size:12px;color:var(--ink-3)}
+.ov-k small.bad{color:var(--warn)}.ov-k small.good{color:var(--accent)}
+.ov-k.chart{padding:8px 10px;justify-content:center}
+.ov-k.chart .reach-svg{width:100%;height:auto}
+.ov-plats{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.ov-plat{background:var(--sunk);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.ov-plat small{font-size:12px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.ov-plat b{font-size:20px;font-weight:700}
+.ov-plat i{font-style:normal;font-size:11px;color:var(--ink-3)}
+.ov-in{width:100%;border:1px dashed var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit;font-size:18px;font-weight:700;padding:2px 6px}
+.ov-manage{margin-top:10px;font-size:12px;color:var(--ink-3)}
+.ov-manage summary{cursor:pointer}
+.mx-wrap{overflow-x:auto}
+.mx{width:100%;border-collapse:collapse;font-size:13px}
+.mx th,.mx td{padding:8px 10px;border-bottom:1px solid var(--line-soft);text-align:right;white-space:nowrap}
+.mx thead th{font-size:12px;color:var(--ink-3);font-weight:500}
+.mx tbody th{text-align:left;font-weight:500;max-width:280px}
+.mx tbody th span{display:block;overflow:hidden;text-overflow:ellipsis}
+.mx tbody th small{color:var(--ink-3);font-weight:400;font-size:11px}
+.mx thead th:first-child{text-align:left}
+.mx td.mx-none,.mx td.mx-sent{color:var(--ink-3);font-size:12px}
+.mx td.mx-1{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.mx td.mx-2{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.mx td.mx-3{background:color-mix(in srgb,var(--accent) 42%,transparent);font-weight:700}
+.ov-three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.ov-three>div{border-radius:10px;padding:12px 14px;background:var(--sunk)}
+.ov-three h3{margin:0 0 6px;font-size:13px}
+.ov-three .win h3{color:var(--accent)}.ov-three .bad h3{color:var(--warn)}.ov-three .next h3{color:var(--hot)}
+.ov-three p{margin:0;font-size:13px;line-height:1.7;color:var(--ink-2)}
+.rv-full{margin-top:12px;font-size:13px}
+.rv-full summary{cursor:pointer;color:var(--ink-3)}
+.chart-panel.small .chart-box{max-height:200px;overflow:hidden}
+@media (max-width:1100px){.ov-kpi{grid-template-columns:repeat(2,minmax(0,1fr))}.ov-k.chart{grid-column:1/-1}.ov-plats{grid-template-columns:repeat(4,minmax(0,1fr))}.ov-three{grid-template-columns:1fr}}

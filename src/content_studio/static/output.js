@@ -1,5 +1,9 @@
 'use strict';
-/* 03 已发出 · 概览：每条视频的倍数、开头留存、涨粉，每周复盘，满 48 小时待拆解 */
+/* 05 已发出 · 概览（9/29 改版）：一切回到 KPI——触达。
+   顶上：今天触达、这一周触达、这一周发了几条（目标每天一条）、30 天节奏；7 个平台今天的触达常驻不折叠；
+   每条内容 × 每个平台的累计触达（看出哪条在哪起量）；做对了 / 做错了 / 下一步只改一件（来自每周复盘）；
+   倍数图放最下面。2 秒跳出、平均观看、收藏赞这些小图拿掉了（Park：用处不大）。 */
+const WEEK_TARGET = 7; // PARK-OS：每天一条
 window.VIEWS = window.VIEWS || {};
 
 const OUT = { review: null, reviewAt: 0 };
@@ -63,32 +67,6 @@ function multipleChart(rows) {
   return s + '</svg>';
 }
 
-/* Small multiple: one measure per video in publish order, with a reference line. */
-function miniChart({ rows, value, format, ref, refLabel, worseHigh }) {
-  const pts = rows.filter((r) => value(r) !== null && value(r) !== undefined);
-  if (pts.length < 2) return '<div class="mini-empty">需要创作者后台数据（同步我的数据）</div>';
-  const W = 520, H = 150, m = { l: 44, r: 12, t: 14, b: 12 };
-  const vals = pts.map(value);
-  const hi = Math.max(...vals, ref || 0) * 1.12, lo = 0;
-  const x = (i) => m.l + (pts.length === 1 ? 0.5 : i / (pts.length - 1)) * (W - m.l - m.r);
-  const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(value(p)).toFixed(1)}`).join(' ');
-  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img">`;
-  s += `<line class="gridl" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
-  if (ref !== undefined) s += `<line class="ref" x1="${m.l}" x2="${W - m.r}" y1="${y(ref)}" y2="${y(ref)}"/><text class="axis-t" x="${m.l - 6}" y="${y(ref) + 4}" text-anchor="end">${refLabel}</text>`;
-  s += `<path class="spark-area" d="${line} L${x(pts.length - 1)},${y(0)} L${x(0)},${y(0)} Z"/><path class="spark-line" d="${line}"/>`;
-  pts.forEach((p, i) => {
-    const v = value(p);
-    const bad = ref !== undefined && (worseHigh ? v > ref : v < ref);
-    const last = i === pts.length - 1;
-    s += `<circle class="dot ${bad ? 'bad' : ''} ${last ? 'last' : ''}" cx="${x(i)}" cy="${y(v)}" r="${last ? 5 : 3.5}"/>`;
-    s += `<rect class="hit" x="${x(i) - 14}" y="${m.t}" width="28" height="${H - m.t - m.b}" data-tip="${esc(`${day(p.published_at)} · ${p.title.slice(0, 24)}\n${format(v)}`)}"/>`;
-  });
-  const lastV = value(pts[pts.length - 1]);
-  s += `<text class="bar-label" x="${x(pts.length - 1) - 8}" y="${y(lastV) - 10}" text-anchor="end">${format(lastV)}</text>`;
-  return s + '</svg>';
-}
-
 function reviewBlock(r) {
   const gen = `<button class="btn small ${r.data ? '' : 'primary'}" type="button" id="rvGen" ${r.state === 'running' ? 'disabled' : ''}>${r.state === 'running' ? '复盘中…' : r.data ? '重新复盘' : '复盘这一周'}</button>`;
   if (!r.data) {
@@ -97,15 +75,21 @@ function reviewBlock(r) {
   }
   const d = r.data;
   const items = (list, cls) => list.map((it) => `<li class="${cls}"><span>${esc(it.text)}</span>${(it.videos || []).map((v) => `<button type="button" class="linklike" data-report="${esc(v.video_id)}">${esc(cleanTitle(v.title).slice(0, 18))}</button>`).join('')}</li>`).join('');
+  const first = (list) => (list && list.length ? esc(list[0].text || list[0]) : '<span class="muted">这周没有</span>');
   return `<section class="panel review">
-    <div class="panel-h"><h2>这周复盘 <small>${esc(d.since)} – ${esc(d.until)}</small></h2>${gen}</div>
-    <p class="rv-snapshot">数字算于 ${day(r.updated_at)}，和现在的图表可能差一点（视频还在涨赞）</p>
-    ${d.next_week && d.next_week.length ? `<div class="focus"><span>下周只改一件事</span><p>${esc(d.next_week[0])}</p></div>` : ''}
-    <p class="rv-summary">${esc(d.summary)}</p>
-    <div class="rv-grid">
-      <div><h3>做对了</h3><ul class="rv-list">${items(d.wins, 'win') || '<li class="muted">这周没有</li>'}</ul></div>
-      <div><h3>问题</h3><ul class="rv-list">${items(d.problems, 'problem') || '<li class="muted">这周没有</li>'}</ul></div>
+    <div class="panel-h"><h2>这一周 <small>${esc(d.since)} – ${esc(d.until)} · 算于 ${day(r.updated_at)}</small></h2>${gen}</div>
+    <div class="ov-three">
+      <div class="win"><h3>做对了</h3><p>${first(d.wins)}</p></div>
+      <div class="bad"><h3>做错了</h3><p>${first(d.problems)}</p></div>
+      <div class="next"><h3>下一步只改一件</h3><p>${d.next_week && d.next_week.length ? esc(d.next_week[0]) : '<span class="muted">还没定</span>'}</p></div>
     </div>
+    <details class="rv-full"><summary>看完整复盘</summary>
+      <p class="rv-summary">${esc(d.summary)}</p>
+      <div class="rv-grid">
+        <div><h3>做对了</h3><ul class="rv-list">${items(d.wins, 'win') || '<li class="muted">这周没有</li>'}</ul></div>
+        <div><h3>问题</h3><ul class="rv-list">${items(d.problems, 'problem') || '<li class="muted">这周没有</li>'}</ul></div>
+      </div>
+    </details>
   </section>`;
 }
 
@@ -137,34 +121,59 @@ function reachBars(days) {
 
 const q = (text) => `<button class="help-q" type="button" data-tip="${esc(text)}" aria-label="怎么算的">?</button>`;
 
-function reachBlock(r) {
-  const today = new Date().toLocaleDateString('sv-SE');
+function reachBlock(r, posts7) {
   const meta = Object.fromEntries((S.platforms || []).map((x) => [x.key, x]));
-  const rows = r.platforms.map((p) => {
+  const week = r.days.slice(-7).reduce((a, d) => a + d.total, 0);
+  const prev = r.days.slice(0, 7).reduce((a, d) => a + d.total, 0);
+  const vs = (now, base) => (base ? Math.round(((now - base) / base) * 100) : null);
+  const dToday = vs(r.today, r.avg7);
+  // 上周有没同步的日子（算成 0）就不比：比出来的百分比是假的
+  const prevGaps = r.days.slice(0, 7).filter((d) => !d.total).length;
+  const dWeek = prevGaps ? null : vs(week, prev);
+  // 只列设置里开着的平台，按发布顺序（抖音 → 视频号 → B 站 → YouTube → X → 小红书 → 公众号）
+  const ORDER = ['douyin', 'channels', 'bilibili', 'youtube', 'x', 'xiaohongshu', 'wechat_mp', 'miniprogram', 'xiaoyuzhou'];
+  const on = r.platforms.filter((p) => p.on && (meta[p.key] || {}).on !== false)
+    .sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+  const sumToday = on.reduce((a, p) => a + (p.today || 0), 0);
+  const tile = (p) => {
     const m = meta[p.key] || {};
-    const BADGE = { linked: ['ok', '自动发布'], ready: ['ok', '凭据就绪'], stale: ['warn', '要重新登录'], blocked: ['warn', '平台限制了'], setup: ['warn', '差一步配置'], manual: ['', '手动发布'] };
-    const [cls, word] = BADGE[m.state] || BADGE.manual;
-    const badge = `<span class="rp-tag ${cls}" title="${esc(m.note || '')}">${word}</span>`;
-    return `<div class="rp-row ${p.on ? '' : 'off'}">
-      <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}>${m.mark ? `<i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>` : ''}<b>${esc(p.label)}</b>${badge}</label>
-      <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}>
-      ${p.auto
-        ? `<span class="rp-views num">${p.today === null || p.today === undefined ? '—' : fmt(p.today)}</span><small>自动 · ${(r.synced_at || {})[p.key] ? esc(ago(r.synced_at[p.key])) : '明早 9:30 第一次读'}</small>`
-        : `<input class="rp-views" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="今天播放"><small>手填</small>`}
-    </div>`;
-  }).join('');
-  return `<section class="reach">
-    <div class="reach-hero">
-      <div class="reach-big"><span>今天触达 ${q(`今天各平台播放的合计。\n抖音：今天同步的播放数 − 上次同步的播放数，逐条视频相加（老视频第一次同步只当基线，不算）。\nB站、X、研习室、YouTube：每天 9:30 自动读一次每条内容的累计播放（X 是曝光、研习室是阅读），同样按两次之间的差算，第一次读只当基线。\n小红书：每天 9:25 用你的 Chrome 打开数据页截图读「观看」，算法同上。\n视频号、公众号：你手填的今天播放。\n今天包含：${r.platforms.filter((p) => p.today).map((p) => `${p.label} ${fmt(p.today)}`).join('、') || '还没有数'}`)}</span><b class="num">${fmt(r.today)}</b><small>各平台播放合计 · ${today.slice(5)}</small></div>
-      <div class="reach-side">
-        <div><span>近 7 天日均 ${q('最近 7 天每天触达的平均值（没同步的日子算 0，所以偏低）。')}</span><b class="num">${fmt(r.avg7)}</b></div>
-        <div><span>按这个节奏 30 天 ${q('近 7 天日均 × 30。不是预测，是照现在的节奏一个月能到多少。')}</span><b class="num">${fmt(r.pace30)}</b></div>
-      </div>
-      <div class="reach-chart">${reachBars(r.days)}</div>
-    </div>
-    <details class="reach-platforms"><summary><b>各平台</b><small>${r.platforms.filter((p) => p.on).length} 个开了 · 抖音自动，其他先手填今天的播放，接上数据后自动</small></summary>
-      <div class="rp-list">${rows}</div>
-    </details>
+    const share = sumToday && p.today ? `${Math.round((p.today / sumToday) * 100)}%` : '';
+    const how = p.auto ? ((r.synced_at || {})[p.key] ? '自动' : '明早 9:30 第一次读') : '手填';
+    const value = p.auto
+      ? `<b class="num">${p.today === null || p.today === undefined ? '—' : fmt(p.today)}</b>`
+      : `<input class="ov-in num" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="待填">`;
+    return `<div class="ov-plat"><small>${m.mark ? `<i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>` : ''}${esc(p.label)}</small>${value}<i>${[share, how].filter(Boolean).join(' · ')}</i></div>`;
+  };
+  const rows = r.platforms.filter((p) => (meta[p.key] || {}).on !== false || !p.auto).map((p) => `<div class="rp-row ${p.on ? '' : 'off'}">
+      <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}><b>${esc(p.label)}</b></label>
+      <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}></div>`).join('');
+  return `<section class="ov-kpi">
+      <div class="ov-k main"><span>今天触达 ${q(`今天 ${on.length} 个平台播放的合计。抖音、B 站、YouTube、X 每天自动读，按两次之间的差算；小红书截图读；视频号、公众号手填。`)}</span><b class="num">${fmt(r.today)}</b>
+        <small class="${dToday === null ? '' : dToday < 0 ? 'bad' : 'good'}">${dToday === null ? '' : `比 7 天日均 ${fmt(r.avg7)} ${dToday < 0 ? '少' : '多'} ${Math.abs(dToday)}%`}</small></div>
+      <div class="ov-k"><span>这一周触达</span><b class="num">${fmt(week)}</b><small class="${dWeek === null ? '' : dWeek < 0 ? 'bad' : 'good'}">${dWeek === null ? (prevGaps ? `上周有 ${prevGaps} 天没同步，不比` : '上周没数据') : `${dWeek < 0 ? '↓' : '↑'} ${Math.abs(dWeek)}% 比上周`}</small></div>
+      <div class="ov-k"><span>这一周发了 ${q('最近 7 天发出的抖音视频条数。目标每天一条。')}</span><b class="num">${posts7} 条</b><small class="${posts7 < WEEK_TARGET ? 'bad' : 'good'}">目标 ${WEEK_TARGET} 条</small></div>
+      <div class="ov-k"><span>30 天节奏 ${q('近 7 天日均 × 30。不是预测，是照现在的节奏一个月能到多少。')}</span><b class="num">${fmt(r.pace30)}</b><small>照这个速度</small></div>
+      <div class="ov-k chart">${reachBars(r.days)}</div>
+    </section>
+    <section class="panel ov-plats-panel"><div class="panel-h"><h2>各平台今天触达</h2><small>手填的平台直接在格子里填今天的播放</small></div>
+      <div class="ov-plats">${on.map(tile).join('')}</div>
+      <details class="ov-manage"><summary>管理平台（开关、账号名）</summary><div class="rp-list">${rows}</div></details>
+    </section>`;
+}
+
+function matrixBlock(mx) {
+  if (!mx || !mx.rows.length) return '';
+  const all = mx.rows.flatMap((r) => Object.values(r.cells).filter((c) => c.state === 'views' && c.views).map((c) => c.views));
+  const top = Math.max(1, ...all);
+  const cell = (c) => {
+    if (c.state === 'none') return '<td class="mx-none">—</td>';
+    if (c.state === 'sent') return `<td class="mx-sent" title="${c.no_api ? '这个平台没有接口读数' : '发了，还没读到数'}">${c.no_api ? '没接口' : '已发'}</td>`;
+    const lvl = c.views >= top * 0.5 ? 3 : c.views >= top * 0.1 ? 2 : c.views ? 1 : 0;
+    return `<td class="num mx-${lvl}">${fmt(c.views)}</td>`;
+  };
+  return `<section class="panel"><div class="panel-h"><h2>每条内容在每个平台的累计触达 <small>最近 ${mx.rows.length} 条 · 颜色越深越好</small></h2><small>倍数 = 抖音点赞 ÷ 你的中位数</small></div>
+    <div class="mx-wrap"><table class="mx"><thead><tr><th>内容</th>${mx.platforms.map((p) => `<th>${esc(p.label)}</th>`).join('')}<th>合计</th><th>倍数</th></tr></thead>
+      <tbody>${mx.rows.map((r) => `<tr><th title="${esc(r.title)}"><span>${esc(r.title)}</span><small>${day(r.published_at)}</small></th>${mx.platforms.map((p) => cell(r.cells[p.key] || { state: 'none' })).join('')}<td class="num"><b>${fmt(r.total)}</b></td><td class="num">${r.multiple === null ? '—' : `${r.multiple}×`}</td></tr>`).join('')}</tbody></table></div>
   </section>`;
 }
 
@@ -190,10 +199,10 @@ window.VIEWS.output = {
       body.innerHTML = '<div class="panel empty"><b>还没连上你的抖音号</b><span>去「我的视频」连接后，这里会画出每条视频的数据。</span><button class="btn primary" type="button" onclick="go(\'mine\')">去连接</button></div>';
       return;
     }
-    let review, board, reach;
-    try { [review, board, reach] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null, loadReach(false)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    let review, board, reach, matrix;
+    try { [review, board, reach, matrix] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null, loadReach(false), api('/api/outbox/matrix').catch(() => null)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
-    const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, S.jobs.map((j) => j.stage).join(), RE.at]);
+    const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, RE.at, matrix && matrix.rows.map((r) => r.total)]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
 
@@ -211,40 +220,14 @@ window.VIEWS.output = {
         fans: v.creator ? v.creator.fan_increment : null,
       }))
       .sort((a, b) => a.t - b.t);
-    const last30 = rows.filter((r) => now - r.t < 30 * 86400000);
-    const withCreator = rows.filter((r) => r.bounce !== null || r.watch !== null).slice(-16);
-    const k = board ? board.streak : null;
-    const fans30 = last30.reduce((a, r) => a + (r.fans || 0), 0);
-    const medMult = median(last30.map((r) => r.multiple));
-    const medWatch = median(last30.map((r) => r.watch));
-
-
     const last7 = rows.filter((r) => now - r.t < 7 * 86400000);
-    const sum7 = (key) => last7.reduce((a, r) => a + (r[key] || 0), 0);
-    const douyin7 = reach.days.slice(-7).reduce((a, d) => a + (d.by_platform.douyin || 0), 0);
-    const fans7 = last7.reduce((a, r) => a + (r.fans || 0), 0);
-    const watch7 = median(last7.map((r) => r.watch));
-    const followers = m.account.follower_count;
-    const wk = '只算最近 7 天发出的视频';
-    body.innerHTML = `${reachBlock(reach)}
-      <div class="kpi-strip week">
-        <div class="kpi-big ${last7.length === 0 ? 'bad' : ''}"><span>近 7 天发了 ${q('最近 7 天发出的视频条数（图文不算）。')}</span><b class="num">${last7.length}</b><small>条 · 近 30 天 ${last30.length} 条</small></div>
-        <div class="kpi-big"><span>播放 ${q('最近 7 天抖音每天涨的播放相加（同上面的触达口径，只算抖音）。没同步的日子算 0。')}</span><b class="num">${fmt(douyin7)}</b><small>7 天 · 抖音</small></div>
-        <div class="kpi-big"><span>点赞 ${q(wk + '的点赞合计，取最近一次同步的数。')}</span><b class="num">${fmt(sum7('likes'))}</b><small>评论 ${fmt(sum7('comments'))} · 收藏 ${fmt(sum7('collects'))}</small></div>
-        <div class="kpi-big"><span>涨粉 ${q(wk + '带来的涨粉相加，来自创作者后台；总粉丝是主页显示的粉丝数，最近一次同步。')}</span><b class="num">${fmt(fans7)}</b><small>总粉丝 ${followers === null || followers === undefined ? '—' : fmt(followers)}</small></div>
-        <div class="kpi-big ${watch7 !== null && watch7 < 15 ? 'bad' : ''}"><span>平均观看 ${q(wk + '的平均观看秒数的中位数，来自创作者后台。主线要在 15 秒内说出来。')}</span><b class="num">${watch7 === null ? '—' : Math.round(watch7) + '秒'}</b><small>${k ? `连续拍摄 ${k.today_done || k.days ? k.days : 0} 天` : ''}</small></div>
-      </div>
-      <section class="panel chart-panel">
+    body.innerHTML = `${reachBlock(reach, last7.length)}
+      ${matrixBlock(matrix)}
+      ${reviewBlock(review)}
+      <section class="panel chart-panel small">
         <div class="panel-h"><h2>每条视频的倍数 <small>近 90 天 · 点赞 ÷ 账号中位数 ${fmt(med)}</small> ${q('每条视频的点赞除以你账号非置顶作品的点赞中位数。1× = 平时水平，≥3× 算爆。')}</h2><small class="legend"><i class="lg hot"></i>≥3× <i class="lg ok"></i>1–3× <i class="lg low"></i>&lt;1×</small></div>
         <div class="chart-box">${multipleChart(rows)}</div>
-      </section>
-      <div class="mini-grid">
-        <section class="panel mini"><div class="panel-h"><h2>2 秒跳出</h2><small>越低越好 · 虚线 35%</small></div>${miniChart({ rows: withCreator, value: (r) => r.bounce, format: (v) => pct(v, 0), ref: 0.35, refLabel: '35%', worseHigh: true })}</section>
-        <section class="panel mini"><div class="panel-h"><h2>平均观看秒数</h2><small>虚线 15 秒</small></div>${miniChart({ rows: withCreator, value: (r) => r.watch, format: (v) => Math.round(v) + '秒', ref: 15, refLabel: '15s', worseHigh: false })}</section>
-        <section class="panel mini"><div class="panel-h"><h2>每条涨粉</h2><small>按发布先后</small></div>${miniChart({ rows: withCreator, value: (r) => r.fans, format: (v) => fmt(v) })}</section>
-        <section class="panel mini"><div class="panel-h"><h2>收藏 / 赞</h2><small>高 = 观众想留着</small></div>${miniChart({ rows: rows.slice(-16), value: (r) => (r.likes ? (r.collects || 0) / r.likes : null), format: (v) => pct(v, 0) })}</section>
-      </div>
-      ${reviewBlock(review)}`;
+      </section>`;
     bindTips(body);
     bindTeardownButtons(body);
     bindReach(body, body);

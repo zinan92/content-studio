@@ -523,6 +523,21 @@ class StudioStore:
                     changed += 1
         return changed
 
+    def latest_post_titles(self, platform: str) -> list[tuple[str, int]]:
+        """某个平台每条帖子最近一次的（标题，累计数）。小红书是截图读的，没有帖子编号，只能按标题对。"""
+        rows = self._rows(
+            "SELECT title, views FROM post_snapshots s WHERE platform = ? AND fetched_at = "
+            "(SELECT MAX(fetched_at) FROM post_snapshots t WHERE t.platform = s.platform AND t.post_id = s.post_id)", (platform,))
+        return [(r["title"] or "", r["views"]) for r in rows if r["views"] is not None]
+
+    def latest_post_views(self) -> dict[tuple[str, str], int]:
+        """每个平台每条帖子最近一次读到的累计播放 / 曝光 / 阅读。"""
+        rows = self._rows(
+            "SELECT platform, post_id, views FROM post_snapshots s WHERE fetched_at = "
+            "(SELECT MAX(fetched_at) FROM post_snapshots t WHERE t.platform = s.platform AND t.post_id = s.post_id)"
+        )
+        return {(r["platform"], r["post_id"]): r["views"] for r in rows if r["views"] is not None}
+
     def publish_records(self, topic_id: int) -> dict[str, dict[str, Any]]:
         return {r["platform"]: r for r in self._rows("SELECT * FROM publish_records WHERE topic_id = ?", (topic_id,))}
 
