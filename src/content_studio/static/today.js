@@ -1,8 +1,9 @@
 'use strict';
-/* 今天：用 KPI 驱动 Park，一次只给一件事（逻辑在 driver.py，顺序 Park 9/29 拍板）。
- * 上面 KPI 条：出摊、回私信算他的分（没做到减分），触达是结果。中间「现在做这件事」只有一件，
- * 按钮直接带他去做；后面几件灰着排队。右边「接下来要拍的」他自己写、自己排——选题他定。
- * 这一页不放单条视频的数据（Park：I need to be indifferent about my numbers）。 */
+/* 今天：ABC 三件事，就这三件（逻辑在 driver.py）。
+ * A 出摊：抖音、视频号、小红书发视频，X、公众号发文字；B 回私信；C X 互动，回 20 条。
+ * 没做到当天各减 1 分，左边栏一直显示。触达是结果，不在这一页看（在「已发出」）。
+ * 9/29 Park：「你只需要告诉我，我今天要做的 ABC 三件事就好了……感觉今天这个页面太散了。」
+ * 拍什么他定：「接下来要拍的」收在 A 里面；只有他点「我今天不知道拍什么」才建议。 */
 window.VIEWS = window.VIEWS || {};
 
 const TD = { data: null, poll: null, skipOpen: false };
@@ -13,7 +14,7 @@ window.refreshTodayBadge = async () => { try { await loadToday(); } catch (_) { 
 function paintTodayBadge() {
   const b = $('#navToday');
   if (!b || !TD.data) return;
-  const n = TD.data.kpi.demerits;
+  const n = TD.data.demerits;
   b.textContent = n ? `减 ${n}` : '';
   b.classList.toggle('bad', !!n);
 }
@@ -24,74 +25,87 @@ function dayTitle(key) {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${DOW[d.getDay()]}`;
 }
 
-function kpiBar(k) {
-  const cell = (d, f) => `<i class="${d[f]}" title="${d.day}：${{ ok: '做到了', miss: '没做到，减 1 分', pending: '今天还没过完', 'n/a': '还没开始算' }[d[f]]}">${Number(d.day.slice(8))}</i>`;
-  const dmMiss = k.days.filter((d) => d.dm === 'miss').length;
-  const shipMiss = k.days.filter((d) => d.ship === 'miss').length;
-  const dm = k.dm_today ? `${k.dm_today.replied} / ${k.dm_today.received}` : '—';
-  const pct = k.reach_target ? Math.min(100, Math.round(((k.reach_avg7 || 0) / k.reach_target) * 100)) : 0;
-  return `<div class="td-kpis">
-    <div class="td-kpi ${shipMiss ? 'bad' : 'ok'}"><span class="l">出摊 · 最近 7 天</span>
-      <span class="v num">${k.posted_7} / 7${shipMiss ? ` <small>减 ${shipMiss}</small>` : ''}</span>
-      <span class="td-days">${k.days.map((d) => cell(d, 'ship')).join('')}</span></div>
-    <div class="td-kpi ${dmMiss ? 'bad' : ''}"><span class="l">回私信 · 今天回了 / 收到</span>
-      <span class="v num">${dm}${dmMiss ? ` <small>减 ${dmMiss}</small>` : ''}</span>
-      <span class="td-days">${k.days.map((d) => cell(d, 'dm')).join('')}</span></div>
-    <div class="td-kpi"><span class="l">触达 · 7 天平均 / 目标（${esc(k.reach_by.slice(5).replace('-', '/'))} 前）</span>
-      <span class="v num">${fmt(k.reach_avg7 || 0)} <small>/ ${fmt(k.reach_target)}</small></span>
-      <span class="td-bar"><b style="width:${pct}%"></b></span></div>
-  </div>
-  <p class="td-rule">出摊、回私信是你的分，没做到当天各减 1 分。触达是结果，不算你的分：没达标我来改你每天要做的事。${k.dm_target ? `收到私信目标：每天 ${k.dm_target} 条。` : `收到私信先记到 ${esc(k.dm_baseline_until.slice(5).replace('-', '/'))} 摸底，再定目标。`}</p>`;
+const DOT_TIP = { ok: '做到了', miss: '没做到，减 1 分', pending: '今天还没过完', 'n/a': '还没开始算' };
+const dots = (days, f) => `<span class="td-days">${days.map((d) => `<i class="${d[f]}" title="${d.day}：${DOT_TIP[d[f]]}">${Number(d.day.slice(8))}</i>`).join('')}</span>`;
+const miss = (days, f) => days.filter((d) => d[f] === 'miss').length;
+
+/* 每一行右上角的状态：做到了 / 减了几分 / 今天还没 */
+function rowState(days, f, doneToday) {
+  const m = miss(days, f);
+  return `<span class="td-state ${doneToday ? 'ok' : ''}">${doneToday ? '✓ 今天做到了' : '今天还没'}${m ? `<b>本周减 ${m}</b>` : ''}</span>`;
 }
 
-function nowCard(it) {
-  if (!it) return `<div class="td-now clear"><div class="k">现在</div><div class="act">今天的事都做完了</div><div class="td-why">KPI 都过了。想多做一条，就从右边清单里拿第一条开始。</div></div>`;
+function actionButtons(it) {
   let action = '';
-  if (it.inputs === 'dm') {
-    const e = (TD.data.kpi.dm_today) || {};
-    action = `<form class="td-dm" id="tdDm"><label>收到 <input id="tdDmRecv" type="number" min="0" inputmode="numeric" value="${e.received ?? ''}"></label>
-      <label>回了 <input id="tdDmRep" type="number" min="0" inputmode="numeric" value="${e.replied ?? ''}"></label>
-      <button class="btn go" type="submit">记下</button></form>`;
-  } else if (it.inputs === 'start_note') {
-    action = `<button class="btn go" type="button" data-td-start="${esc(it.key.split(':')[1])}">开始做</button>`;
-  } else if (it.inputs === 'focus_notes') {
-    action = '<button class="btn go" type="button" data-td-focusnotes>写一条</button>';
-  } else if (it.url) {
-    action = `<a class="btn go" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.button)} ↗</a>`;
-  } else if (it.go) {
-    action = `<button class="btn go" type="button" data-td-go="${esc(it.go)}">${esc(it.button)} →</button>`;
-  }
+  if (it.inputs === 'start_note') action = `<button class="btn go" type="button" data-td-start="${esc(it.key.split(':')[1])}">开始做</button>`;
+  else if (it.inputs === 'focus_notes') action = '<button class="btn go" type="button" data-td-focusnotes>写一条</button>';
+  else if (it.url) action = `<a class="btn go" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.button)} ↗</a>`;
+  else if (it.go) action = `<button class="btn go" type="button" data-td-go="${esc(it.go)}">${esc(it.button)} →</button>`;
   const manual = it.manual ? `<button class="btn" type="button" data-td-done="${esc(it.key)}">${it.rung === 'client' ? '发了' : '做完了'}</button>` : '';
-  const skip = TD.skipOpen
-    ? `<form class="td-skip" id="tdSkip"><input id="tdSkipWhy" maxlength="200" placeholder="为什么今天不做？一句话" autocomplete="off"><button class="btn" type="submit">跳过</button><button class="btn quiet" type="button" data-td-skipcancel>算了，去做</button></form>`
-    : '<button class="btn quiet" type="button" data-td-skip>跳过（写一句为什么）</button>';
-  return `<div class="td-now"><div class="k">现在 · ${esc(it.rung_label)}</div>
-    <div class="act">${esc(it.text)}</div>${it.why ? `<div class="td-why">${esc(it.why)}</div>` : ''}
-    <div class="btns">${action}${manual}${skip}</div></div>`;
+  const skip = TD.skipOpen === it.key
+    ? `<form class="td-skip" data-skip-form="${esc(it.key)}"><input maxlength="200" placeholder="为什么今天不做？一句话" autocomplete="off"><button class="btn" type="submit">跳过</button><button class="btn quiet" type="button" data-td-skipcancel>算了，去做</button></form>`
+    : `<button class="btn quiet" type="button" data-td-skip="${esc(it.key)}">跳过（写一句为什么）</button>`;
+  return `<div class="btns">${action}${manual}${skip}</div>`;
 }
 
-function queueList(d) {
-  const rows = d.queue.map((it, i) => `<div class="td-q"><span class="n num">${i + 2}</span><b>${esc(it.text)}</b><small>${esc(it.rung_label)}</small></div>`).join('');
+const nextLine = (it) => it ? `<div class="td-next"><b>${esc(it.text)}</b>${it.why ? `<small>${esc(it.why)}</small>` : ''}${actionButtons(it)}</div>` : '';
+
+function firstBlock(list) {
+  if (!list.length) return '';
+  return `<section class="td-first"><h3>先处理</h3>${list.map((it) => `<div class="td-next"><span class="k">${esc(it.rung_label)}</span><b>${esc(it.text)}</b>${it.why ? `<small>${esc(it.why)}</small>` : ''}${actionButtons(it)}</div>`).join('')}</section>`;
+}
+
+function shipRow(d) {
+  const s = d.ship;
+  const plat = (p) => `<span class="td-plat ${p.shipped ? 'on' : ''} ${p.core ? '' : 'rest'}" title="${esc(p.label)}${p.shipped ? '：发了' : p.skipped ? '：这条不发' : '：还没发'}">${p.shipped ? '✓' : p.skipped ? '–' : '○'} ${esc(p.label)}</span>`;
+  const video = s.platforms.filter((p) => p.form === 'video'), text = s.platforms.filter((p) => p.form !== 'video');
+  const notes = s.notes.map((n, i) => `<li class="${i === 0 ? 'top' : ''}"><span>${esc(n.text)}${n.topic_id ? ' <small class="tag">在做</small>' : ''}</span>
+    <span class="acts"><button type="button" class="linklike" data-note-up="${n.id}" ${i === 0 ? 'disabled' : ''} aria-label="上移">↑</button><button type="button" class="linklike" data-note-down="${n.id}" ${i === s.notes.length - 1 ? 'disabled' : ''} aria-label="下移">↓</button><button type="button" class="linklike" data-note-del="${n.id}" aria-label="删掉">×</button></span></li>`).join('');
+  const sg = s.suggest;
+  let sug = '<button class="btn small" type="button" id="tdSuggest">我今天不知道拍什么</button>';
+  if (sg && sg.running) sug = '<span class="td-note"><span class="spin"></span> 在你的选题池里挑一条…</span>';
+  else if (sg && sg.error) sug = `<span class="td-note warn">${esc(sg.error)}</span> <button class="btn small" type="button" id="tdSuggest">再挑一次</button>`;
+  else if (sg && sg.topic_id) sug = `<div class="td-sug"><b>建议拍：${esc(sg.title)}</b><span>${esc(sg.why)}</span><div class="btns"><button class="btn go" type="button" id="tdTake">就拍这条</button><button class="btn quiet" type="button" id="tdSuggest">换一条</button></div></div>`;
+  return `<section class="td-row ${s.done ? 'done' : ''}">
+    <div class="td-h"><span class="td-letter">A</span><h2>出摊</h2>${rowState(d.days, 'ship', s.done)}${dots(d.days, 'ship')}</div>
+    <div class="td-plats">${s.topic ? `<span class="td-topic">《${esc(s.topic.title)}》</span>` : ''}<span class="td-form">发视频</span>${video.map(plat).join('')}<span class="td-form">发文字</span>${text.map(plat).join('')}</div>
+    ${nextLine(s.next)}
+    <details class="td-notes" ${s.notes.length ? '' : 'open'}><summary>接下来要拍的 · 你定${s.notes.length ? ` <span class="num">${s.notes.length}</span>` : ''}</summary>
+      ${notes ? `<ol>${notes}</ol>` : '<p class="td-note">还没写。想好要拍什么就写在这里，最上面那条就是下一次出摊要拍的。</p>'}
+      <form class="td-add" id="tdAdd"><input id="tdAddText" maxlength="200" placeholder="写一条要拍的，回车加到最后" autocomplete="off"></form>
+      ${sug}</details>
+  </section>`;
+}
+
+function dmRow(d) {
+  const e = d.dm.entry || {};
+  const done = d.dm.entry && e.replied >= e.received;
+  return `<section class="td-row ${done ? 'done' : ''}">
+    <div class="td-h"><span class="td-letter">B</span><h2>回私信</h2>${rowState(d.days, 'dm', done)}${dots(d.days, 'dm')}</div>
+    <p class="td-why">当天收到的当天回完，每条都往「动手」引。${d.dm.target ? `目标每天收到 ${d.dm.target} 条。` : `收到多少先记到 ${esc(d.dm.baseline_until.slice(5).replace('-', '/'))} 摸底，再定目标。`}</p>
+    <form class="td-dm" id="tdDm"><label>收到 <input id="tdDmRecv" type="number" min="0" inputmode="numeric" value="${e.received ?? ''}"></label>
+      <label>回了 <input id="tdDmRep" type="number" min="0" inputmode="numeric" value="${e.replied ?? ''}"></label>
+      <button class="btn ${done ? '' : 'go'}" type="submit">${d.dm.entry ? '改' : '记下'}</button>${done ? '' : d.dm.entry ? `<small class="td-note">还差 ${e.received - e.replied} 条</small>` : ''}</form>
+  </section>`;
+}
+
+function xrRow(d) {
+  const n = d.xr.count, t = d.xr.target;
+  const done = n != null && n >= t;
+  return `<section class="td-row ${done ? 'done' : ''}">
+    <div class="td-h"><span class="td-letter">C</span><h2>X 互动 · 回 ${t} 条</h2>${rowState(d.days, 'xr', done)}${dots(d.days, 'xr')}</div>
+    <p class="td-why">在你这个领域的中文大号帖子下面回一句有立场的话，不带链接。你在 X 上被看到过的，全是回复。</p>
+    <form class="td-dm" id="tdXr"><a class="btn" href="https://x.com/home" target="_blank" rel="noopener">打开 X ↗</a>
+      <label>今天回了 <input id="tdXrN" type="number" min="0" inputmode="numeric" value="${n ?? ''}"> / ${t}</label>
+      <button class="btn ${done ? '' : 'go'}" type="submit">${n != null ? '改' : '记下'}</button>${n != null && !done ? `<small class="td-note">还差 ${t - n} 条</small>` : ''}</form>
+  </section>`;
+}
+
+function wrapBlock(d) {
+  const rows = d.wrap.map((it) => `<div class="td-next small"><b>${esc(it.text)}</b>${actionButtons(it)}</div>`).join('');
   const skipped = d.skipped.map((s) => `<div class="td-q skip"><span class="n">跳</span><b>${esc(s.key)}</b><small>${esc(s.reason || '')}</small></div>`).join('');
-  const done = d.shipped_today ? '<div class="td-q done"><span class="n">✓</span><b>今天出摊了：抖音发出新视频</b><small>自己看到的</small></div>' : '';
-  if (!rows && !skipped && !done) return '';
-  return `<div class="td-queue">${rows ? `<div class="qh">接下来</div>${rows}` : ''}${done || skipped ? `<div class="qh">今天</div>${done}${skipped}` : ''}</div>
-    ${rows ? '<p class="td-note">接下来那几件只是排着，一次只做最上面那件。</p>' : ''}`;
-}
-
-function notesPanel(d) {
-  const s = d.suggest;
-  const list = d.notes.map((n, i) => `<li class="${i < 1 ? 'top' : ''}"><span>${esc(n.text)}${n.topic_id ? ' <small class="tag">在做</small>' : ''}</span>
-    <span class="acts"><button type="button" class="linklike" data-note-up="${n.id}" ${i === 0 ? 'disabled' : ''} aria-label="上移">↑</button><button type="button" class="linklike" data-note-down="${n.id}" ${i === d.notes.length - 1 ? 'disabled' : ''} aria-label="下移">↓</button><button type="button" class="linklike" data-note-del="${n.id}" aria-label="删掉">×</button></span></li>`).join('');
-  let sug = '<button class="btn" type="button" id="tdSuggest">我今天不知道拍什么</button>';
-  if (s && s.running) sug = '<span class="td-note"><span class="spin"></span> 在你的选题池里挑一条…</span>';
-  else if (s && s.error) sug = `<span class="td-note warn">${esc(s.error)}</span><button class="btn" type="button" id="tdSuggest">再挑一次</button>`;
-  else if (s && s.topic_id) sug = `<div class="td-sug"><b>建议拍：${esc(s.title)}</b><span>${esc(s.why)}</span><div class="btns"><button class="btn go" type="button" id="tdTake">就拍这条</button><button class="btn quiet" type="button" id="tdSuggest">换一条</button></div></div>`;
-  return `<div class="td-notes" id="tdNotes"><h3>接下来要拍的 · 你定</h3>
-    ${list ? `<ol>${list}</ol>` : '<p class="td-note">还没写。想好要拍什么就写在这里，最上面那条就是下一次出摊要拍的。</p>'}
-    <form class="td-add" id="tdAdd"><input id="tdAddText" maxlength="200" placeholder="写一条要拍的，回车加到最后" autocomplete="off"></form>
-    ${sug}
-    <p class="td-note">只有你点「我今天不知道拍什么」，我才从选题池里挑一条给你。</p></div>`;
+  if (!rows && !skipped) return '';
+  return `<section class="td-wrap"><h3>杂事</h3>${rows}${skipped}</section>`;
 }
 
 async function tdAct(fn) {
@@ -110,30 +124,30 @@ window.VIEWS.today = {
     try { d = await loadToday(); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     paintTodayBadge();
     $('#todayDay').textContent = `今天 · ${dayTitle(d.day)}`;
+    $('#todayScore').innerHTML = d.demerits ? `本周减 <b>${d.demerits}</b> 分` : '本周没减分';
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
     const sig = JSON.stringify([d, TD.skipOpen]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
-    body.innerHTML = `${kpiBar(d.kpi)}
-      <div class="td-two"><div class="td-main">${nowCard(d.now)}${queueList(d)}</div>${notesPanel(d)}</div>`;
+    body.innerHTML = `${firstBlock(d.first)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${wrapBlock(d)}
+      <p class="td-note td-foot">触达是结果，不算你的分，在「已发出」里看：7 天平均 ${fmt(d.reach.avg7 || 0)} / 目标 ${fmt(d.reach.target)}（${esc(d.reach.by.slice(5).replace('-', '/'))} 前）。</p>`;
 
-    const it = d.now;
     $$('[data-td-go]', body).forEach((b) => (b.onclick = () => goHash(b.dataset.tdGo)));
     $$('[data-td-done]', body).forEach((b) => (b.onclick = () => tdAct(() => api('/api/today/done', { method: 'POST', body: { key: b.dataset.tdDone } }))));
     $$('[data-td-start]', body).forEach((b) => (b.onclick = () => tdAct(async () => { const r = await api(`/api/today/notes/${b.dataset.tdStart}/start`, { method: 'POST' }); goHash(`work/${r.topic.id}`); })));
-    $$('[data-td-focusnotes]', body).forEach((b) => (b.onclick = () => $('#tdAddText').focus()));
-    const skipBtn = $('[data-td-skip]', body);
-    if (skipBtn) skipBtn.onclick = () => { TD.skipOpen = true; body.dataset.sig = ''; this.render().then(() => { const i = $('#tdSkipWhy'); if (i) i.focus(); }); };
-    const cancel = $('[data-td-skipcancel]', body);
-    if (cancel) cancel.onclick = () => { TD.skipOpen = false; body.dataset.sig = ''; this.render(); };
-    const skipForm = $('#tdSkip');
-    if (skipForm) skipForm.onsubmit = (e) => { e.preventDefault(); tdAct(() => api('/api/today/skip', { method: 'POST', body: { key: it.key, reason: $('#tdSkipWhy').value } })); };
-    const dm = $('#tdDm');
-    if (dm) dm.onsubmit = (e) => {
+    $$('[data-td-focusnotes]', body).forEach((b) => (b.onclick = () => { const dt = $('.td-notes', body); if (dt) dt.open = true; $('#tdAddText').focus(); }));
+    $$('[data-td-skip]', body).forEach((b) => (b.onclick = () => { TD.skipOpen = b.dataset.tdSkip; body.dataset.sig = ''; this.render().then(() => { const i = $('[data-skip-form] input', body); if (i) i.focus(); }); }));
+    $$('[data-td-skipcancel]', body).forEach((b) => (b.onclick = () => { TD.skipOpen = false; body.dataset.sig = ''; this.render(); }));
+    $$('[data-skip-form]', body).forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); tdAct(() => api('/api/today/skip', { method: 'POST', body: { key: f.dataset.skipForm, reason: $('input', f).value } })); }));
+    $('#tdDm').onsubmit = (e) => {
       e.preventDefault();
-      const received = Number($('#tdDmRecv').value), replied = Number($('#tdDmRep').value);
       if ($('#tdDmRecv').value === '' || $('#tdDmRep').value === '') { toast('两个数都填上，0 也算'); return; }
-      tdAct(() => api('/api/today/dm', { method: 'PUT', body: { received, replied } }));
+      tdAct(() => api('/api/today/dm', { method: 'PUT', body: { received: Number($('#tdDmRecv').value), replied: Number($('#tdDmRep').value) } }));
+    };
+    $('#tdXr').onsubmit = (e) => {
+      e.preventDefault();
+      if ($('#tdXrN').value === '') { toast('填今天回了几条，0 也算'); return; }
+      tdAct(() => api('/api/today/x-replies', { method: 'PUT', body: { value: Number($('#tdXrN').value) } }));
     };
     $('#tdAdd').onsubmit = (e) => { e.preventDefault(); const text = $('#tdAddText').value.trim(); if (!text) return; $('#tdAddText').value = ''; tdAct(() => api('/api/today/notes', { method: 'POST', body: { text } })); };
     $$('[data-note-up]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteUp}`, { method: 'PATCH', body: { move: -1 } }))));
@@ -145,6 +159,6 @@ window.VIEWS.today = {
     if (take) take.onclick = () => tdAct(() => api('/api/today/suggest/take', { method: 'POST' }));
 
     clearTimeout(TD.poll);
-    if (d.suggest && d.suggest.running) TD.poll = setTimeout(() => { if (S.view === 'today') this.render(); }, 3000);
+    if (d.ship.suggest && d.ship.suggest.running) TD.poll = setTimeout(() => { if (S.view === 'today') this.render(); }, 3000);
   },
 };

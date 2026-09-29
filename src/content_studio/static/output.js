@@ -153,8 +153,8 @@ function reachBlock(r, posts7) {
       <div class="ov-k"><span>30 天节奏 ${q('近 7 天日均 × 30。不是预测，是照现在的节奏一个月能到多少。')}</span><b class="num">${fmt(r.pace30)}</b><small>照这个速度</small></div>
       <div class="ov-k chart">${reachBars(r.days)}</div>
     </section>
-    <section class="panel ov-plats-panel"><div class="panel-h"><h2>各平台今天触达</h2><small>手填的平台直接在格子里填今天的播放</small></div>
-      <div class="ov-plats">${on.map(tile).join('')}</div>
+    <section class="panel ov-plats-panel"><div class="panel-h"><h2>各平台今天触达</h2><small>左边主攻，右边零成本照发、不看数 · 手填的平台直接在格子里填</small></div>
+      <div class="ov-plats tiered"><div class="ov-core">${on.filter((p) => p.core).map(tile).join('')}</div><div class="ov-rest">${on.filter((p) => !p.core).map(tile).join('')}</div></div>
       <details class="ov-manage"><summary>管理平台（开关、账号名）</summary><div class="rp-list">${rows}</div></details>
     </section>`;
 }
@@ -189,8 +189,9 @@ function bindReach(root, body) {
   $$('[data-rp-handle]', root).forEach((i) => (i.onchange = saveAccounts));
 }
 
-/* 只列设置里开着的平台，按发布顺序（抖音 → 视频号 → B 站 → YouTube → X → 小红书 → 公众号） */
-const REACH_ORDER = ['douyin', 'channels', 'bilibili', 'youtube', 'x', 'xiaohongshu', 'wechat_mp', 'miniprogram', 'xiaoyuzhou'];
+/* 只列设置里开着的平台。9/29 Park 的注意力分层：主攻 抖音、视频号、小红书、X 在左边；
+   公众号、B 站、YouTube 降权，放右边、淡一点。分层定义在 reach.CORE，页面只读 p.core。 */
+const REACH_ORDER = ['douyin', 'channels', 'xiaohongshu', 'x', 'wechat_mp', 'bilibili', 'youtube', 'miniprogram', 'xiaoyuzhou'];
 function reachPlatforms(r) {
   const meta = Object.fromEntries((S.platforms || []).map((x) => [x.key, x]));
   return r.platforms.filter((p) => p.on && (meta[p.key] || {}).on !== false)
