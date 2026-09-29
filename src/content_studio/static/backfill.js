@@ -20,7 +20,8 @@ window.paintPubSubnav = paintPubSubnav;
 
 function bfCell(v, p) {
   const url = (v.links || {})[p.key];
-  if (p.key === 'douyin') return `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="在抖音上打开">↗</a>`;
+  // 抖音上藏起来的（被判违规设成私密）：别的平台照样补发，抖音这格标「藏」，链接别人点不开
+  if (p.key === 'douyin') return v.hidden_on_douyin ? '<span class="bf-dot hid" title="抖音上已设为私密；别的平台照样补发">藏</span>' : `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="在抖音上打开">↗</a>`;
   const st = v.done[p.key];
   if (st === 'record' && url) return `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(p.label)}：${esc(url)}">↗</a>`;
   if (st === 'record') return `<span class="bf-dot on" title="${esc(p.label)}：发过了，没记链接">✓</span>`;

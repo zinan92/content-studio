@@ -92,23 +92,29 @@ def link_topics(videos: list[dict[str, Any]], topics: list[dict[str, Any]],
 
 
 def queue(videos: list[dict[str, Any]], *, links: dict[str, int], records: dict[int, dict[str, Any]],
-          marks: dict[str, set[str]], median: float | None, platforms: tuple[str, ...] = PLATFORMS) -> list[dict[str, Any]]:
-    """每条视频在每个平台的状态。排序：按发布时间从新到旧（Park 9/27）。"""
+          marks: dict[str, set[str]], median: float | None, platforms: tuple[str, ...] = PLATFORMS,
+          forms: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """每条视频在每个平台的状态。排序：按发布时间从新到旧（Park 9/27）。
+
+    forms 是每个平台现在发什么。一条记录的形式和现在不一样（小红书 9/29 从图文改成视频，之前发的是图文），
+    这一格就不算发过：留空，等着补发视频；链接放进 old_links，不丢。没记形式的旧记录照旧算。"""
     rows = []
     for v in videos:
         tid = links.get(v["video_id"])
         rec = records.get(tid) or {} if tid else {}
+        counts = {p: r for p, r in rec.items() if not (forms and r.get("form") and r["form"] != forms.get(p))}
         done = {}
         for p in platforms:
-            done[p] = "record" if p in rec else "mark" if p in marks.get(v["video_id"], set()) else None
+            done[p] = "record" if p in counts else "mark" if p in marks.get(v["video_id"], set()) else None
         missing = [p for p in platforms if not done[p]]
         likes = v.get("likes")
         # 每个平台的链接（有就能点开）；抖音这一格永远有，就是这条视频本身
-        links_out = {p: (rec.get(p) or {}).get("url") for p in platforms if p in rec}
+        links_out = {p: (counts.get(p) or {}).get("url") for p in platforms if p in counts}
+        old_links = {p: r.get("url") for p, r in rec.items() if p in platforms and p not in counts}
         links_out["douyin"] = f"https://www.douyin.com/video/{v['video_id']}"
         rows.append({
             "video_id": v["video_id"], "title": v.get("title") or "", "headline": split_douyin_title(v.get("title") or "")["title"],
-            "links": links_out,
+            "links": links_out, "old_links": old_links,
             "published_at": v.get("published_at"), "likes": likes,
             "multiple": round(likes / median, 1) if median and likes is not None else None,
             "topic_id": tid, "done": done, "missing": missing,

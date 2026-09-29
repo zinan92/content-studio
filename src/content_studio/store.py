@@ -37,6 +37,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # {platform: [话题]} — 各平台的流量话题（活动、扶持计划），每条视频自动带上、排在内容话题前面。
     # 9/29 Park：抖音那四个是他每条都带的；别的平台他还不知道，在打包页里填一次就记住。
     "traffic_tags": {},
+    # 抖音上设成私密（比如被判违规藏起来）但别的平台还要发的视频：全平台追踪照样列出来（9/29 Park）。
+    "tracker_keep": [],
     # 9/29 Park：KPI 由 Claude 定，Park 照做。出摊和回私信算他的分；触达和收到私信是结果。
     # reach_daily 是 7 天平均的目标，reach_by 之前要到；dm_daily 在 dm_baseline_until 摸底完再定（0 = 还没定）。
     "kpi": {"started": "2026-09-29", "reach_daily": 10000, "reach_by": "2026-10-31", "reach_next": 20000,
@@ -303,7 +305,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
+        wanted = {"publish_records": {"form": "TEXT"}, "accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -578,14 +580,17 @@ class StudioStore:
 
     def set_publish_record(self, topic_id: int, platform: str, *, published: bool, url: str | None = None) -> dict[str, dict[str, Any]]:
         from .links import public_url
+        from .reach import form_of
 
         url = public_url(platform, url)  # 后台页换成别人点得开的公开链接（links.py）
+        # 记下发的是什么形式（视频 / 图文 / 文字）：平台改了发什么以后，旧形式的那条不算这一格发过了
+        form = form_of(platform, self.settings().get("platform_accounts"))
         with self.tx() as conn:
             if published:
                 conn.execute(
-                    "INSERT INTO publish_records(topic_id, platform, url, published_at) VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(topic_id, platform) DO UPDATE SET url = excluded.url",
-                    (topic_id, platform, url, now_iso()),
+                    "INSERT INTO publish_records(topic_id, platform, url, published_at, form) VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(topic_id, platform) DO UPDATE SET url = excluded.url, form = excluded.form",
+                    (topic_id, platform, url, now_iso(), form),
                 )
             else:
                 conn.execute("DELETE FROM publish_records WHERE topic_id = ? AND platform = ?", (topic_id, platform))
