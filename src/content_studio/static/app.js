@@ -434,7 +434,7 @@ function drawScatter(videos, median) {
 function drawMineTable(videos, median) {
   const cols = [
     ['title', '作品', 'l'], ['published_at', '发布'], ['duration_seconds', '时长'], ['plays', '播放'], ['likes', '点赞'],
-    ['save', '收藏/赞'], ['fans', '涨粉'], ['c5', '5s完播'], ['j2', '2s跳出'], ['aw', '均看'], ['multiple', '倍数'], ['act', '拆解'],
+    ['save', '收藏/赞'], ['fans', '涨粉'], ['c5', '5s完播'], ['j2', '2s跳出'], ['aw', '均看'], ['ctr', '封面点击'], ['multiple', '倍数'], ['act', '拆解'],
   ];
   const rows = videos.map((v) => ({
     ...v,
@@ -444,6 +444,7 @@ function drawMineTable(videos, median) {
     c5: v.creator ? v.creator.completion_rate_5s : null,
     j2: v.creator ? v.creator.bounce_rate_2s : null,
     aw: v.creator ? v.creator.avg_view_second : null,
+    ctr: v.creator ? v.creator.cover_click_rate : null,
     multiple: median && v.likes !== null ? v.likes / median : null,
   }));
   const { key, dir } = S.mineSort;
@@ -458,7 +459,7 @@ function drawMineTable(videos, median) {
     <td>${day(v.published_at)}</td><td>${v.is_image_post ? '—' : mmss(v.duration_seconds)}</td>
     <td>${fmt(v.plays)}<span class="bar" style="width:${Math.max(2, (v.plays || 0) / maxP * 60)}px"></span></td>
     <td>${fmt(v.likes)}</td><td>${pct(v.save)}</td>
-    ${v.creator ? `<td>${fmt(v.fans)}</td><td>${pct(v.c5)}</td><td class="${v.j2 >= 0.35 ? 'bad' : ''}">${pct(v.j2)}</td><td>${v.aw === null ? '—' : Math.round(v.aw) + '秒'}</td>` : na + na + na + na}
+    ${v.creator ? `<td>${fmt(v.fans)}</td><td>${pct(v.c5)}</td><td class="${v.j2 >= 0.35 ? 'bad' : ''}">${pct(v.j2)}</td><td>${v.aw === null ? '—' : Math.round(v.aw) + '秒'}</td><td>${pct(v.ctr)}</td>` : na + na + na + na + na}
     <td>${v.multiple === null ? '—' : `<span class="pill ${v.multiple >= 3 ? 'hot' : v.multiple >= 1 ? 'mid' : 'low'}">${v.multiple.toFixed(1)}×</span>`}</td>
     <td><div class="acts">${v.is_image_post ? '<span class="muted">图文</span>' : teardownButton(v, { source: '我的视频' })}</div></td>
   </tr>`).join('')}</tbody>`;
