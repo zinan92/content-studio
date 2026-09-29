@@ -1,6 +1,6 @@
 """Transcripts of what the accounts Park follows just posted, written into his vault.
 
-When a followed account posts, the workbench tears the video down (download → 转文字 →
+When a followed account posts a breakout (≥ 2× its median likes, this week) or Park asks for one, the workbench tears the video down (download → 转文字 →
 结构拆解) and saves the transcript as a note in `002_对标内容`. From there it behaves like
 any other note in 进项: Park reads it in the right pane, takes it into the 选题池, or
 attaches it to a topic as 素材 — none of which works while the text only lives in a report.
