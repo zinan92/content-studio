@@ -135,3 +135,15 @@ def test_backfill_section_is_in_today(client: TestClient, tmp_path, monkeypatch:
     b = _today(client)["backfill"]
     assert b == {"today": None, "ready": [], "ready_count": 0, "waiting_count": 0}
     assert client.post("/api/today/backfill/999/go").status_code in (400, 404)
+
+
+def test_backfill_preview_shows_what_would_go_out(client: TestClient, tmp_path) -> None:
+    topic = client.post("/api/topics", json={"title": "旧视频"}).json()
+    art = tmp_path / "drafts" / f"topic-{topic['id']}" / "article.md"
+    art.parent.mkdir(parents=True, exist_ok=True)
+    art.write_text("# 文章标题\n\n第一段。\n\n![图](figs/01.png)\n\n第二段**加粗**。\n", encoding="utf-8")
+    client.app.state.store.update_topic(topic["id"], article_path=str(art))
+    v = client.get(f"/api/today/backfill/{topic['id']}/preview").json()
+    assert v["article_title"] == "文章标题"
+    assert v["article_head"] == ["第一段。", "第二段加粗。"]
+    assert v["layout_url"].endswith("/wechat-preview.html")

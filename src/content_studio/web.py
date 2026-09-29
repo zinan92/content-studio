@@ -3540,7 +3540,10 @@ def create_app(
         entry = publish_desk.shared_entry(copypack.read_copy(drafts_root, topic_id))
         art = writer.read_draft(topic)
         paras = []
+        art_title = None
         if art:
+            head = re.search(r"^#\s+(.+)$", art["markdown"], re.M)
+            art_title = head.group(1).strip() if head else entry["title"]
             for block in re.split(r"\n\s*\n", art["markdown"]):
                 b = block.strip()
                 if not b or b.startswith("![") or b.startswith("# "):
@@ -3552,7 +3555,7 @@ def create_app(
         return {
             "topic_id": topic_id, "title": entry["title"], "body": entry["body"], "tags": entry["tags"],
             "covers": {k: v for k, v in (rel.get("cover_urls") or {}).items() if v},
-            "article_title": art["title"] if art else None, "article_head": paras,
+            "article_title": art_title, "article_head": paras,
             "figs": [f"/api/topics/{topic_id}/article-file/{il.FOLDER}/{quote(f['file'])}" for f in figs],
             "layout_url": f"/api/topics/{topic_id}/wechat-preview.html" if art else None,
         }
