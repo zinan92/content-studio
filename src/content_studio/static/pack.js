@@ -39,8 +39,17 @@ function paintPackNav(d) {
 window.refreshPackNav = async () => { try { paintPackNav(await api('/api/publish/desk')); } catch (_) { /* rail count only */ } };
 
 /* ---------- 每一项的状态 ---------- */
-const PK_STATE = { ok: ['好了'], wip: ['在做'], no: ['没做'], bad: ['要重做'] };
-const PK_ICON = { ok: '✓', wip: '', no: '○', bad: '!' };
+const PK_STATE = { lock: ['定稿'], ok: ['等你定稿'], wip: ['在做'], no: ['没做'], bad: ['要重做'] };
+const PK_ICON = { lock: '✓', ok: '•', wip: '', no: '○', bad: '!' };
+/* 定稿（9/29 Park：「做好一件事就 lock in，再往上搭下一块积木」）。
+   每一步要等上一步定稿才开始；定稿的那一版锁住，按钮收起来，想改点「改这一步」。
+   后端按指纹判断定稿那一版还是不是现在这一版（approvals.py），改过就作废。 */
+const PK_DEPENDS = { cover: 'copy', figs: 'article', wx: 'figs', xhs: 'figs', x: 'figs' };
+const PK_LABEL = { copy: '标题 · 描述 · 简介 · 话题', cover: '封面', article: '研习室文章', figs: '插图', wx: '公众号排版', xhs: '小红书图文', x: 'X 图文' };
+const PK_NEXT = { copy: 'cover', cover: 'article', article: 'figs', figs: 'wx', wx: 'xhs', xhs: 'x' };
+const PK_APPROVE = { cover: '定稿封面', article: '定稿，下一步配图', figs: '定稿插图，下一步排版', wx: '定稿公众号排版', xhs: '定稿小红书图文', x: '定稿 X 图文' };
+const locked = (d, key) => { const a = ((d && d.approvals) || {})[key]; return Boolean(a && a.approved && a.valid); };
+window.packLocked = locked;
 
 function packItems(d, t, st) {
   const c = (d.release && d.release.covers) || {};
@@ -51,8 +60,7 @@ function packItems(d, t, st) {
     : ['ok', d.article && d.article.title ? `《${d.article.title}》` : '写好了'];
   const needArt = (fn) => (d.has_article ? fn() : ['no', '先写研习室文章']);
   // 9/29 Park：「有了文章和插图之后，才变成公众号排版、小红书图文、X 图文。」
-  const figsDone = figsReady(st);
-  const needFigs = (fn) => needArt(() => (figsDone ? fn() : ['no', '先配图']));
+  const needFigs = (fn) => needArt(() => (figsReady(st) ? fn() : ['no', '先配图']));
   const figs = needArt(() => {
     const s = st.figs || {};
     if (s.running) return ['wip', '小黑手绘，一张一张画，5–10 分钟'];
@@ -81,7 +89,14 @@ function packItems(d, t, st) {
     { key: 'wx', group: 'text', label: '公众号排版', state: wx[0], note: wx[1] },
     { key: 'xhs', group: 'text', label: '小红书图文', state: xhs[0], note: xhs[1] },
     { key: 'x', group: 'text', label: 'X 图文', ...(([state, note]) => ({ state, note }))(needFigs(() => ['ok', '发的是这篇文章和插图，封面发的时候按标题出一张纯文字横幅'])) },
-  ];
+  ].map((it) => {
+    const a = (d.approvals || {})[it.key] || {};
+    const dep = PK_DEPENDS[it.key];
+    if (a.approved && a.valid) return { ...it, state: 'lock' };
+    if (a.approved && a.made) return { ...it, state: 'bad', note: '定稿之后改过了（或者上一步改了），看一遍再定稿' };
+    if (it.state === 'no' && dep && !locked(d, dep)) return { ...it, note: `先定稿「${PK_LABEL[dep]}」` };
+    return it;
+  });
 }
 
 const figsReady = (st) => Boolean(st && st.figs && !st.figs.running && st.figs.images && st.figs.images.length);
@@ -92,7 +107,7 @@ window.prepTick = (key, st) => {
   if (S.view !== 'pack' || !PK.data || !PK.st) return;
   const was = JSON.stringify(PK.st[key] || null);
   PK.st[key] = st;
-  if (was !== JSON.stringify(st)) repaintRows();
+  if (was !== JSON.stringify(st)) { repaintRows(); refreshApprovals(); }
 };
 
 function repaintRows() {
@@ -105,26 +120,71 @@ function repaintRows() {
     $('.pk-dot', det).innerHTML = it.state === 'wip' ? '<span class="spin"></span>' : PK_ICON[it.state];
     $('.pk-note', det).textContent = it.note;
     $('.pk-word', det).textContent = PK_STATE[it.state][0];
+    paintApproval(it);
   });
   paintHead(d);
-  // 配图刚好了：等着它的那几行（公众号、小红书、X）解开
-  ['wx', 'xhs', 'x'].forEach((k) => { const box = $(`#pkb-${k}`); if (box && box.dataset.done === 'gated' && figsReady(PK.st)) { delete box.dataset.done; renderRow(k, box); } });
+  // 上一步刚定稿：等着它的那几行解开
+  Object.keys(PK_DEPENDS).forEach((k) => { const box = $(`#pki-${k}`); if (box && box.dataset.done === 'gated' && locked(d, PK_DEPENDS[k])) { delete box.dataset.done; renderRow(k, box); } });
 }
 
-/* 文章写完的下一步：还没配图就是配图，配好了就是公众号排版。 */
-window.packNextStep = () => (figsReady(PK.st) ? { key: 'wx', label: '公众号排版' } : { key: 'figs', label: '配图' });
+/* 每一行底下的「定稿」，定了之后顶上一条「已定稿 · 改这一步」，里面的按钮收起来 */
+function paintApproval(it) {
+  const d = PK.data;
+  const body = $(`#pkb-${it.key}`);
+  if (!body || !d) return;
+  const a = (d.approvals || {})[it.key] || {};
+  const dep = PK_DEPENDS[it.key];
+  const isLocked = it.state === 'lock';
+  body.classList.toggle('pk-locked', isLocked);
+  $('.pk-lock', body).innerHTML = isLocked
+    ? `<div class="pk-lockbar"><b>✓ 已定稿</b><small>${a.at ? new Date(a.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''} · 锁住了，下一步照这一版做</small><span class="spacer"></span><button class="linklike" type="button" data-unlock="${it.key}">改这一步</button></div>` : '';
+  const canApprove = !isLocked && a.made && PK_APPROVE[it.key] && (!dep || locked(d, dep)) && it.state !== 'wip';
+  $('.pk-approve', body).innerHTML = canApprove
+    ? `<button class="btn primary" type="button" data-approve="${it.key}">${PK_APPROVE[it.key]}</button><small>这一版就用它：锁住、收起来，下一步才开始。想改再点「改这一步」。</small>`
+    : (!isLocked && a.made && dep && !locked(d, dep) ? `<small>先定稿「${PK_LABEL[dep]}」，这一步才能定稿。</small>` : '');
+  $$('[data-approve]', body).forEach((b) => (b.onclick = () => approveStep(b.dataset.approve, true)));
+  $$('[data-unlock]', body).forEach((b) => (b.onclick = () => approveStep(b.dataset.unlock, false)));
+}
+
+async function approveStep(key, approved) {
+  const d = PK.data;
+  if (!d || !d.topic) return;
+  let res;
+  try { res = await api(`/api/topics/${d.topic.id}/approve`, { method: 'PUT', body: { key, approved } }); } catch (err) { toast(err.message); return; }
+  d.approvals = res.approvals;
+  if (window.invalidatePublish) window.invalidatePublish();
+  const inner = $(`#pki-${key}`);
+  if (inner) { delete inner.dataset.done; renderRow(key, inner); }
+  repaintRows();
+  if (!approved) { toast(`「${PK_LABEL[key]}」解锁了，可以改`); return; }
+  toast(`「${PK_LABEL[key]}」定稿了`);
+  const det = $(`.pk-row[data-pk="${key}"]`);
+  if (det) { det.open = false; PK.open.delete(key); }
+  const next = PK_NEXT[key];
+  if (next) window.packNext(next);
+}
+window.packApprove = approveStep;
+
+/* 上一步做完、定稿状态可能变了（比如插图重画，旧定稿作废）：重新问一次定稿状态 */
+let approvalsTimer = null;
+function refreshApprovals() {
+  clearTimeout(approvalsTimer);
+  approvalsTimer = setTimeout(async () => {
+    const d = PK.data;
+    if (!d || !d.topic || S.view !== 'pack') return;
+    try { const fresh = await api(`/api/publish/desk?topic_id=${d.topic.id}`); d.approvals = fresh.approvals; d.release = fresh.release; repaintRows(); } catch (_) { /* 下次 */ }
+  }, 600);
+}
 
 /* 打开下一步那一行；配图还没配过就直接开始配。 */
 window.packNext = async (key) => {
   const det = $(`.pk-row[data-pk="${key}"]`);
   if (!det) return;
-  const art = $('.pk-row[data-pk="article"]');
-  if (art) { art.open = false; PK.open.delete('article'); }
   det.open = true; PK.open.add(key);
   det.scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (key === 'figs' && PK.data && PK.data.topic && !figsReady(PK.st) && !(PK.st && PK.st.figs && PK.st.figs.running)) {
     try { toast((await api(`/api/topics/${PK.data.topic.id}/illustrate`, { method: 'POST' })).message); } catch (err) { toast(err.message); }
-    const box = $('#pkb-figs'); if (box) { delete box.dataset.done; renderRow('figs', box); }
+    const box = $('#pki-figs'); if (box) { delete box.dataset.done; renderRow('figs', box); }
   }
 };
 
@@ -133,7 +193,7 @@ function row(it) {
   const icon = it.state === 'wip' ? '<span class="spin"></span>' : PK_ICON[it.state];
   return `<details class="pk-row s-${it.state}" data-pk="${it.key}" ${PK.open.has(it.key) ? 'open' : ''}>
     <summary><i class="pk-dot">${icon}</i><b>${esc(it.label)}</b><span class="pk-note">${esc(it.note)}</span><span class="pk-word">${word}</span></summary>
-    <div class="pk-body" id="pkb-${it.key}"></div>
+    <div class="pk-body" id="pkb-${it.key}"><div class="pk-lock"></div><div class="pk-inner" id="pki-${it.key}"></div><div class="pk-approve"></div></div>
   </details>`;
 }
 
@@ -145,8 +205,8 @@ async function renderCoverMaker(topicId, box, { auto = false } = {}) {
   let o;
   try { o = await api(`/api/topics/${topicId}/cover`); } catch (err) { box.innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
   if (!document.body.contains(box)) return;
-  if (!o.from_copy) {
-    box.innerHTML = '<p class="pdl-note">封面上的字就是标题。先在上面「标题 · 描述 · 简介 · 话题」里写好标题并保存，保存完封面会自己出。</p>';
+  if (!o.from_copy || !locked(PK.data, 'copy')) {
+    box.innerHTML = '<p class="pdl-note">封面上的字就是标题。先在上面「标题 · 描述 · 简介 · 话题」里写好并「保存并定稿」，定稿后封面会自己出。</p>';
     return;
   }
   const pick = o.frames.find((f) => f.pick) || o.frames[Math.floor(o.frames.length / 2)] || {};
@@ -202,21 +262,23 @@ function renderRow(key, box) {
     renderCoverMaker(id, box, { auto: PK.autoCover });
     PK.autoCover = false;
   } else if (key === 'copy') {
-    renderCopyForm({ ...(t || {}), ...d.topic, outline_path: t && t.outline_path }, box, { release: d.release, onSaved: () => {
-      // 标题一存，封面就用它自动出（还没有封面的时候）；已经有封面的不动，想换在封面那行点「重新出」
+    renderCopyForm({ ...(t || {}), ...d.topic, outline_path: t && t.outline_path }, box, { release: d.release, onSaved: async () => {
+      // 保存就是定稿（文字信息这一步没有别的要看）。定稿后封面用这个标题自动出（还没有封面的时候）
       const c = (d.release && d.release.covers) || {};
-      if (d.video && !(c.landscape || c.portrait)) { PK.open.delete('copy'); PK.open.add('cover'); PK.autoCover = true; }
+      try { d.approvals = (await api(`/api/topics/${d.topic.id}/approve`, { method: 'PUT', body: { key: 'copy', approved: true } })).approvals; } catch (err) { toast(err.message); }
+      if (d.video && !(c.landscape || c.portrait)) PK.autoCover = true;
+      PK.open.delete('copy'); PK.open.add('cover');
       refreshPack();
     } });
   } else if (key === 'article') {
     const tab = (window.VIDEO_TABS || []).find((x) => x.key === 'article');
     if (tab && t) tab.render(t, box);
+  } else if (PK_DEPENDS[key] && !locked(d, PK_DEPENDS[key]) && !((d.approvals || {})[key] || {}).made) {
+    box.dataset.done = 'gated';
+    box.innerHTML = `<p class="pdl-note">先定稿「${PK_LABEL[PK_DEPENDS[key]]}」：一块一块往上搭，上一步定了这里自己解开。</p>`;
   } else if (key === 'figs') {
     box.innerHTML = '<div id="pdlFigs"></div>';
     if (d.has_article) renderFigs(box, id); else box.innerHTML = '<p class="pdl-note">插图插在文章里，先把上面的研习室文章写好。</p>';
-  } else if (['wx', 'xhs', 'x'].includes(key) && d.has_article && !figsReady(PK.st)) {
-    box.dataset.done = 'gated';
-    box.innerHTML = '<p class="pdl-note">先配图：公众号、小红书、X 发的都是配好图的文章。配好了这里自己解开。</p>';
   } else if (key === 'wx') {
     box.innerHTML = d.has_article ? '<div class="pdl-wx" id="pdlWx"></div>' : '<p class="pdl-note">公众号发的是研习室那篇文章，先把它写好。</p>';
     if (d.has_article) renderWx(box, id);
@@ -230,7 +292,7 @@ function renderRow(key, box) {
 
 /* 文章编辑器切预览/编辑、保存之后要重画自己那一块（整页的 sig 没变，不会重画） */
 window.rerenderPackRow = (key) => {
-  const box = $(`#pkb-${key}`);
+  const box = $(`#pki-${key}`);
   if (!box || S.view !== 'pack') return;
   delete box.dataset.done;
   renderRow(key, box);
@@ -248,13 +310,13 @@ function paintHead(d) {
   if (!figs) return;
   if (!d || !d.topic) { figs.innerHTML = ''; return; }
   const items = packItems(d, PK.topic, PK.st || {});
-  const n = (g) => items.filter((x) => x.group === g && x.state === 'ok').length;
+  const n = (g) => items.filter((x) => x.group === g && x.state === 'lock').length;
   const all = (g) => items.filter((x) => x.group === g).length;
   const missing = packMissing(d);
   figs.innerHTML = `<div class="pub-figs">
     <span>成片 ${d.video ? `<b>${d.video.mb}</b> MB` : '<span class="bad">还没有</span>'}</span>
-    <span>视频包 <b>${n('video')}</b> / ${all('video')}</span>
-    <span>文字包 <b>${n('text')}</b> / ${all('text')}</span>
+    <span>视频包定稿 <b>${n('video')}</b> / ${all('video')}</span>
+    <span>文字包定稿 <b>${n('text')}</b> / ${all('text')}</span>
     <button class="btn ${missing.length ? '' : 'primary'}" type="button" data-pk-go>${missing.length ? '先去发布' : '打包好了，去发布'} →</button>
   </div>`;
   const go = $('[data-pk-go]', figs);
@@ -294,7 +356,7 @@ window.VIEWS.pack = {
       $$('[data-pk-work]', body).forEach((b) => (b.onclick = () => openWork(Number(b.dataset.pkWork))));
       return;
     }
-    if (!PK.open.size) PK.open = new Set(items.filter((i) => i.group === 'video' && i.state !== 'ok').map((i) => i.key).slice(0, 1));
+    if (!PK.open.size) PK.open = new Set(items.filter((i) => i.state !== 'lock').map((i) => i.key).slice(0, 1));
     const chip = (c) => `<button class="pub-topic ${c.id === d.topic.id ? 'on' : ''}" type="button" data-pk-topic="${c.id}"><b>${esc(c.title)}</b>${c.shipped_count ? `<span class="num">已发 ${c.shipped_count}</span>` : ''}</button>`;
     const list = d.candidates.some((c) => c.id === d.topic.id) ? d.candidates : [d.topic, ...d.candidates];
     const group = (g, title, sub) => `<section class="pk-group"><div class="pk-gh"><h2>${title}</h2><small>${sub}</small></div>
@@ -309,10 +371,11 @@ window.VIEWS.pack = {
     }));
     $$('.pk-row', body).forEach((det) => {
       const key = det.dataset.pk;
-      if (det.open) renderRow(key, $('.pk-body', det));
+      if (det.open) renderRow(key, $('.pk-inner', det));
       det.addEventListener('toggle', () => {
-        if (det.open) { PK.open.add(key); renderRow(key, $('.pk-body', det)); } else PK.open.delete(key);
+        if (det.open) { PK.open.add(key); renderRow(key, $('.pk-inner', det)); } else PK.open.delete(key);
       });
     });
+    items.forEach(paintApproval);
   },
 };

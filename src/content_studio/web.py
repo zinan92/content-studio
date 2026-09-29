@@ -191,6 +191,11 @@ class SettingsBody(BaseModel):
     traffic_tags: dict[str, list[str]] | None = None
 
 
+class StepApproveBody(BaseModel):
+    key: str
+    approved: bool = True
+
+
 class WriteBody(BaseModel):
     instruction: str | None = None
 
@@ -1074,7 +1079,7 @@ def create_app(
     @app.get("/api/publish/desk")
     def publish_desk(topic_id: int | None = None) -> dict[str, Any]:
         """发布台：一条内容铺在所有平台上。哪条内容由 topic_id 定，没给就取最接近能发的那条。"""
-        from . import board, copypack, handoff as handoff_mod, publish_desk, publisher
+        from . import approvals, board, copypack, handoff as handoff_mod, publish_desk, publisher
 
         cards = [c for c in get_board(None)["cards"] if not c.get("snoozed_until")]
         cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
@@ -1121,7 +1126,8 @@ def create_app(
             "topic": {**chosen, "published_video_id": topic.get("published_video_id"), "published_url": topic.get("published_url"), "closed_at": topic.get("closed_at"),
                       "video_project": topic.get("video_project"), "write_state": topic.get("write_state"), "write_error": topic.get("write_error")},
             "video": {"path": str(video), "name": video.name, "mb": round(video.stat().st_size / 1_048_576, 1)} if video else None,
-            "release": _release_for(topic),
+            "release": (release_info := _release_for(topic)),
+            "approvals": approvals.status((st := _approval_state(topic, release_info))["folder"], st["fps"]),
             "has_copy": bool(entry["title"] or entry["body"]),
             "has_article": article is not None,
             "next": publish_desk.next_step(rows),
@@ -1262,12 +1268,7 @@ def create_app(
                 write_error=None,
                 status="drafting" if current["status"] == "todo" else current["status"],
             )
-            # Park 9/27：文字版都要过一遍插图。写完接着配图（失败不影响文章本身）。
-            try:
-                if not os.environ.get("CONTENT_STUDIO_NO_ILLUSTRATE"):
-                    start_illustrate(topic_id)
-            except Exception as exc:  # noqa: BLE001 - 配不了图就先不配
-                logger.warning("illustrate %s not started: %s", topic_id, exc)
+            # 9/29 起写完不自动配图：Park 先看文章、定稿，再配（打包页定稿文章时开始配）。还要重写的话不白画一轮。
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("writing topic %s failed: %s", topic_id, exc)
             store.update_topic(topic_id, write_state="failed", write_error=str(exc)[:300] or type(exc).__name__)
@@ -2609,6 +2610,40 @@ def create_app(
         covers = found.get("covers") or {}
         return {"project": topic.get("video_project"), **found,
                 "cover_urls": {k: _media_url(topic, v) for k, v in covers.items() if v}}
+
+    def _approval_state(topic: dict[str, Any], release_info: dict[str, Any] | None = None) -> dict[str, Any]:
+        """打包页每一步的定稿状态（见 approvals.py）。"""
+        from . import approvals, copypack, gzh_layout, illustrate as il, xhs_cards
+
+        rel = release_info if release_info is not None else _release_for(topic)
+        covers: list[Path] = []
+        if rel:
+            try:
+                base = _media_base(topic)
+                covers = [base / v for k, v in (rel.get("covers") or {}).items() if v and k in ("landscape", "portrait")]
+            except VideoProjectError:
+                pass
+        art = _article_path(topic)
+        text = art.read_text(encoding="utf-8") if art is not None and art.is_file() else None
+        figs = [art.parent / il.FOLDER / i["file"] for i in il.state(art)["images"]] if text else []
+        fps = approvals.fingerprints(
+            copy=(copypack.read_copy(drafts_root, topic["id"]) or {}).get("platforms"),
+            covers=covers, article=il.strip_images(text) if text else None, figs=figs,
+            wx=gzh_layout.state(art) if text else {}, xhs=xhs_cards.state(art) if text else {},
+        )
+        return {"fps": fps, "folder": drafts_root / f"topic-{topic['id']}"}
+
+    @app.put("/api/topics/{topic_id}/approve")
+    def approve_step(topic_id: int, body: StepApproveBody) -> dict[str, Any]:
+        """定稿 / 撤销定稿（改这一步）。"""
+        from . import approvals
+
+        topic = store.topic(topic_id)
+        st = _approval_state(topic)
+        try:
+            return {"approvals": approvals.set_approval(st["folder"], body.key, body.approved, st["fps"])}
+        except approvals.ApprovalError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
 
     backfill_root = data_dir / "backfill"
 

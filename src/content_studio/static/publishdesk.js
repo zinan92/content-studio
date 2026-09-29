@@ -293,7 +293,7 @@ function guideBar(d) {
   // 9/29 Park：一进来就点了紫色「开始」，直接被带去抖音，可封面和文案还没做。没打包好，主按钮就是去打包。
   const missing = packMissing(d);
   if (missing.length && !done) {
-    return `<div class="pub-guide pack-first"><span class="num">还没打包</span><b>先把${esc(missing.join('、'))}备好</b>
+    return `<div class="pub-guide pack-first"><span class="num">还没打包</span><b>先把${esc(missing.join('、'))}定稿</b>
       <small>备好了再发，每个平台点进去就是现成的</small><span class="spacer"></span>
       <button class="btn primary" type="button" data-pd-pack>去打包 →</button>
       <button class="btn ghost" type="button" data-pd-open="${next.key}">已经在外面备好了，直接发${esc(next.label)}</button></div>`;
@@ -315,6 +315,10 @@ function stepVerb(p, d) {
 
 /* 打包还缺什么（视频要的那几样）。文字包缺了不挡：没写文章的平台，点进去会说。 */
 function packMissing(d) {
+  // 9/29 起按「定稿」算：做出来了但 Park 还没定稿的，也算没打包好
+  if (d.approvals) {
+    return [['copy', '标题和描述'], ['cover', '封面']].filter(([k]) => !(d.approvals[k] && d.approvals[k].approved && d.approvals[k].valid)).map(([, l]) => l);
+  }
   const c = (d.release && d.release.covers) || {};
   const miss = [];
   if (!(c.landscape || c.portrait)) miss.push('封面');
