@@ -1146,8 +1146,10 @@ def test_the_h2_page_is_served_with_its_assets(client: TestClient, tmp_path: Pat
     assert client.get(prefix + "analysis/../../x.mp4").status_code == 404
 
 
-def test_cover_dialog_defaults_and_make(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """封面弹窗：默认用发布文案的标题，给候选帧；出图写进 final/covers/。"""
+def test_cover_uses_the_title_and_runs_in_the_background(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """打包页封面：字就是标题（打包里写的优先），给候选帧；出图在后台跑，出完放进 final/covers/。"""
+    import time
+
     from content_studio import cover
 
     root = tmp_path / "videos"
@@ -1161,34 +1163,41 @@ def test_cover_dialog_defaults_and_make(client: TestClient, tmp_path: Path, monk
     (base / "final" / "9月22日-上传版.mp4").write_bytes(b"0" * 64)
     (base / "final" / "发布文案.md").write_text("## 推荐标题\n我终于理解了dbskill！\n", encoding="utf-8")
 
-    def frames(video: Path, out: Path, count: int = 6) -> list[dict]:
+    def frames(video: Path, out: Path, keep: int = 6, sample: int = 12) -> list[dict]:
         out.mkdir(parents=True, exist_ok=True)
         (out / "frame-0012.jpg").write_bytes(b"\xff\xd8")
-        return [{"at": 12.0, "path": out / "frame-0012.jpg"}]
+        return [{"at": 12.0, "path": out / "frame-0012.jpg", "score": 0.5, "pick": True}]
 
-    seen = {}
-
-    def make(b: Path, video: Path, **kw) -> dict:
-        seen.update(kw, base=b, video=video.name)
-        return {"横": "final/covers/9月22日-横封面.jpg", "竖": "final/covers/9月22日-竖封面.jpg"}
-
-    monkeypatch.setattr(cover, "candidate_frames", frames)
-    monkeypatch.setattr(cover, "make_covers", make)
+    monkeypatch.setattr(cover, "pick_frames", frames)
+    monkeypatch.setattr(cover, "source_video", lambda b, final: final)
     opts = client.get(f"/api/topics/{topic['id']}/cover").json()
-    assert opts["title"] == "我终于理解了dbskill！" and "".join(opts["lines"]) == opts["title"]
-    assert opts["emphasis"] == opts["lines"][-1]
+    assert opts["title"] == "我终于理解了dbskill！" and opts["from_copy"] is False and not opts["running"]
     assert client.get(opts["frames"][0]["url"]).status_code == 200
 
-    made = client.post(f"/api/topics/{topic['id']}/cover", json={"lines": ["我终于理解了", "dbskill！"], "emphasis": "dbskill！", "at": 12})
-    got = made.json()
-    assert {k: got[k] for k in ("project", "covers")} == {"project": base.name, "covers": {"横": "final/covers/9月22日-横封面.jpg", "竖": "final/covers/9月22日-竖封面.jpg"}}
-    assert set(got["urls"]) == {"横", "竖"}
-    assert seen["base"] == base and seen["video"] == "9月22日-上传版.mp4" and seen["at"] == 12.0
+    client.put(f"/api/topics/{topic['id']}/copy", json={"platforms": {"douyin": {"title": "打包里写的标题", "body": "b", "tags": []}}})
+    seen = {}
 
-    monkeypatch.setattr(cover, "make_covers", lambda *a, **k: (_ for _ in ()).throw(cover.CoverError("强调短语必须是其中一整行")))
-    bad = client.post(f"/api/topics/{topic['id']}/cover", json={"lines": ["a"], "emphasis": "b", "at": 1})
-    assert bad.status_code == 400 and "一整行" in bad.json()["detail"]
+    def generate(b: Path, source: Path, **kw) -> dict:
+        seen.update(kw, base=b, source=source.name)
+        return {"竖": "final/covers/x-竖封面.png", "横": "final/covers/x-横封面.png"}
 
+    monkeypatch.setattr(cover, "generate", generate)
+    started = client.post(f"/api/topics/{topic['id']}/cover", json={"at": 12}).json()
+    assert started["started"] is True
+    for _ in range(50):
+        if not client.get(f"/api/topics/{topic['id']}/cover").json()["running"]:
+            break
+        time.sleep(0.05)
+    assert seen == {"at": 12.0, "title": "打包里写的标题", "base": base, "source": "9月22日-上传版.mp4"}
+
+    monkeypatch.setattr(cover, "generate", lambda *a, **k: (_ for _ in ()).throw(cover.CoverError("横版封面没出来")))
+    client.post(f"/api/topics/{topic['id']}/cover", json={"at": 1})
+    for _ in range(50):
+        st = client.get(f"/api/topics/{topic['id']}/cover").json()
+        if not st["running"]:
+            break
+        time.sleep(0.05)
+    assert "没出来" in st["error"]
 
 def test_titles_endpoint_runs_in_background_and_reads_the_srt(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from content_studio import titles
