@@ -1246,7 +1246,7 @@ def create_app(
                 topic,
                 vault_raw=vault_path(),
                 drafts_dir=drafts_root,
-                transcript=_video_transcript(topic),
+                transcript=_transcript_for_article(topic),
                 **({"write_fn": write_fn} if write_fn else {}),
             )
             current = store.topic(topic_id)
@@ -1358,6 +1358,28 @@ def create_app(
             return titles.srt_text(srt) if srt else ""
         except (VideoProjectError, OSError, ValueError):
             return ""
+
+    def _transcript_for_article(topic: dict[str, Any]) -> str:
+        """写文章要的原话。有成片、却没有转写（在外面剪完的片子，项目里没有 SRT）时，先把成片转一遍。
+        9/29 Park：9/28 那条的研习室文章是照他 Obsidian 里的语音笔记写的，不是视频原话——
+        项目里找不到字幕，写作就悄悄退回了笔记。现在有成片就一定用原话；转不出来就报错，不拿笔记顶替。"""
+        from . import koubo
+
+        text = _video_transcript(topic)
+        if text.strip() or not topic.get("video_project"):
+            return text
+        video = final_video_path(topic)
+        if video is None:
+            return ""  # 还没拍完：只有笔记，照笔记写是对的
+        try:
+            base = video_project.project_dir(video_root(), topic["video_project"])
+            koubo.transcribe(video, base)
+        except (koubo.KouboError, VideoProjectError, OSError) as exc:
+            raise writer.WriterError(f"有成片但转不出原话，没写：{exc}") from exc
+        text = _video_transcript(topic)
+        if not text.strip():
+            raise writer.WriterError("有成片但转写是空的，没写")
+        return text
 
     def _title_material(topic: dict[str, Any]) -> tuple[str, str]:
         """转写（视频项目里的 SRT）和骨架。都没有也能出，只是依据少。"""
