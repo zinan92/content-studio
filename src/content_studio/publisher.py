@@ -89,6 +89,8 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "needs_article": True,
         "modes": {
             "article_draft": {"label": "存为 X 图文文章草稿", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}"]},
+            # 9/29 Park 是 Premium 了：补发时直接发。发布被拒就退回草稿（x_article 里处理）。
+            "article_publish": {"label": "直接发 X 图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--publish"]},
         },
     },
     "miniprogram": {
@@ -130,6 +132,8 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "login_hint": f"python3 {CONTENT_OPS}/scripts/youtube_channel.py auth",
         "modes": {
             "private": {"label": "上传为私享（自己先看）", "argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "upload-private", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
+            # 9/29 YouTube 降权：补发时直接公开，不占 Park 的时间
+            "public": {"label": "直接公开上传", "argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "upload", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}", "--privacy-status", "public"]},
         },
     },
 }

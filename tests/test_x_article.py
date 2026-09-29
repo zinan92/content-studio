@@ -109,8 +109,9 @@ def test_x_publishes_the_article_not_the_copy(tmp_path: Path) -> None:
     article.write_text("# 标题在这\n\n正文", encoding="utf-8")
     cover = tmp_path / "c.jpg"
     cover.write_bytes(b"1")
-    with pytest.raises(publisher.PublishError, match="发布方式无效"):  # 9/29 Park：先都存草稿，他自己确认
-        publisher.build_payload("x", "article_publish", video=None, copy=None, article=article, cover=cover)
+    # 9/29 晚 Park 是 Premium 了：补发时 X 可以直接发（被拒退回草稿）；平时发布台照旧存草稿
+    direct = publisher.build_payload("x", "article_publish", video=None, copy=None, article=article, cover=cover)
+    assert direct["mode"] == "article_publish"
     payload = publisher.build_payload("x", "article_draft", video=None, copy=None, article=article, cover=cover)
     assert payload["title"] == "标题在这"
     argv = publisher.command_for(payload)
@@ -171,3 +172,22 @@ def test_text_cover_is_a_5_to_2_banner(tmp_path: Path) -> None:
     height, width = int.from_bytes(data[i + 5:i + 7], "big"), int.from_bytes(data[i + 7:i + 9], "big")
     assert (width, height) == (1500, 600)
     assert "自媒体的下半场" in x_cover.cover_html("产品越来越便宜，信任越来越贵，自媒体的下半场才刚刚开始")
+
+
+def test_publish_refused_keeps_the_draft(tmp_path: Path) -> None:
+    """补发时直接发 X；被拒（9/24 就是 403 要 Premium）就退回草稿，不算失败。"""
+    import urllib.error
+
+    (tmp_path / "a.md").write_text(ARTICLE, encoding="utf-8")
+    (tmp_path / "shot.png").write_bytes(b"\x89PNG....")
+    cover = tmp_path / "x-cover.jpg"
+    cover.write_bytes(b"\xff\xd8....")
+
+    class Refuse(Fake):
+        def __call__(self, request):
+            if request.full_url.endswith("/publish"):
+                raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"detail":"Premium required"}'))
+            return super().__call__(request)
+
+    done = x_article.publish_article(tmp_path / "a.md", cover=cover, publish=True, creds=CREDS, send=Refuse())
+    assert done["published"] is False and done["id"] == "a1" and "已存草稿" in done["message"]

@@ -1844,3 +1844,34 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .rp-form select{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
 .bf-dot.hid{color:var(--ink-3);font-size:11px;border:1px dashed var(--line)}
 .pk-lockbar.machine b{color:var(--hot)}
+.td-packs{display:flex;flex-direction:column;gap:8px}
+.td-pack{border:1px solid var(--line-soft);border-radius:10px;overflow:hidden}
+.td-pack.open{border-color:var(--accent)}
+.td-pack-h{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;padding:8px 12px;background:var(--surface);border:0;text-align:left;font:inherit;color:var(--ink);cursor:pointer}
+.td-pack-h:hover{background:var(--sunk)}
+.td-pack-h img,.td-nocover{width:48px;height:64px;object-fit:cover;border-radius:6px;background:var(--sunk)}
+.td-pack-h .t{display:flex;flex-direction:column;gap:3px;min-width:0}
+.td-pack-h .t b{font-size:14px}
+.td-pack-h .t small{font-size:12px;color:var(--ink-3)}
+.td-pack-h .chev{font-size:12px;color:var(--accent);font-weight:600}
+.td-steps{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.td-steps i{font-style:normal;font-size:11px;color:var(--hot);margin-left:4px}
+.td-step{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--sunk);color:var(--ink-3)}
+.td-step.lock{background:var(--out-soft);color:var(--out)}
+.td-step.made{background:var(--hot-soft);color:var(--hot)}
+.td-preview{padding:14px 16px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;gap:14px;background:var(--sunk)}
+.td-pv-covers{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.td-pv-covers img{display:block;border-radius:8px;height:180px;width:auto;max-width:100%}
+.td-pv-covers img.landscape,.td-pv-covers img.wide{height:135px}
+.td-pv-copy{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.td-pv-copy b{font-size:16px}
+.td-pv-copy p{margin:0;color:var(--ink-2);white-space:pre-wrap}
+.td-pv-copy small{color:var(--in)}
+.td-pv-art{background:var(--surface);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:1.7}
+.td-pv-art h4{margin:0;font-size:15px}
+.td-pv-art p{margin:0;color:var(--ink-2)}
+.td-pv-art .btn{align-self:flex-start;font-size:13px;padding:6px 12px;text-decoration:none;color:var(--ink)}
+.td-pv-figs{display:flex;gap:6px;overflow-x:auto}
+.td-pv-figs img{height:72px;border-radius:6px;display:block}
+.td-pv-go{display:flex;flex-direction:column;gap:8px}
+.td-plat.bad{border-color:var(--warn);color:var(--warn)}

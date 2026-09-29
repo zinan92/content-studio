@@ -128,3 +128,10 @@ def test_xiaohongshu_form_is_a_setting_that_changes_pack_and_today(client: TestC
     # 认不出的值按默认
     client.put("/api/settings", json={"platform_accounts": {"xiaohongshu": {"on": True, "handle": "Park", "form": "hologram"}}})
     assert client.get("/api/publish/desk").json()["forms"]["xiaohongshu"] == "video"
+
+
+def test_backfill_section_is_in_today(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    b = _today(client)["backfill"]
+    assert b == {"today": None, "ready": [], "ready_count": 0, "waiting_count": 0}
+    assert client.post("/api/today/backfill/999/go").status_code in (400, 404)
