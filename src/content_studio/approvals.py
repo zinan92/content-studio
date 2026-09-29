@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 
 FILE = "approvals.json"
-KEYS = ("copy", "cover", "article", "figs", "wx", "xhs", "x")
+KEYS = ("copy", "cover", "article", "figs", "wx", "xhs")
 # 每一步要等哪一步定稿了才开始
-DEPENDS = {"cover": "copy", "figs": "article", "wx": "figs", "xhs": "figs", "x": "figs"}
+# X 图文不单独定稿：它发的就是研习室那篇文章 + 插图，没有自己要改的东西（9/29 Park）。
+DEPENDS = {"cover": "copy", "figs": "article", "wx": "figs", "xhs": "figs"}
 
 
 class ApprovalError(RuntimeError):
@@ -45,7 +46,6 @@ def fingerprints(*, copy: dict[str, Any] | None, covers: list[Path], article: st
     fp["figs"] = digest(_files(figs), fp["article"]) if figs and fp["article"] else None
     fp["wx"] = digest(wx.get("generated_at"), fp["figs"]) if fp["article"] and wx.get("has_layout") and not wx.get("stale") else None
     fp["xhs"] = digest(xhs.get("generated_at"), fp["figs"]) if fp["article"] and xhs.get("images") and not xhs.get("stale") else None
-    fp["x"] = digest(fp["article"], fp["figs"]) if fp["article"] and fp["figs"] else None
     return fp
 
 

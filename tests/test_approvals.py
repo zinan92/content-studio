@@ -43,4 +43,4 @@ def test_cannot_lock_a_step_that_is_not_made(tmp_path: Path) -> None:
     fps = _fps(tmp_path, article=None, figs=False)
     with pytest.raises(approvals.ApprovalError, match="还没做好"):
         approvals.set_approval(tmp_path / "t", "article", True, fps)
-    assert fps["figs"] is None and fps["wx"] is None and fps["x"] is None
+    assert fps["figs"] is None and fps["wx"] is None and "x" not in fps
