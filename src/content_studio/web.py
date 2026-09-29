@@ -3408,6 +3408,14 @@ def create_app(
             elif douyin_done and desk.get("next"):
                 label = next((r["label"] for r in rows if r["key"] == desk["next"]), desk["next"])
                 items.append(driver.item("wrap", f"rest:{topic['id']}", f"发完剩下的平台：下一个是{label}", why=f"《{topic['title'][:24]}》抖音已经发了。", go=f"publish/{topic['id']}"))
+        if shipped_today:
+            # 9/29 定的两个五分钟习惯（先不算分，两周后看数据）：抖音以外唯一被证明有效过的两个入口。
+            # 视频号的分发先走朋友（朋友点赞 → 朋友的朋友），不转朋友圈就是冷启动；
+            # X 上他历史播放最高的 20 条几乎全是在大号下面的回复，不是原创帖。
+            items.append(driver.item("wrap", f"seed:{tkey}", "今天的视频号转到朋友圈，找两三个朋友点赞",
+                                     why="视频号先靠朋友分发，没人点就没人看。转完点「做完了」。", manual=True))
+            items.append(driver.item("wrap", f"xreply:{tkey}", "去 X 在两三条大号帖子下面回一句有立场的话",
+                                     why="你在 X 上被看到过的，全是回复。不带链接。回完点「做完了」。", url="https://x.com/home", button="打开 X", manual=True))
         manual = [p["label"] for p in reach.get("platforms") or [] if p["on"] and not p["auto"] and p.get("today") is None and p["key"] in copypack.PLATFORMS]
         if manual:
             items.append(driver.item("wrap", f"reach:{tkey}", f"填今天{'、'.join(manual)}的播放", why="1 分钟。概览页的格子里填。", go="output"))
