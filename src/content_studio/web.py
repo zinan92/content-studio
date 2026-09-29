@@ -2736,7 +2736,7 @@ def create_app(
 
     def _approval_state(topic: dict[str, Any], release_info: dict[str, Any] | None = None) -> dict[str, Any]:
         """打包页每一步的定稿状态（见 approvals.py）。"""
-        from . import approvals, copypack, gzh_layout, illustrate as il, xhs_cards
+        from . import approvals, copypack, gzh_layout, illustrate as il
 
         rel = release_info if release_info is not None else _release_for(topic)
         covers: list[Path] = []
@@ -2752,7 +2752,7 @@ def create_app(
         fps = approvals.fingerprints(
             copy=(copypack.read_copy(drafts_root, topic["id"]) or {}).get("platforms"),
             covers=covers, article=il.strip_images(text) if text else None, figs=figs,
-            wx=gzh_layout.state(art) if text else {}, xhs=xhs_cards.state(art) if text else {},
+            wx=gzh_layout.state(art) if text else {},
         )
         return {"fps": fps, "folder": drafts_root / f"topic-{topic['id']}"}
 
@@ -2949,6 +2949,8 @@ def create_app(
     UPLOAD_KIT = {
         "douyin": (("video", "视频"), ("portrait", "竖封面"), ("landscape", "横封面")),
         "channels": (("video", "视频"), ("portrait", "竖封面")),
+        # 9/29 Park：小红书改发视频（图文三篇共 262 播放，抖音同一条 7,893）。传抖音那条竖版无水印成片。
+        "xiaohongshu": (("video", "视频"), ("portrait", "竖封面")),
         "bilibili": (("video", "视频"), ("wide", "16比9封面")),
         "youtube": (("video", "视频"), ("wide", "16比9封面")),
     }
@@ -2990,6 +2992,15 @@ def create_app(
             except OSError:
                 dest.symlink_to(src)
             placed.append(dest.name)
+        # 这个平台的文案也放一份进去：传视频的时候标题、描述、话题就在旁边，不用回工作台复制
+        from . import publish_desk
+
+        copy = copypack.read_copy(drafts_root, topic_id) or {}
+        own = publish_desk.own_entry(copy.get("platforms"), platform, publish_desk.shared_entry(copy))
+        if own.get("title") or own.get("body"):
+            tags = " ".join(f"#{t}" for t in own.get("tags") or [])
+            (folder / "文案.txt").write_text(f"{own.get('title') or ''}\n\n{own.get('body') or ''}\n\n{tags}\n", encoding="utf-8")
+            placed.append("文案.txt")
         if not os.environ.get("CONTENT_STUDIO_NO_OPEN") and sys.platform == "darwin":
             subprocess.Popen(["open", str(folder)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"folder": str(folder), "files": placed, "missing": missing}

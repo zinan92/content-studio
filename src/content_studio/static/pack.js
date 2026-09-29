@@ -15,14 +15,13 @@ async function loadPack(force) {
   PK.data = d; PK.at = Date.now(); PK.topic = null; PK.st = null;
   if (d.topic) {
     S.packId = d.topic.id;
-    const [topics, figs, wx, xhs] = await Promise.all([
+    const [topics, figs, wx] = await Promise.all([
       api('/api/topics'),
       d.has_article ? api(`/api/topics/${d.topic.id}/illustrate`).catch(() => null) : null,
       d.has_article ? api(`/api/topics/${d.topic.id}/layout`).catch(() => null) : null,
-      d.has_article ? api(`/api/topics/${d.topic.id}/xhs`).catch(() => null) : null,
     ]);
     PK.topic = topics.find((t) => t.id === d.topic.id) || null;
-    PK.st = { figs, wx, xhs };
+    PK.st = { figs, wx };
   }
   paintPackNav(d);
   return d;
@@ -44,11 +43,12 @@ const PK_ICON = { lock: '✓', ok: '•', wip: '', no: '○', bad: '!' };
 /* 定稿（9/29 Park：「做好一件事就 lock in，再往上搭下一块积木」）。
    每一步要等上一步定稿才开始；定稿的那一版锁住，按钮收起来，想改点「改这一步」。
    后端按指纹判断定稿那一版还是不是现在这一版（approvals.py），改过就作废。 */
-// 文章这一行就是 X 图文：X 发的就是这篇文章 + 插图，定稿文章就是定稿 X（9/29 Park）；公众号、小红书图文也从它来
-const PK_DEPENDS = { cover: 'copy', figs: 'article', wx: 'figs', xhs: 'figs' };
-const PK_LABEL = { copy: '标题 · 描述 · 简介 · 话题', cover: '封面', article: 'X 图文文章', figs: '插图', wx: '公众号排版', xhs: '小红书图文' };
-const PK_NEXT = { copy: 'cover', cover: 'article', article: 'figs', figs: 'wx', wx: 'xhs' };
-const PK_APPROVE = { cover: '定稿封面', article: '定稿（X 和公众号都用这篇），下一步配图', figs: '定稿插图，下一步排版', wx: '定稿公众号排版', xhs: '定稿小红书图文' };
+// 文章这一行就是 X 图文：X 发的就是这篇文章 + 插图，定稿文章就是定稿 X（9/29 Park）；公众号排版也从它来。
+// 小红书 9/29 起发视频，用封面和文案，不再有自己的一步。
+const PK_DEPENDS = { cover: 'copy', figs: 'article', wx: 'figs' };
+const PK_LABEL = { copy: '标题 · 描述 · 简介 · 话题', cover: '封面', article: 'X 图文文章', figs: '插图', wx: '公众号排版' };
+const PK_NEXT = { copy: 'cover', cover: 'article', article: 'figs', figs: 'wx' };
+const PK_APPROVE = { cover: '定稿封面', article: '定稿（X 和公众号都用这篇），下一步配图', figs: '定稿插图，下一步排版', wx: '定稿公众号排版' };
 const locked = (d, key) => { const a = ((d && d.approvals) || {})[key]; return Boolean(a && a.approved && a.valid); };
 window.packLocked = locked;
 
@@ -75,20 +75,12 @@ function packItems(d, t, st) {
     if (s.has_layout && s.stale) return ['bad', '文章改过了，旧排版作废'];
     return s.has_layout ? ['ok', `gzh 排好了（${s.theme || '橄榄手记'}），公众号用这份`] : ['no', '不排也能发，用的是基础排版'];
   });
-  const xhs = needFigs(() => {
-    const s = st.xhs || {};
-    if (s.running) return ['wip', '正在出图'];
-    if (s.error) return ['bad', s.error];
-    if (s.stale) return ['bad', '文章改过了，这组图是旧的'];
-    return s.images && s.images.length ? ['ok', `${s.images.length} 张 3:4，一字不改`] : ['no', '文章原文排成 3:4 的图'];
-  });
   return [
     { key: 'copy', group: 'video', label: '标题 · 描述 · 简介 · 话题', state: d.has_copy ? 'ok' : 'no', note: d.has_copy ? (e.title || '已保存') : '先写这个：标题、描述、简介、话题。封面的字就用这个标题' },
     { key: 'cover', group: 'video', label: '封面', state: covers.length ? 'ok' : 'no', note: covers.length ? `${covers.join(' · ')}都有了` : d.has_copy ? '用标题出，画面和橙色关键词机器定，5–10 分钟' : '写好标题后自动出' },
     { key: 'article', group: 'text', label: 'X 图文文章', state: art[0], note: art[1] },
     { key: 'figs', group: 'text', label: '插图', state: figs[0], note: figs[1] },
     { key: 'wx', group: 'text', label: '公众号排版', state: wx[0], note: wx[1] },
-    { key: 'xhs', group: 'text', label: '小红书图文', state: xhs[0], note: xhs[1] },
   ].map((it) => {
     const a = (d.approvals || {})[it.key] || {};
     const dep = PK_DEPENDS[it.key];
@@ -284,9 +276,6 @@ function renderRow(key, box) {
   } else if (key === 'wx') {
     box.innerHTML = d.has_article ? '<div class="pdl-wx" id="pdlWx"></div>' : '<p class="pdl-note">公众号发的是上面那篇文章，先把它写好。</p>';
     if (d.has_article) renderWx(box, id);
-  } else if (key === 'xhs') {
-    box.innerHTML = d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : '<p class="pdl-note">小红书图文是把上面那篇文章排成图，先把它写好。</p>';
-    if (d.has_article) renderXhs(box, id);
   }
 }
 
@@ -339,7 +328,7 @@ window.VIEWS.pack = {
     if (S.view !== 'pack') return;
     const st = PK.st || {};
     const t = PK.topic;
-    const running = (t && t.write_state === 'running') || ['figs', 'wx', 'xhs'].some((k) => st[k] && st[k].running);
+    const running = (t && t.write_state === 'running') || ['figs', 'wx'].some((k) => st[k] && st[k].running);
     clearTimeout(PK.timer);
     if (running) PK.timer = setTimeout(() => { if (S.view === 'pack') refreshPack(); }, 8000);
     const items = d.topic ? packItems(d, t, st) : [];
