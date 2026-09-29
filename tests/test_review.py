@@ -55,3 +55,31 @@ def test_empty_week_is_explained() -> None:
     inputs = review.gather_inputs(own_videos=[], median_likes=None, creator={}, reports={}, topics=[], breakouts=[], now=NOW)
     with pytest.raises(review.ReviewError, match="没有发视频"):
         review.generate_review(inputs, review_fn=lambda p: _good())
+
+
+def test_review_sees_all_nine_numbers_and_his_own_baseline() -> None:
+    """9/29 Park：复盘要看播放、平均观看、封面点击率、2 秒跳出、5 秒完播……并且和自己平时比。"""
+    own = [
+        {"video_id": "a", "title": "本周", "published_at": (NOW - timedelta(days=2)).isoformat(), "likes": 200, "collects": 100, "is_image_post": 0},
+        {"video_id": "o1", "title": "旧1", "published_at": (NOW - timedelta(days=20)).isoformat(), "likes": 100, "collects": 20, "is_image_post": 0},
+        {"video_id": "o2", "title": "旧2", "published_at": (NOW - timedelta(days=40)).isoformat(), "likes": 300, "collects": 30, "is_image_post": 0},
+        {"video_id": "gone", "title": "太老", "published_at": (NOW - timedelta(days=200)).isoformat(), "likes": 9999, "is_image_post": 0},
+    ]
+    m = lambda v, c5, ctr, b2: {"view_count": v, "completion_rate_5s": c5, "cover_click_rate": ctr, "bounce_rate_2s": b2, "avg_view_second": 20.0, "fan_increment": 10}  # noqa: E731
+    creator = {"a": m(11239, 0.279, 0.444, 0.434), "o1": m(5000, 0.30, 0.40, 0.46), "o2": m(9000, 0.25, 0.50, 0.50), "gone": m(1, 0.9, 0.9, 0.1)}
+    inputs = review.gather_inputs(own_videos=own, median_likes=200, creator=creator, reports={}, topics=[], breakouts=[], now=NOW)
+    v = inputs["videos"][0]
+    assert (v["plays"], v["completion_5s"], v["cover_ctr"], v["bounce_2s"]) == (11239, 0.279, 0.444, 0.434)
+    base = inputs["baseline"]
+    assert base["videos"] == 3  # 200 天前那条不算
+    assert base["plays"] == 9000 and base["bounce_2s"] == 0.46 and base["likes"] == 200
+    prompt = review.build_prompt(inputs)
+    assert "播放 11239" in prompt and "封面点击率 44.4%" in prompt and "5 秒完播 27.9%" in prompt
+    assert "近 90 天 3 条视频的中位数" in prompt and "2 秒跳出 46.0%" in prompt
+
+
+def test_private_video_zero_plays_is_missing_not_zero() -> None:
+    own = [{"video_id": "p", "title": "藏了", "published_at": (NOW - timedelta(days=1)).isoformat(), "likes": 69, "is_image_post": 0}]
+    inputs = review.gather_inputs(own_videos=own, median_likes=100, creator={"p": {"view_count": 0}}, reports={}, topics=[], breakouts=[], now=NOW)
+    assert inputs["videos"][0]["plays"] is None and inputs["baseline"]["plays"] is None
+    assert "播放 —" in review.build_prompt(inputs)

@@ -67,9 +67,13 @@ def gather_inputs(
                 "likes": video.get("likes"),
                 "multiple": round(video["likes"] / median_likes, 1) if median_likes and video.get("likes") is not None else None,
                 "collect_per_like": round((video.get("collects") or 0) / video["likes"], 3) if video.get("likes") else None,
+                # 9/29 Park：复盘要看的每条视频的数——播放、平均观看、封面点击率、2 秒跳出、5 秒完播，加上点赞、收藏/赞、涨粉
+                "plays": _plays(video, metrics),
                 "fans": metrics.get("fan_increment"),
                 "avg_watch_seconds": round(metrics["avg_view_second"]) if metrics.get("avg_view_second") else None,
                 "bounce_2s": metrics.get("bounce_rate_2s"),
+                "completion_5s": metrics.get("completion_rate_5s"),
+                "cover_ctr": metrics.get("cover_click_rate"),
                 "report": {
                     "thesis": (report.get("thesis") or {}).get("text"),
                     "why_boom": [w.get("text") for w in report.get("why_boom", [])][:4],
@@ -86,7 +90,56 @@ def gather_inputs(
         if (_published(b) or since - timedelta(days=1)) >= since
     ][:8]
     return {"week": week_key(now), "since": since.date().isoformat(), "until": now.date().isoformat(), "videos": videos,
-            "median_likes": median_likes, "topics_done": done_topics, "breakouts": week_breakouts}
+            "median_likes": median_likes, "topics_done": done_topics, "breakouts": week_breakouts,
+            "baseline": baseline(own_videos, creator, now)}
+
+
+BASELINE_DAYS = 90  # 抖音后台只保留 90 天的数
+
+
+def _plays(video: dict[str, Any], metrics: dict[str, Any]) -> int | None:
+    """播放量。设成私密的视频后台给 0（9/24 那条有 69 个赞、播放 0）：有赞却 0 播放按没有数算。"""
+    n = metrics.get("view_count")
+    if n is None:
+        n = video.get("views")
+    if not n and (video.get("likes") or 0) > 0:
+        return None
+    return n
+
+
+def _median(values: list[float]) -> float | None:
+    xs = sorted(v for v in values if v is not None)
+    if not xs:
+        return None
+    mid = len(xs) // 2
+    return xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+
+
+def baseline(own_videos: list[dict[str, Any]], creator: dict[str, dict[str, Any]], now: datetime) -> dict[str, Any]:
+    """Park 自己近 90 天的中位数：复盘里每个数都要和它比（只和自己比），单看一个 43% 说明不了好坏。"""
+    since = now - timedelta(days=BASELINE_DAYS)
+    rows = [(v, creator.get(v["video_id"]) or {}) for v in own_videos
+            if not v.get("is_image_post") and (_published(v) or since) >= since and v.get("video_id") in creator]
+    pick = lambda f: _median([f(v, m) for v, m in rows])  # noqa: E731
+    return {
+        "videos": len(rows), "days": BASELINE_DAYS,
+        "plays": pick(lambda v, m: _plays(v, m)),
+        "likes": pick(lambda v, m: v.get("likes")),
+        "collect_per_like": pick(lambda v, m: (v.get("collects") or 0) / v["likes"] if v.get("likes") else None),
+        "fans": pick(lambda v, m: m.get("fan_increment")),
+        "avg_watch_seconds": pick(lambda v, m: m.get("avg_view_second")),
+        "bounce_2s": pick(lambda v, m: m.get("bounce_rate_2s")),
+        "completion_5s": pick(lambda v, m: m.get("completion_rate_5s")),
+        "cover_ctr": pick(lambda v, m: m.get("cover_click_rate")),
+    }
+
+
+def _pct(x: float | None) -> str:
+    return "—" if x is None else f"{x * 100:.1f}%"
+
+
+def _num(x: float | None, digits: int = 0) -> str:
+    return "—" if x is None else (f"{x:.{digits}f}" if digits else str(round(x)))
 
 
 def kpi_block(kpi: dict[str, Any] | None) -> str:
@@ -105,8 +158,9 @@ problems 里必须有一条直说执行分：减了几分、哪个借口重复�
 
 def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
     def fmt_video(v: dict[str, Any]) -> str:
-        lines = [f"- id {v['video_id']}｜{v['title']}｜{v['published_at'][:10]}｜点赞 {v['likes']}｜倍数 {v['multiple']}｜收藏/赞 {v['collect_per_like']}"
-                 f"｜涨粉 {v['fans']}｜平均观看 {v['avg_watch_seconds']} 秒｜2 秒跳出 {v['bounce_2s']}"]
+        lines = [f"- id {v['video_id']}｜{v['title']}｜{v['published_at'][:10]}｜播放 {_num(v.get('plays'))}｜点赞 {v['likes']}｜倍数 {v['multiple']}"
+                 f"｜收藏/赞 {v['collect_per_like']}｜涨粉 {v['fans']}｜平均观看 {v['avg_watch_seconds']} 秒"
+                 f"｜封面点击率 {_pct(v.get('cover_ctr'))}｜2 秒跳出 {_pct(v.get('bounce_2s'))}｜5 秒完播 {_pct(v.get('completion_5s'))}"]
         if v["report"]:
             r = v["report"]
             lines.append(f"  拆解主线：{r['thesis']}；跑题占比 {r['drift_share']}")
@@ -115,6 +169,7 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
         return "\n".join(lines)
 
     videos = "\n".join(fmt_video(v) for v in inputs["videos"]) or "（这周没有发视频）"
+    base = inputs.get("baseline") or baseline([], {}, datetime.now(timezone.utc))
     breakouts = "\n".join(f"- id {b['video_id']}｜{b['account']}｜{b['title']}｜{b['multiple']}×｜{'；'.join(b['why_boom'])}" for b in inputs["breakouts"]) or "（没有）"
     retry = f"\n\n上一次输出没有通过校验：{error}\n请修正后重新输出完整 JSON。" if error else ""
     me = author()
@@ -123,6 +178,10 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 
 ## 这周 {me.name} 发的视频（数字由代码算好，引用时只能用这里的数）
 {videos}
+
+## {me.name} 自己的平时水平（近 {base['days']} 天 {base['videos']} 条视频的中位数）
+播放 {_num(base['plays'])}｜点赞 {_num(base['likes'])}｜收藏/赞 {_num(base['collect_per_like'], 3)}｜涨粉 {_num(base['fans'])}｜平均观看 {_num(base['avg_watch_seconds'])} 秒｜封面点击率 {_pct(base['cover_ctr'])}｜2 秒跳出 {_pct(base['bounce_2s'])}｜5 秒完播 {_pct(base['completion_5s'])}
+判断好坏只和这一行比，不和别人比、不看绝对数。2 秒跳出越低越好，其余越高越好。封面点击率管「人愿不愿意点进来」，2 秒跳出和 5 秒完播管「开头留不留得住」，平均观看管「整条留不留得住」，收藏/赞和涨粉管「来的人对不对」。
 
 ## 这周完成的选题
 {chr(10).join('- ' + t for t in inputs['topics_done']) or '（没有）'}
