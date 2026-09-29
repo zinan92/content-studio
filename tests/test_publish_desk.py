@@ -15,6 +15,8 @@ SPECS = {
 
 def test_treatment_by_channel_kind():
     assert publish_desk.treatment("douyin", None) == "manual"
+    # 9/29 起抖音半自动：机器填好，最后点发布的是 Park
+    assert publish_desk.treatment("douyin", {"semi": True}) == "semi"
     assert publish_desk.treatment("x", SPECS["x"]) == "auto"
     assert publish_desk.treatment("bilibili", SPECS["bilibili"]) == "scan"
     assert publish_desk.treatment("channels", SPECS["channels"]) == "scan"

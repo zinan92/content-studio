@@ -2754,8 +2754,10 @@ def create_app(
         # 公众号要 2.35:1：有专门出的公众号封面就用它，没有就用横版（发的时候垫宽）
         chosen = (covers.get("wechat") if body.platform == "wechat_mp" else None) or covers.get("landscape")
         cover = _media_base(topic) / chosen if chosen else None
+        # 抖音的封面框横竖各一张
+        portrait = _media_base(topic) / covers["portrait"] if covers.get("portrait") else None
         payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs(),
-                                          article=article, cover=cover)
+                                          article=article, cover=cover, cover_portrait=portrait)
         return {"job": store.create_publish_job(topic_id, payload)}
 
     def _open_in_browser(url: str | None) -> None:
@@ -2771,18 +2773,36 @@ def create_app(
         from . import publisher
 
         job = store.publish_job(job_id)
+        copy_platform = publisher_specs()[job["platform"]]["copy_key"]
+
+        def mark_published() -> None:
+            try:
+                store.set_publish_record(job["topic_id"], copy_platform, published=True, url=None)
+            except StoreError:
+                pass
+
+        def progress(event: dict[str, Any]) -> None:
+            # 抖音半自动：窗口开着的时候把它在干什么写到任务上；Park 点了发布就当场记一笔，
+            # 不等窗口关——工作台重启或者他一直不关窗口，这一笔都不会丢。
+            if event.get("published"):
+                mark_published()
+            store.update_publish_job(job_id, message=str(event.get("progress") or "")[:300])
+
         try:
-            result = publisher.run(job["payload"], publishers=publisher_specs())
+            result = publisher.run(job["payload"], publishers=publisher_specs(), on_progress=progress)
         except Exception as exc:  # noqa: BLE001 - shown on the job
             result = {"ok": False, "status": "error", "message": str(exc)}
         ok = bool(result.get("ok"))
+        if result.get("status") == "window_closed":
+            # 窗口关了、没点发布：这次就算没发生，瓦片回到原样，不挂「上次失败」
+            store.update_publish_job(job_id, state="cancelled", result=result, message=publisher.explain(result), finished_at=now_iso())
+            return
         store.update_publish_job(job_id, state="done" if ok else "failed", result=result, message=None if ok else publisher.explain(result), finished_at=now_iso())
         if ok:
             _open_in_browser(publisher.confirm_url(job["platform"], result))
         # 存草稿不算发出去：X / 公众号 / 研习室的脚本在草稿时返回 published=false。
         # 9/24 X 只存了草稿，发布台就标「已发到 X」，按钮也跟着没了。
         if ok and result.get("published") is not False:
-            copy_platform = publisher_specs()[job["platform"]]["copy_key"]
             try:
                 store.set_publish_record(job["topic_id"], copy_platform, published=True, url=publisher.result_url(result))
             except StoreError:

@@ -1,7 +1,8 @@
 'use strict';
 /* 04 发布台：一条内容 × 每个平台。只管发——封面、文案、文章在 03 打包里备好（pack.js）。每个平台一张它自己的上传页（720×480 的画布，瓦片里缩小、
    弹窗里放大）。灰的还没发，彩色的发了；正在发的闪。点开一张，右边是这个平台该做的事：
-   手动的复制文案去粘贴，扫码的机器代发（Park 先确认），全自动的直接发，公众号交给流水线。 */
+   手动的复制文案去粘贴，扫码的机器代发（Park 先确认），全自动的直接发，公众号交给流水线；
+   抖音半自动：机器开 Chrome 填好，停在「发布」前，最后一下 Park 点。 */
 window.VIEWS = window.VIEWS || {};
 
 const PD = { data: null, at: 0, topicId: null, open: null, ro: null };
@@ -241,8 +242,8 @@ function fitReplicas(root) {
 /* ================= 瓦片 ================= */
 function stateOf(p) {
   if (p.shipped) return ['已发', 'ok'];
-  if (p.job && p.job.state === 'running') return ['发布中', 'hot'];
-  if (p.job && p.job.state === 'awaiting_confirm') return ['等你确认', 'hot'];
+  if (p.job && p.job.state === 'running') return p.treatment === 'semi' ? ['窗口开着', 'hot'] : ['发布中', 'hot'];
+  if (p.job && p.job.state === 'awaiting_confirm' && p.treatment !== 'semi') return ['等你确认', 'hot'];
   if (p.job && p.job.state === 'failed') return ['上次失败', 'warn'];
   if (!p.on) return ['没接这个号', ''];
   return PD_STATE[p.state] || [p.state, ''];
@@ -250,20 +251,23 @@ function stateOf(p) {
 
 function tileAction(p, d) {
   if (p.shipped) return `<button class="btn small ghost" type="button" data-pd-open="${p.key}">看记录</button>`;
-  if (p.job && p.job.state === 'awaiting_confirm') return `<button class="btn small primary" type="button" data-pd-open="${p.key}">去确认</button>`;
+  if (p.job && p.job.state === 'running' && p.treatment === 'semi') return `<button class="btn small primary" type="button" data-pd-open="${p.key}"><span class="spin"></span> 等你在抖音点发布</button>`;
+  if (p.job && p.job.state === 'awaiting_confirm' && p.treatment !== 'semi') return `<button class="btn small primary" type="button" data-pd-open="${p.key}">去确认</button>`;
   if (p.job && p.job.state === 'running') return `<button class="btn small" type="button" data-pd-open="${p.key}"><span class="spin"></span> 发布中</button>`;
   if (!d.topic) return '';
   if (p.treatment === 'handoff') return `<button class="btn small" type="button" data-pd-open="${p.key}">${p.handoff_done ? '已交接 · 去发' : '交给流水线'}</button>`;
+  if (p.treatment === 'semi' && p.can_auto && d.video) return `<button class="btn small primary" type="button" data-pd-open="${p.key}">填好等你发</button>`;
   if (p.can_auto && (d.video || p.no_video)) return `<button class="btn small primary" type="button" data-pd-open="${p.key}">机器发</button>`;
   return `<button class="btn small" type="button" data-pd-open="${p.key}">${p.admin ? '复制文案去发' : '打开'}</button>`;
 }
 
 function tile(p, d) {
   const [label, cls] = stateOf(p);
-  const live = p.job && (p.job.state === 'running' || p.job.state === 'awaiting_confirm');
+  const semi = p.treatment === 'semi';
+  const live = p.job && (p.job.state === 'running' || (p.job.state === 'awaiting_confirm' && !semi));
   const stamp = p.shipped ? `<span class="pub-stamp">✓ 已发${p.record && p.record.published_at ? ' · ' + day(p.record.published_at) : ''}</span>`
-    : p.job && p.job.state === 'running' ? '<span class="pub-stamp live">发布中</span>'
-      : p.job && p.job.state === 'awaiting_confirm' ? '<span class="pub-stamp wait">等你确认</span>' : '';
+    : p.job && p.job.state === 'running' ? `<span class="pub-stamp live">${semi ? '窗口开着' : '发布中'}</span>`
+      : p.job && p.job.state === 'awaiting_confirm' && !semi ? '<span class="pub-stamp wait">等你确认</span>' : '';
   const steps = d.platforms.filter((x) => x.on);
   const n = steps.indexOf(p) + 1;
   const isNext = d.topic && d.next === p.key;
@@ -356,7 +360,7 @@ window.VIEWS.publish = {
     // 只在内容真变了才重画：15 秒一次的刷新如果每次都重画，弹窗里正在输的链接会被抹掉。
     const sig = JSON.stringify([PD.topicId, d.has_copy, d.has_article, d.video && d.video.mb,
       d.candidates.map((c) => [c.id, c.stage, c.shipped_count]),
-      d.next, d.platforms.map((p) => [p.shipped, p.skipped, p.state, p.on, p.handoff_done, p.job && p.job.id, p.job && p.job.state, p.fill.title, p.fill.body])]);
+      d.next, d.platforms.map((p) => [p.shipped, p.skipped, p.state, p.on, p.handoff_done, p.job && p.job.id, p.job && p.job.state, p.job && p.job.message, p.fill.title, p.fill.body])]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
     const shipped = d.platforms.filter((p) => p.shipped).length;
@@ -482,6 +486,7 @@ function sideCore(p, d) {
         ${p.record ? '<button class="linklike" type="button" id="pdlUnmark">记错了，撤销</button>' : ''}</div>
       ${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
   }
+  if (p.treatment === 'semi') return semiCore(p, d, { manual, mark, history, fields });
   if (p.job && p.job.state === 'awaiting_confirm') {
     const pl = p.job.payload || {};
     return `<div class="pn-confirm"><b>确认发布到${esc(pl.platform_label || p.label)}：${esc(pl.mode_label || '')}</b>
@@ -534,6 +539,33 @@ function sideCore(p, d) {
       ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
+}
+
+/* 抖音半自动（9/29 Park）：机器开一个 Chrome，传视频、传封面、填好标题和描述，停在「发布」前。
+   这里一次点击就开窗口，不再弹「确认发布」——它不会发出去，最后一下是 Park 在抖音里点的。 */
+function semiCore(p, d, { manual, mark, history, fields }) {
+  const c = (d.release && d.release.covers) || {};
+  const fallback = `<div class="pdl-acts">${d.has_copy ? '<button class="btn" type="button" id="pdlCopyGo">复制文案去抖音手动传</button>' : ''}</div>`;
+  const tail = `${mark}<div id="pdlDouyin"></div>${history}${fields}`;
+  let block;
+  if (p.job && p.job.state === 'running') {
+    block = `<div class="pn-confirm running"><span class="spin"></span> ${esc(p.job.message || '正在打开 Chrome…')}</div>
+      <p class="pdl-note">在弹出的 Chrome 里看一眼，没问题就点「发布」。点完这里自动记为已发；不想发，直接关掉那个窗口。</p>`;
+    return `<h4>${esc(p.treatment_label)}</h4>${block}${tail}`;
+  }
+  if (p.state === 'setup') {
+    block = `<p class="pdl-note"><b>${esc(p.note)}</b></p>${manual}`;
+  } else if (!d.has_copy) {
+    block = '<p class="pdl-note">先在打包里写好标题和描述，机器才知道填什么。</p>';
+  } else if (!d.video) {
+    block = `<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以一键填好。</p>${fallback}`;
+  } else {
+    const covers = c.landscape && c.portrait ? '横版、竖版封面都传' : c.landscape || c.portrait ? `只有${c.landscape ? '横版' : '竖版'}封面，另一张抖音自己选` : '这条还没做封面，抖音会自己挑一帧';
+    block = `<p class="pdl-note">会开一个 Chrome 窗口，传视频、传封面、填好标题和描述，停在「发布」前，最后一下你点。</p>
+      <p class="pdl-note"><small>${esc(d.video.name)}（${d.video.mb} MB）· ${covers}${/第一次/.test(p.note || '') ? ' · 第一次要在窗口里扫码登录抖音' : ''}</small></p>
+      <div class="pdl-acts"><button class="btn primary" type="button" data-pd-semi="fill">${esc(p.modes.fill || '打开抖音，填好等你点发布')}</button></div>${fallback}`;
+  }
+  return `<h4>${esc(p.treatment_label)}</h4>${block}${tail}`;
 }
 
 /* 配图（小黑手绘，Codex 画）：文字版都过一遍。写完文章会自动配；这里看进度、看图、重配。 */
@@ -692,6 +724,8 @@ function renderDialog() {
   const refresh = async () => { PD.data = null; $('#publishBody').dataset.sig = ''; try { await loadDesk(true); } catch (err) { toast(err.message); } renderView(); };
   $$('[data-copy]', dlg).forEach((b) => (b.onclick = () => navigator.clipboard.writeText(b.dataset.copy).then(() => toast('已复制'), () => toast('复制失败'))));
   const all = $('#pdlCopyAll', dlg); if (all) all.onclick = () => copyAll(p);
+  const copyGo = $('#pdlCopyGo', dlg);
+  if (copyGo) copyGo.onclick = () => { copyAll(p); if (p.admin) window.open(p.admin, '_blank', 'noopener'); };
   const write = $('#pdlWrite', dlg); if (write) write.onclick = () => goPack(t.id);
   const mark = $('#pdlMark', dlg);
   if (mark) mark.onclick = async () => {
@@ -754,6 +788,15 @@ function renderDialog() {
   $$('[data-pj-prepare]', dlg).forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     try { await api(`/api/topics/${t.id}/publish-jobs`, { method: 'POST', body: { platform: p.key, mode: b.dataset.pjPrepare } }); await refresh(); } catch (err) { toast(err.message); b.disabled = false; }
+  }));
+  $$('[data-pd-semi]', dlg).forEach((b) => (b.onclick = async () => {
+    b.disabled = true; b.textContent = '正在打开 Chrome…';
+    try {
+      const r = await api(`/api/topics/${t.id}/publish-jobs`, { method: 'POST', body: { platform: p.key, mode: b.dataset.pdSemi } });
+      await api(`/api/publish-jobs/${r.job.id}/confirm`, { method: 'POST' });
+      toast('Chrome 窗口马上打开，填好会停在「发布」前');
+      await refresh();
+    } catch (err) { toast(err.message); b.disabled = false; b.textContent = p.modes.fill || '打开抖音，填好等你点发布'; }
   }));
   $$('[data-pj-confirm]', dlg).forEach((b) => (b.onclick = async () => {
     if (!confirm(`确认发布到${p.label}？这会把内容提交到平台。`)) return;
