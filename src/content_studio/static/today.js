@@ -58,7 +58,8 @@ function firstBlock(list) {
 function shipRow(d) {
   const s = d.ship;
   const plat = (p) => `<span class="td-plat ${p.shipped ? 'on' : ''} ${p.core ? '' : 'rest'}" title="${esc(p.label)}${p.shipped ? '：发了' : p.skipped ? '：这条不发' : '：还没发'}">${p.shipped ? '✓' : p.skipped ? '–' : '○'} ${esc(p.label)}</span>`;
-  const video = s.platforms.filter((p) => p.form === 'video'), text = s.platforms.filter((p) => p.form !== 'video');
+  const FORM = { video: '发视频', text: '发文字', cards: '发图文', audio: '发音频' };
+  const groups = ['video', 'text', 'cards', 'audio'].map((f) => [f, s.platforms.filter((p) => p.form === f)]).filter(([, ps]) => ps.length);
   const notes = s.notes.map((n, i) => `<li class="${i === 0 ? 'top' : ''}"><span>${esc(n.text)}${n.topic_id ? ' <small class="tag">在做</small>' : ''}</span>
     <span class="acts"><button type="button" class="linklike" data-note-up="${n.id}" ${i === 0 ? 'disabled' : ''} aria-label="上移">↑</button><button type="button" class="linklike" data-note-down="${n.id}" ${i === s.notes.length - 1 ? 'disabled' : ''} aria-label="下移">↓</button><button type="button" class="linklike" data-note-del="${n.id}" aria-label="删掉">×</button></span></li>`).join('');
   const sg = s.suggest;
@@ -68,7 +69,7 @@ function shipRow(d) {
   else if (sg && sg.topic_id) sug = `<div class="td-sug"><b>建议拍：${esc(sg.title)}</b><span>${esc(sg.why)}</span><div class="btns"><button class="btn go" type="button" id="tdTake">就拍这条</button><button class="btn quiet" type="button" id="tdSuggest">换一条</button></div></div>`;
   return `<section class="td-row ${s.done ? 'done' : ''}">
     <div class="td-h"><span class="td-letter">A</span><h2>出摊</h2>${rowState(d.days, 'ship', s.done)}${dots(d.days, 'ship')}</div>
-    <div class="td-plats">${s.topic ? `<span class="td-topic">《${esc(s.topic.title)}》</span>` : ''}<span class="td-form">发视频</span>${video.map(plat).join('')}<span class="td-form">发文字</span>${text.map(plat).join('')}</div>
+    <div class="td-plats">${s.topic ? `<span class="td-topic">《${esc(s.topic.title)}》</span>` : ''}${groups.map(([f, ps]) => `<span class="td-form">${FORM[f]}</span>${ps.map(plat).join('')}`).join('')}</div>
     ${nextLine(s.next)}
     <details class="td-notes" ${s.notes.length ? '' : 'open'}><summary>接下来要拍的 · 你定${s.notes.length ? ` <span class="num">${s.notes.length}</span>` : ''}</summary>
       ${notes ? `<ol>${notes}</ol>` : '<p class="td-note">还没写。想好要拍什么就写在这里，最上面那条就是下一次出摊要拍的。</p>'}

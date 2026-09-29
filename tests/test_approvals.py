@@ -43,3 +43,17 @@ def test_cannot_lock_a_step_that_is_not_made(tmp_path: Path) -> None:
     with pytest.raises(approvals.ApprovalError, match="还没做好"):
         approvals.set_approval(tmp_path / "t", "article", True, fps)
     assert fps["figs"] is None and fps["wx"] is None and "x" not in fps
+
+
+def test_xhs_is_a_step_only_when_asked_for(tmp_path: Path) -> None:
+    """小红书图文是可选的一步：设置里选「图文」才传 xhs，才有这一步（9/29 Park：给客户选发什么）。"""
+    folder = tmp_path / "topic-9"
+    fps = _fps(tmp_path)
+    assert "xhs" not in approvals.status(folder, fps)
+    with pytest.raises(approvals.ApprovalError, match="没有这一步"):
+        approvals.set_approval(folder, "xhs", True, fps)
+    cover = tmp_path / "竖封面.png"
+    fps2 = approvals.fingerprints(copy={"douyin": {"title": "标题", "body": "d", "tags": []}}, covers=[cover], article="正文",
+                                  figs=[tmp_path / "01.png"], wx={"has_layout": True, "generated_at": "t"},
+                                  xhs={"images": ["01.png"], "generated_at": "t"})
+    assert fps2["xhs"] and "xhs" in approvals.status(folder, fps2)

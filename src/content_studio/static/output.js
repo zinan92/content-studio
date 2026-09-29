@@ -144,7 +144,8 @@ function reachBlock(r, posts7) {
   };
   const rows = r.platforms.filter((p) => (meta[p.key] || {}).on !== false || !p.auto).map((p) => `<div class="rp-row ${p.on ? '' : 'off'}">
       <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}><b>${esc(p.label)}</b></label>
-      <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}></div>`).join('');
+      <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}>
+      ${p.form_choices && p.form_choices.length ? `<label class="rp-form">发什么 <select data-rp-form="${p.key}">${p.form_choices.map((f) => `<option value="${f.key}" ${f.key === p.form ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}</select></label>` : ''}</div>`).join('');
   return `<section class="ov-kpi">
       <div class="ov-k main"><span>今天触达 ${q(`今天 ${on.length} 个平台播放的合计。抖音、B 站、YouTube、X 每天自动读，按两次之间的差算；小红书截图读；视频号、公众号手填。`)}</span><b class="num">${fmt(r.today)}</b>
         <small class="${dToday === null ? '' : dToday < 0 ? 'bad' : 'good'}">${dToday === null ? '' : `比 7 天日均 ${fmt(r.avg7)} ${dToday < 0 ? '少' : '多'} ${Math.abs(dToday)}%`}</small></div>
@@ -181,12 +182,15 @@ function bindReach(root, body) {
   };
   $$('[data-rp-views]', root).forEach((i) => (i.onchange = () => save(i.dataset.rpViews, i.value === '' ? null : Number(i.value))));
   const saveAccounts = async () => {
-    const accounts = {};
-    $$('[data-rp-on]', root).forEach((box) => { if (!box.disabled) accounts[box.dataset.rpOn] = { on: box.checked, handle: ($(`[data-rp-handle="${box.dataset.rpOn}"]`, root) || {}).value || '' }; });
+    // 自动读数的平台开关是灰的，它们已有的设置（开关、账号名、发什么）照旧带上，别一保存就丢
+    const accounts = Object.fromEntries((RE.data.platforms || []).map((p) => [p.key, { on: p.on, handle: p.handle || '', ...(p.form_choices && p.form_choices.length ? { form: p.form } : {}) }]));
+    $$('[data-rp-on]', root).forEach((box) => { if (!box.disabled) accounts[box.dataset.rpOn] = { ...accounts[box.dataset.rpOn], on: box.checked, handle: ($(`[data-rp-handle="${box.dataset.rpOn}"]`, root) || {}).value || '' }; });
+    $$('[data-rp-form]', root).forEach((sel) => { accounts[sel.dataset.rpForm] = { ...accounts[sel.dataset.rpForm], form: sel.value }; });
     try { await api('/api/settings', { method: 'PUT', body: { platform_accounts: accounts } }); RE.data = null; body.dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }
   };
   $$('[data-rp-on]', root).forEach((box) => (box.onchange = saveAccounts));
   $$('[data-rp-handle]', root).forEach((i) => (i.onchange = saveAccounts));
+  $$('[data-rp-form]', root).forEach((sel) => (sel.onchange = saveAccounts));
 }
 
 /* 只列设置里开着的平台。9/29 Park 的注意力分层：主攻 抖音、视频号、小红书、X 在左边；

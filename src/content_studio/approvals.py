@@ -20,8 +20,9 @@ FILE = "approvals.json"
 KEYS = ("copy", "cover", "article", "figs", "wx")
 # 每一步要等哪一步定稿了才开始
 # X 图文不单独定稿：它发的就是研习室那篇文章 + 插图，没有自己要改的东西（9/29 Park）。
-# 小红书 9/29 起发视频（图文三篇共 262 播放，抖音同一条 7,893），用的是封面和文案，不再单独定稿。
-DEPENDS = {"cover": "copy", "figs": "article", "wx": "figs"}
+# 小红书图文（xhs）是可选的一步：小红书在设置里选「图文」才有；选「视频」用的是封面和文案（9/29 Park）。
+OPTIONAL = ("xhs",)
+DEPENDS = {"cover": "copy", "figs": "article", "wx": "figs", "xhs": "figs"}
 
 
 class ApprovalError(RuntimeError):
@@ -37,8 +38,9 @@ def _files(paths: list[Path]) -> list[tuple[str, float]]:
 
 
 def fingerprints(*, copy: dict[str, Any] | None, covers: list[Path], article: str | None,
-                 figs: list[Path], wx: dict[str, Any]) -> dict[str, str | None]:
-    """每一步现在的指纹；还没做出来的是 None。article 是去掉配图行的正文（配图插进文章不算改文章）。"""
+                 figs: list[Path], wx: dict[str, Any], xhs: dict[str, Any] | None = None) -> dict[str, str | None]:
+    """每一步现在的指纹；还没做出来的是 None。article 是去掉配图行的正文（配图插进文章不算改文章）。
+    xhs 传了才有这一步（小红书选了图文）。"""
     fp: dict[str, str | None] = {k: None for k in KEYS}
     fp["copy"] = digest(copy) if copy else None
     title = next((e.get("title") for e in (copy or {}).values() if isinstance(e, dict) and e.get("title")), "")
@@ -46,6 +48,8 @@ def fingerprints(*, copy: dict[str, Any] | None, covers: list[Path], article: st
     fp["article"] = digest(article) if article else None
     fp["figs"] = digest(_files(figs), fp["article"]) if figs and fp["article"] else None
     fp["wx"] = digest(wx.get("generated_at"), fp["figs"]) if fp["article"] and wx.get("has_layout") and not wx.get("stale") else None
+    if xhs is not None:
+        fp["xhs"] = digest(xhs.get("generated_at"), fp["figs"]) if fp["article"] and xhs.get("images") and not xhs.get("stale") else None
     return fp
 
 
@@ -61,7 +65,7 @@ def status(folder: Path, fps: dict[str, str | None]) -> dict[str, dict[str, Any]
     """每一步：made（做出来了没有）、approved（定过稿）、valid（定稿那一版还是现在这一版）、at。"""
     saved = load(folder)
     out = {}
-    for key in KEYS:
+    for key in (*KEYS, *(k for k in OPTIONAL if k in fps)):
         rec = saved.get(key) or {}
         out[key] = {"made": fps.get(key) is not None, "approved": bool(rec),
                     "valid": bool(rec) and rec.get("fp") == fps.get(key), "at": rec.get("at")}
@@ -69,7 +73,7 @@ def status(folder: Path, fps: dict[str, str | None]) -> dict[str, dict[str, Any]
 
 
 def set_approval(folder: Path, key: str, approved: bool, fps: dict[str, str | None], *, now: datetime | None = None) -> dict[str, dict[str, Any]]:
-    if key not in KEYS:
+    if key not in KEYS and not (key in OPTIONAL and key in fps):
         raise ApprovalError("没有这一步")
     saved = load(folder)
     if approved:

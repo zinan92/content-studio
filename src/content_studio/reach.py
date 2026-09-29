@@ -36,9 +36,18 @@ AUTO_KEYS = tuple(k for k, _, auto in PLATFORMS if auto)
 # 9/29 Park：注意力分层。主攻 抖音、视频号、小红书（发视频）和 X（发文字 + 每天回复）；
 # 公众号、B 站、YouTube 零成本照发，不投入、不看数。页面上主攻的放左边，其余放右边淡一点。
 CORE = ("douyin", "channels", "xiaohongshu", "x")
-# 出摊时每个平台发的是什么：视频 / 文字
+# 出摊时每个平台发的是什么：视频 / 文字 / 图文（默认值；能选的平台在 FORM_CHOICES，选了存在 platform_accounts[key]["form"]）
+# 9/29 Park：「如果未来我们做给客户的话，我们要给客户一个选择，让他决定究竟想发什么。」
 FORM = {"douyin": "video", "channels": "video", "xiaohongshu": "video", "bilibili": "video", "youtube": "video",
         "x": "text", "wechat_mp": "text", "miniprogram": "text", "xiaoyuzhou": "audio"}
+FORM_LABEL = {"video": "视频", "text": "文字", "cards": "图文", "audio": "音频"}
+FORM_CHOICES = {"xiaohongshu": ("video", "cards")}
+
+
+def form_of(key: str, accounts: dict | None) -> str:
+    """这个平台现在发什么：设置里选过的优先，没选按默认。"""
+    chosen = ((accounts or {}).get(key) or {}).get("form")
+    return chosen if chosen in FORM_CHOICES.get(key, ()) else FORM.get(key, "video")
 PLATFORM_STYLE: dict[str, dict[str, str]] = {
     "douyin": {"mark": "抖", "hue": "#FE2C55"},
     "channels": {"mark": "视", "hue": "#07C160"},

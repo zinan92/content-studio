@@ -108,3 +108,23 @@ def test_weekly_review_prompt_puts_the_demerits_and_repeated_excuses_in_front_of
     raw = {"summary": "s", "wins": [], "problems": [{"text": "减了 6 分，「没灵感」出现 2 次", "video_ids": []}], "next_week": ["每天出摊"]}
     assert review.validate(raw, inputs) == []
     assert review.validate(raw, {**inputs, "kpi": None}) != []
+
+
+def test_xiaohongshu_form_is_a_setting_that_changes_pack_and_today(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """给客户选发什么：小红书默认发视频；设置里改成图文，打包多一步、今天那行分到「发图文」。"""
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    r = client.get("/api/reach").json()
+    xhs = next(p for p in r["platforms"] if p["key"] == "xiaohongshu")
+    assert xhs["form"] == "video" and [c["key"] for c in xhs["form_choices"]] == ["video", "cards"]
+    assert next(p for p in r["platforms"] if p["key"] == "douyin")["form_choices"] == []
+    assert client.get("/api/publish/desk").json()["forms"]["xiaohongshu"] == "video"
+    client.put("/api/settings", json={"platform_accounts": {"xiaohongshu": {"on": True, "handle": "Park", "form": "cards"}}})
+    assert client.get("/api/publish/desk").json()["forms"]["xiaohongshu"] == "cards"
+    forms = {p["key"]: p["form"] for p in _today(client)["ship"]["platforms"]}
+    assert forms["xiaohongshu"] == "cards" and forms["douyin"] == "video"
+    # 选了图文，视频的上传文件夹就不给
+    topic = client.post("/api/topics", json={"title": "t"}).json()
+    assert client.post(f"/api/topics/{topic['id']}/upload-folder", json={"platform": "xiaohongshu"}).status_code == 400
+    # 认不出的值按默认
+    client.put("/api/settings", json={"platform_accounts": {"xiaohongshu": {"on": True, "handle": "Park", "form": "hologram"}}})
+    assert client.get("/api/publish/desk").json()["forms"]["xiaohongshu"] == "video"
