@@ -657,7 +657,21 @@ def create_app(
     @app.get("/api/jobs")
     def jobs() -> list[dict[str, Any]]:
         results = []
-        for job in store.jobs():
+        # 同一条视频失败了好几次，队列里只列最近一次，带上次数（9/29 以前一条失败了 37 次，把队列刷满了）
+        all_jobs = store.jobs(limit=1000)
+        fails: dict[str, int] = {}
+        for job in all_jobs:
+            if job["stage"] == "failed" and job["video_id"]:
+                fails[job["video_id"]] = fails.get(job["video_id"], 0) + 1
+        seen_failed: set[str] = set()
+        shown = []
+        for job in all_jobs:
+            if job["stage"] == "failed" and job["video_id"]:
+                if job["video_id"] in seen_failed:
+                    continue
+                seen_failed.add(job["video_id"])
+            shown.append({**job, "attempts": fails.get(job["video_id"] or "", 0)})
+        for job in shown[:200]:
             video = store.video(job["video_id"]) if job["video_id"] else None
             results.append(
                 {
@@ -665,6 +679,7 @@ def create_app(
                     "title": video["title"] if video else None,
                     "has_report": bool(job["video_id"] and report_file(job["video_id"])),
                     "running": worker.current_job_id == job["id"],
+                    "attempts": job.get("attempts", 0),
                 }
             )
         return results
@@ -677,7 +692,7 @@ def create_app(
             url, video_id = f"https://www.douyin.com/video/{body.video_id}", body.video_id
         else:
             url, video_id = normalize_video_url(body.url or "")
-        job, created = store.enqueue(url=url, video_id=video_id, source=body.source or "手动添加")
+        job, created = store.enqueue(url=url, video_id=video_id, source=body.source or "手动添加", retry_failed=True)
         worker.notify()
         return {"job": job_view(job), "created": created, "message": "已加入拆解队列" if created else "这条视频已经在队列里或拆解过了"}
 

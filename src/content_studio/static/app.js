@@ -713,7 +713,7 @@ function renderQueue() {
         : j.stage === 'queued' ? `<span class="stage-pill queued">排队中</span><button class="btn small ghost" type="button" data-cancel="${j.id}">取消</button>`
           : `<span class="stage-pill running">${STAGE_NAME[j.stage]}</span>`;
     return `<div class="q">
-      <div><div class="src">${esc(j.source)} · ${day(j.created_at)}</div><div style="font-weight:500" class="clamp">${esc(j.title ? cleanTitle(j.title) : j.url)}</div>${j.error ? `<div class="err">${esc(j.error)}</div>` : ''}</div>
+      <div><div class="src">${esc(j.source)} · ${day(j.created_at)}</div><div style="font-weight:500" class="clamp">${esc(j.title ? cleanTitle(j.title) : j.url)}</div>${j.error ? `<div class="err">${esc(j.error)}${j.attempts > 1 ? ` · 失败过 ${j.attempts} 次，不会再自动重试` : ' · 不会自动重试，要跑就点重试'}</div>` : ''}</div>
       <div class="steps">${steps}</div>
       <div style="display:flex;justify-content:flex-end;gap:6px;align-items:center">${action}</div>
     </div>`;

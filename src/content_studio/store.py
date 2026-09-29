@@ -942,14 +942,22 @@ class StudioStore:
 
     # -- jobs -------------------------------------------------------------
 
-    def enqueue(self, *, url: str, video_id: str | None, source: str) -> tuple[dict[str, Any], bool]:
-        """Queue a teardown unless the same video is already queued, running or done."""
+    def enqueue(self, *, url: str, video_id: str | None, source: str, retry_failed: bool = False) -> tuple[dict[str, Any], bool]:
+        """Queue a teardown unless the same video is already queued, running or done.
+
+        9/29：以前失败过的视频，自动同步每次都当新爆款再排一次——同一条（没有人声，转写永远是空的）
+        10 天里用 Park 的抖音登录下载了 37 次。自动入队（retry_failed=False）碰到失败过的就不再排；
+        只有 Park 手动加、手动点重试才会再跑。"""
         if video_id:
             existing = self._row(
                 "SELECT * FROM jobs WHERE video_id = ? AND stage != 'failed' ORDER BY id DESC LIMIT 1", (video_id,)
             )
             if existing is not None:
                 return existing, False
+            if not retry_failed:
+                failed = self._row("SELECT * FROM jobs WHERE video_id = ? AND stage = 'failed' ORDER BY id DESC LIMIT 1", (video_id,))
+                if failed is not None:
+                    return failed, False
         stamp = now_iso()
         with self.tx() as conn:
             cursor = conn.execute(

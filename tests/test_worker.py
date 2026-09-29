@@ -80,7 +80,9 @@ def test_duplicate_video_is_not_queued_twice_but_failed_one_can_be_requeued(stor
     again, created_again = store.enqueue(url="u", video_id="1", source="手动")
     assert not created_again and again["id"] == first["id"]
     store.update_job(first["id"], stage="failed", error="x")
-    _, created_after_failure = store.enqueue(url="u", video_id="1", source="手动")
+    _, auto_after_failure = store.enqueue(url="u", video_id="1", source="对标爆款")
+    assert not auto_after_failure  # 9/29：自动的不再重排失败过的
+    _, created_after_failure = store.enqueue(url="u", video_id="1", source="手动", retry_failed=True)
     assert created_after_failure
 
 
@@ -124,3 +126,17 @@ def test_only_queued_jobs_can_be_cancelled(store: StudioStore) -> None:
     assert store.job_for_video("1") is None
     with pytest.raises(StoreError):
         store.cancel_job(running["id"])
+
+
+def test_auto_enqueue_does_not_retry_a_video_that_failed(tmp_path) -> None:
+    """9/29：一条没人声的视频转写永远是空的，自动同步每次都把它当新爆款再排——10 天用 Park 的登录下了 37 次。
+    自动入队碰到失败过的不再排；手动加（retry_failed=True）照样能再跑。"""
+    from content_studio.store import StudioStore
+
+    store = StudioStore(tmp_path / "s.sqlite3")
+    job, new = store.enqueue(url="https://www.douyin.com/video/1", video_id="1", source="对标爆款 · A")
+    store.update_job(job["id"], stage="failed", error="transcript has no usable lines")
+    again, new = store.enqueue(url="https://www.douyin.com/video/1", video_id="1", source="对标爆款 · A")
+    assert new is False and again["id"] == job["id"]
+    manual, new = store.enqueue(url="https://www.douyin.com/video/1", video_id="1", source="手动添加", retry_failed=True)
+    assert new is True and manual["stage"] == "queued"
