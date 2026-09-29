@@ -103,8 +103,12 @@ def queue(videos: list[dict[str, Any]], *, links: dict[str, int], records: dict[
             done[p] = "record" if p in rec else "mark" if p in marks.get(v["video_id"], set()) else None
         missing = [p for p in platforms if not done[p]]
         likes = v.get("likes")
+        # 每个平台的链接（有就能点开）；抖音这一格永远有，就是这条视频本身
+        links_out = {p: (rec.get(p) or {}).get("url") for p in platforms if p in rec}
+        links_out["douyin"] = f"https://www.douyin.com/video/{v['video_id']}"
         rows.append({
             "video_id": v["video_id"], "title": v.get("title") or "", "headline": split_douyin_title(v.get("title") or "")["title"],
+            "links": links_out,
             "published_at": v.get("published_at"), "likes": likes,
             "multiple": round(likes / median, 1) if median and likes is not None else None,
             "topic_id": tid, "done": done, "missing": missing,

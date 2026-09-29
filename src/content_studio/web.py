@@ -1107,7 +1107,10 @@ def create_app(
             candidates.append({"id": c["id"], "title": c["title"], "stage": c["stage"], "stage_label": dict(board.MILESTONES).get(c["stage"], c["stage"]), "shipped_count": n})
         sendable = publish_desk.ready_to_publish(candidates)
         waiting = publish_desk.waiting_for(candidates) if not sendable else None
-        chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (sendable[0] if sendable else None)
+        # 9/29 Park：一条发完了就收起来；没指定哪条时，打包和发布只挑还有平台没发的那条
+        on_count = sum(1 for p in _platform_rows(publisher.readiness(publisher_specs())) if p.get("on"))
+        unfinished = [c for c in sendable if c["stage"] != "shipped" and c["shipped_count"] < on_count]
+        chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (unfinished[0] if unfinished else None)
         if topic_id is not None and chosen is None:
             # 不在候选里（归档了、或者太老）也允许直接打开——链接可能是从别处带过来的。
             t = store.topic(topic_id)
@@ -1151,31 +1154,6 @@ def create_app(
             "entry": entry,
             "platforms": rows,
         }
-
-    @app.get("/api/links")
-    def link_book() -> dict[str, Any]:
-        """已发出 → 链接：每条内容在每个平台上的链接，一处存（publish_records）、一处看。"""
-        from . import copypack, links, publish_desk
-
-        by_topic: dict[int, dict[str, Any]] = {}
-        for r in store.all_publish_records():
-            by_topic.setdefault(r["topic_id"], {})[r["platform"]] = {
-                "url": r["url"], "published_at": r["published_at"], "issue": links.issue(r["platform"], r["url"])}
-        rows = []
-        for topic_id, recs in by_topic.items():
-            try:
-                t = store.topic(topic_id)
-            except StoreError:
-                continue
-            if t.get("published_url") and "douyin" in recs and not recs["douyin"]["url"]:
-                recs["douyin"] = {**recs["douyin"], "url": t["published_url"], "issue": None}
-            rows.append({"id": topic_id, "title": t["title"], "first": min(v["published_at"] for v in recs.values()), "links": recs})
-        rows.sort(key=lambda r: r["first"], reverse=True)
-        opened = store.settings().get("platform_accounts") or {}
-        # 设置里关掉的平台不占一列（9/29 研习室、小宇宙先关掉）；以前的记录还在，打开平台就回来
-        platforms = [{"key": k, "label": (copypack.PLATFORMS.get(k) or {}).get("label", k)} for k in publish_desk.SEQUENCE
-                     if (opened.get(k) or {}).get("on", True)]
-        return {"platforms": platforms, "rows": rows}
 
     @app.get("/api/reach")
     def get_reach(days: int = 14) -> dict[str, Any]:
@@ -2862,6 +2840,55 @@ def create_app(
             "jobs": store.publish_jobs(topic_id),
         }
 
+    # 手动传的平台要哪几个文件（9/29 Park：点上传，就弹开那个文件夹，里面是视频和竖、横封面，他自己拖进去）
+    UPLOAD_KIT = {
+        "douyin": (("video", "视频"), ("portrait", "竖封面"), ("landscape", "横封面")),
+        "channels": (("video", "视频"), ("portrait", "竖封面")),
+        "bilibili": (("video", "视频"), ("wide", "16比9封面")),
+        "youtube": (("video", "视频"), ("wide", "16比9封面")),
+    }
+
+    @app.post("/api/topics/{topic_id}/upload-folder")
+    def upload_folder(topic_id: int, body: dict[str, Any]) -> dict[str, Any]:
+        """把这个平台要传的文件放进 final/上传-<平台>/，在访达里打开。用硬链接，不多占硬盘。"""
+        from . import copypack
+
+        platform = str(body.get("platform") or "")
+        kit = UPLOAD_KIT.get(platform)
+        if not kit:
+            raise HTTPException(status_code=400, detail="这个平台没有要准备的上传文件")
+        topic = store.topic(topic_id)
+        video = final_video_path(topic)
+        if video is None:
+            raise HTTPException(status_code=400, detail="还没有成片")
+        base = _media_base(topic)
+        covers = (_release_for(topic) or {}).get("covers") or {}
+        label = (copypack.PLATFORMS.get(platform) or {}).get("label", platform).replace(" ", "")
+        folder = base / "final" / f"上传-{label}"
+        folder.mkdir(parents=True, exist_ok=True)
+        for old in folder.iterdir():
+            if old.is_file() or old.is_symlink():
+                old.unlink()
+        placed, missing = [], []
+        for kind, name in kit:
+            if kind == "video":
+                src = video
+            else:
+                rel = covers.get(kind) or (covers.get("landscape") if kind == "wide" else None)
+                src = base / rel if rel else None
+            if src is None or not src.is_file():
+                missing.append(name)
+                continue
+            dest = folder / f"{name}{src.suffix.lower()}"
+            try:
+                os.link(src, dest)
+            except OSError:
+                dest.symlink_to(src)
+            placed.append(dest.name)
+        if not os.environ.get("CONTENT_STUDIO_NO_OPEN") and sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"folder": str(folder), "files": placed, "missing": missing}
+
     @app.post("/api/topics/{topic_id}/publish-jobs")
     def prepare_publish(topic_id: int, body: PublishJobBody) -> dict[str, Any]:
         from . import copypack, publisher
@@ -2902,21 +2929,8 @@ def create_app(
         job = store.publish_job(job_id)
         copy_platform = publisher_specs()[job["platform"]]["copy_key"]
 
-        def mark_published() -> None:
-            try:
-                store.set_publish_record(job["topic_id"], copy_platform, published=True, url=None)
-            except StoreError:
-                pass
-
-        def progress(event: dict[str, Any]) -> None:
-            # 抖音半自动：窗口开着的时候把它在干什么写到任务上；Park 点了发布就当场记一笔，
-            # 不等窗口关——工作台重启或者他一直不关窗口，这一笔都不会丢。
-            if event.get("published"):
-                mark_published()
-            store.update_publish_job(job_id, message=str(event.get("progress") or "")[:300])
-
         try:
-            result = publisher.run(job["payload"], publishers=publisher_specs(), on_progress=progress)
+            result = publisher.run(job["payload"], publishers=publisher_specs())
         except Exception as exc:  # noqa: BLE001 - shown on the job
             result = {"ok": False, "status": "error", "message": str(exc)}
         ok = bool(result.get("ok"))
@@ -3313,14 +3327,15 @@ def create_app(
 
     @app.get("/api/backfill")
     def get_backfill() -> dict[str, Any]:
-        from . import backfill, copypack
+        from . import backfill, copypack, publish_desk
 
         videos, links, records = _backfill_state()
         me = store.self_account()
         median = store.account_median(me["id"]) if me else None
         rows_all = {p["key"]: p for p in _platform_rows()}
         on = {k: p for k, p in rows_all.items() if p.get("on") and k != "douyin"} or rows_all  # 除抖音外一个都没标开通时，全部列出
-        keys = tuple(k for k in backfill.PLATFORMS if k in on)
+        # 列按发布顺序排（9/29：全平台追踪，和发布台同一个顺序）
+        keys = tuple(k for k in publish_desk.SEQUENCE if k in backfill.PLATFORMS and k in on)
         rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median, platforms=keys)
         topics = {t["id"]: t for t in store.topics(include_archived=True)}
         for r in rows:
@@ -3331,7 +3346,9 @@ def create_app(
             r["video"] = "master" if has_master and t.get("video_project") else "download" if (has_master or _backfill_file(r["video_id"])) else None
             r["download"] = dl or None
         return {
-            "platforms": [{"key": k, "label": on[k].get("label", k), "kind": backfill.KIND[k], "missing": sum(1 for r in rows if k in r["missing"])} for k in keys],
+            # 抖音排第一列：每条内容都从抖音来，这一列就是它在抖音上的链接
+            "platforms": [{"key": "douyin", "label": "抖音", "kind": "视频", "missing": 0}]
+            + [{"key": k, "label": on[k].get("label", k), "kind": backfill.KIND[k], "missing": sum(1 for r in rows if k in r["missing"])} for k in keys],
             "videos": rows,
             "order": "按发布时间从新到旧",
         }

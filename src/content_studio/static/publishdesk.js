@@ -243,8 +243,8 @@ function fitReplicas(root) {
 /* ================= 瓦片 ================= */
 function stateOf(p) {
   if (p.shipped) return ['已发', 'ok'];
-  if (p.job && p.job.state === 'running') return p.treatment === 'semi' ? ['窗口开着', 'hot'] : ['发布中', 'hot'];
-  if (p.job && p.job.state === 'awaiting_confirm' && p.treatment !== 'semi') return ['等你确认', 'hot'];
+  if (p.job && p.job.state === 'running') return ['发布中', 'hot'];
+  if (p.job && p.job.state === 'awaiting_confirm') return ['等你确认', 'hot'];
   if (p.job && p.job.state === 'failed') return ['上次失败', 'warn'];
   if (!p.on) return ['没接这个号', ''];
   return PD_STATE[p.state] || [p.state, ''];
@@ -252,23 +252,20 @@ function stateOf(p) {
 
 function tileAction(p, d) {
   if (p.shipped) return `<button class="btn small ghost" type="button" data-pd-open="${p.key}">看记录</button>`;
-  if (p.job && p.job.state === 'running' && p.treatment === 'semi') return `<button class="btn small primary" type="button" data-pd-open="${p.key}"><span class="spin"></span> 等你在抖音点发布</button>`;
-  if (p.job && p.job.state === 'awaiting_confirm' && p.treatment !== 'semi') return `<button class="btn small primary" type="button" data-pd-open="${p.key}">去确认</button>`;
+  if (p.job && p.job.state === 'awaiting_confirm') return `<button class="btn small primary" type="button" data-pd-open="${p.key}">去确认</button>`;
   if (p.job && p.job.state === 'running') return `<button class="btn small" type="button" data-pd-open="${p.key}"><span class="spin"></span> 发布中</button>`;
   if (!d.topic) return '';
   if (p.treatment === 'handoff') return `<button class="btn small" type="button" data-pd-open="${p.key}">${p.handoff_done ? '已交接 · 去发' : '交给流水线'}</button>`;
-  if (p.treatment === 'semi' && p.can_auto && d.video) return `<button class="btn small primary" type="button" data-pd-open="${p.key}">填好等你发</button>`;
   if (p.can_auto && (d.video || p.no_video)) return `<button class="btn small primary" type="button" data-pd-open="${p.key}">机器发</button>`;
   return `<button class="btn small" type="button" data-pd-open="${p.key}">${p.admin ? '复制文案去发' : '打开'}</button>`;
 }
 
 function tile(p, d) {
   const [label, cls] = stateOf(p);
-  const semi = p.treatment === 'semi';
-  const live = p.job && (p.job.state === 'running' || (p.job.state === 'awaiting_confirm' && !semi));
+  const live = p.job && (p.job.state === 'running' || p.job.state === 'awaiting_confirm');
   const stamp = p.shipped ? `<span class="pub-stamp">✓ 已发${p.record && p.record.published_at ? ' · ' + day(p.record.published_at) : ''}</span>`
-    : p.job && p.job.state === 'running' ? `<span class="pub-stamp live">${semi ? '窗口开着' : '发布中'}</span>`
-      : p.job && p.job.state === 'awaiting_confirm' && !semi ? '<span class="pub-stamp wait">等你确认</span>' : '';
+    : p.job && p.job.state === 'running' ? '<span class="pub-stamp live">发布中</span>'
+      : p.job && p.job.state === 'awaiting_confirm' ? '<span class="pub-stamp wait">等你确认</span>' : '';
   const steps = d.platforms.filter((x) => x.on);
   const n = steps.indexOf(p) + 1;
   const isNext = d.topic && d.next === p.key;
@@ -380,6 +377,11 @@ window.VIEWS.publish = {
     // 发不了的时候，说清最近那条卡在哪，别只说「没有」。
     const others = (d.others || []).length
       ? `<details class="pub-others"><summary>我已经有成片了，工作台还不知道</summary><div class="pub-topics">${d.others.map((c) => chip(c, null)).join('')}</div></details>` : '';
+    if (!d.topic && !d.waiting) {
+      // 9/29：手上这条发完了、也没有下一条在路上 → 直接看全平台追踪
+      go('backfill');
+      return;
+    }
     if (!d.topic) {
       const w = d.waiting;
       body.innerHTML = `<div class="pub-empty"><b>还没有能发的成片</b>
@@ -474,7 +476,7 @@ function sideFor(p, d) {
 function sideCore(p, d) {
   const t = d.topic;
   // 自动、扫码的平台发完自己记；只有手动传的才要「复制」和「记一笔」
-  const manualish = p.treatment === 'manual' || p.treatment === 'semi' || p.state === 'blocked' || p.state === 'stale' || p.state === 'setup';
+  const manualish = p.treatment === 'manual' || p.state === 'blocked' || p.state === 'stale' || p.state === 'setup';
   const field = (label, value, hint) => value
     ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-copy="${esc(value)}">复制</button></div>` : '';
   const fields = !manualish ? '' : d.has_copy ? `<h4>这个平台该填什么</h4><div class="pdl-fields">
@@ -482,9 +484,12 @@ function sideCore(p, d) {
       ${field(p.key === 'wechat_mp' ? '正文开头' : p.key === 'x' ? '推文' : '简介', p.fill.body, `最多 ${p.caps.body} 字`)}
       ${field('话题', p.fill.tags.map((x) => '#' + x).join(' '), `最多 ${p.caps.tags} 个`)}
     </div>` : '';
+  // 抖音、视频号这类手动传的：一键弹开装好视频和封面的文件夹，文案在下面复制（9/29 Park）
+  const kit = { douyin: '视频 + 竖封面 + 横封面', channels: '视频 + 竖封面', bilibili: '视频 + 16:9 封面', youtube: '视频 + 16:9 封面' }[p.key];
   const manual = `<div class="pdl-acts">
+      ${kit && d.video ? `<button class="btn primary" type="button" id="pdlFolder">打开上传文件夹（${kit}）</button>` : ''}
       ${d.has_copy ? '<button class="btn" type="button" id="pdlCopyAll">复制全部文案</button>' : ''}
-      ${p.admin ? `<a class="btn primary" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" ${p.key === 'xiaohongshu' ? 'data-xhs-open' : ''}>打开${esc(p.label)}上传 ↗${p.key === 'xiaohongshu' ? '（同时打开图片文件夹）' : ''}</a>` : ''}
+      ${p.admin ? `<a class="btn ${kit && d.video ? '' : 'primary'}" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" ${p.key === 'xiaohongshu' ? 'data-xhs-open' : ''}>打开${esc(p.label)}上传 ↗${p.key === 'xiaohongshu' ? '（同时打开图片文件夹）' : ''}</a>` : ''}
     </div>`;
   const mark = !manualish ? '' : `<div class="pdl-mark"><h4>发完了？记一笔</h4><input id="pdlUrl" placeholder="${esc(p.label)}的链接（可留空）" autocomplete="off"><button class="btn" type="button" id="pdlMark">标为已发</button></div>`;
   const hist = (d.platforms.find((x) => x.key === p.key) || {}).job;
@@ -497,11 +502,10 @@ function sideCore(p, d) {
         ${p.record ? '<button class="linklike" type="button" id="pdlUnmark">记错了，撤销</button>' : ''}</div>
       ${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}`;
   }
-  if (p.treatment === 'semi') return semiCore(p, d, { manual, mark, history, fields });
   // 存完草稿：工作台不知道他后来在后台发没发。请他发完回来点一下、贴链接（9/29 Park）
   if (p.job && p.job.draft) {
     return `<div class="pdl-draft"><b>✓ 草稿已存进${esc(p.label)}</b><small>${day(p.job.created_at)}</small>
-        <p>去${esc(p.label)}后台看一眼、点发布。发出去以后回来点「发出去了」，把链接贴在这里——它会存进「已发出 → 链接」。</p>
+        <p>去${esc(p.label)}后台看一眼、点发布。发出去以后回来点「发出去了」，把链接贴在这里——它会进「全平台追踪」那张表。</p>
         <input id="pdlUrl" value="${esc(p.job.draft_link || '')}" placeholder="${esc(p.label)}的链接（发出去以后的那个）" autocomplete="off">
         <div class="pdl-acts">${p.admin ? `<a class="btn" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center">打开${esc(p.label)}后台 ↗</a>` : ''}<button class="btn primary" type="button" id="pdlMark">发出去了</button></div>
         ${p.job.draft_link ? '<small>链接已经按视频编号填好了，公开以后就能打开。</small>' : ''}
@@ -555,33 +559,6 @@ function sideCore(p, d) {
       ? `<p class="pdl-note">小红书发图文：按顺序传打包里定稿的那组图，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhsSend" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
-}
-
-/* 抖音半自动（9/29 Park）：机器开一个 Chrome，传视频、传封面、填好标题和描述，停在「发布」前。
-   这里一次点击就开窗口，不再弹「确认发布」——它不会发出去，最后一下是 Park 在抖音里点的。 */
-function semiCore(p, d, { manual, mark, history, fields }) {
-  const c = (d.release && d.release.covers) || {};
-  const fallback = `<div class="pdl-acts">${d.has_copy ? '<button class="btn" type="button" id="pdlCopyGo">复制文案去抖音手动传</button>' : ''}</div>`;
-  const tail = `${mark}<div id="pdlDouyin"></div>${history}${fields}`;
-  let block;
-  if (p.job && p.job.state === 'running') {
-    block = `<div class="pn-confirm running"><span class="spin"></span> ${esc(p.job.message || '正在打开 Chrome…')}</div>
-      <p class="pdl-note">在弹出的 Chrome 里看一眼，没问题就点「发布」。点完这里自动记为已发；不想发，直接关掉那个窗口。</p>`;
-    return `<h4>${esc(p.treatment_label)}</h4>${block}${tail}`;
-  }
-  if (p.state === 'setup') {
-    block = `<p class="pdl-note"><b>${esc(p.note)}</b></p>${manual}`;
-  } else if (!d.has_copy) {
-    block = '<p class="pdl-note">先在打包里写好标题和描述，机器才知道填什么。</p>';
-  } else if (!d.video) {
-    block = `<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以一键填好。</p>${fallback}`;
-  } else {
-    const covers = c.landscape && c.portrait ? '横版、竖版封面都传' : c.landscape || c.portrait ? `只有${c.landscape ? '横版' : '竖版'}封面，另一张抖音自己选` : '这条还没做封面，抖音会自己挑一帧';
-    block = `<p class="pdl-note">会开一个 Chrome 窗口，传视频、传封面、填好标题和描述，停在「发布」前，最后一下你点。</p>
-      <p class="pdl-note"><small>${esc(d.video.name)}（${d.video.mb} MB）· ${covers}${/第一次/.test(p.note || '') ? ' · 第一次要在窗口里扫码登录抖音' : ''}</small></p>
-      <div class="pdl-acts"><button class="btn primary" type="button" data-pd-semi="fill">${esc(p.modes.fill || '打开抖音，填好等你点发布')}</button></div>${fallback}`;
-  }
-  return `<h4>${esc(p.treatment_label)}</h4>${block}${tail}`;
 }
 
 /* 配图（小黑手绘，Codex 画）：文字版都过一遍。写完文章会自动配；这里看进度、看图、重配。 */
@@ -759,8 +736,13 @@ function renderDialog() {
   const refresh = async () => { PD.data = null; $('#publishBody').dataset.sig = ''; try { await loadDesk(true); } catch (err) { toast(err.message); } renderView(); };
   $$('[data-copy]', dlg).forEach((b) => (b.onclick = () => navigator.clipboard.writeText(b.dataset.copy).then(() => toast('已复制'), () => toast('复制失败'))));
   const all = $('#pdlCopyAll', dlg); if (all) all.onclick = () => copyAll(p);
-  const copyGo = $('#pdlCopyGo', dlg);
-  if (copyGo) copyGo.onclick = () => { copyAll(p); if (p.admin) window.open(p.admin, '_blank', 'noopener'); };
+  const folderBtn = $('#pdlFolder', dlg);
+  if (folderBtn) folderBtn.onclick = async () => {
+    try {
+      const r = await api(`/api/topics/${t.id}/upload-folder`, { method: 'POST', body: { platform: p.key } });
+      toast(`文件夹打开了：${r.files.join('、')}${r.missing.length ? `（缺${r.missing.join('、')}）` : ''}`);
+    } catch (err) { toast(err.message); }
+  };
   const mark = $('#pdlMark', dlg);
   if (mark) mark.onclick = async () => {
     const url = $('#pdlUrl', dlg).value.trim() || null;
@@ -803,15 +785,6 @@ function renderDialog() {
   $$('[data-pj-prepare]', dlg).forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     try { await api(`/api/topics/${t.id}/publish-jobs`, { method: 'POST', body: { platform: p.key, mode: b.dataset.pjPrepare } }); await refresh(); } catch (err) { toast(err.message); b.disabled = false; }
-  }));
-  $$('[data-pd-semi]', dlg).forEach((b) => (b.onclick = async () => {
-    b.disabled = true; b.textContent = '正在打开 Chrome…';
-    try {
-      const r = await api(`/api/topics/${t.id}/publish-jobs`, { method: 'POST', body: { platform: p.key, mode: b.dataset.pdSemi } });
-      await api(`/api/publish-jobs/${r.job.id}/confirm`, { method: 'POST' });
-      toast('Chrome 窗口马上打开，填好会停在「发布」前');
-      await refresh();
-    } catch (err) { toast(err.message); b.disabled = false; b.textContent = p.modes.fill || '打开抖音，填好等你点发布'; }
   }));
   $$('[data-pj-confirm]', dlg).forEach((b) => (b.onclick = async () => {
     if (!confirm(`确认发布到${p.label}？这会把内容提交到平台。`)) return;
