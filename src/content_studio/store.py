@@ -523,9 +523,6 @@ class StudioStore:
                     changed += 1
         return changed
 
-    def all_publish_records(self) -> list[dict[str, Any]]:
-        return self._rows("SELECT * FROM publish_records ORDER BY published_at DESC")
-
     def publish_records(self, topic_id: int) -> dict[str, dict[str, Any]]:
         return {r["platform"]: r for r in self._rows("SELECT * FROM publish_records WHERE topic_id = ?", (topic_id,))}
 

@@ -1,5 +1,6 @@
-/* 03 发布 · 补发队列：抖音发过、别的平台还没发的旧视频。
- * 这里只排队和接管；真正发布走发布台，每个平台照旧要 Park 点确认。 */
+/* 04 发布 · 全平台追踪（9/29 以前叫「补发队列」）：每条内容发在了哪些平台，一张表看全貌，每格能点开链接。
+ * 没发齐的可以「拿去补发」；真正发布走打包 → 发布台，每个平台照旧要 Park 点确认。
+ * 发布台上的这一条发完了，就回到这张表（Park：「finished the current item, then I should see the full tracking sheet」）。 */
 window.VIEWS = window.VIEWS || {};
 
 const BF = { data: null, busy: {}, poll: null };
@@ -10,7 +11,7 @@ window.refreshBackfillCount = async () => { try { await loadBackfill(); } catch 
 function paintPubSubnav() {
   const n = BF.data ? BF.data.videos.filter((v) => v.missing.length).length : null;
   $$('[data-pubnav]').forEach((nav) => {
-    nav.innerHTML = [['publish', '这一条'], ['backfill', `补发队列${n ? ` <span class="num">${n}</span>` : ''}`]]
+    nav.innerHTML = [['publish', '这一条'], ['backfill', `全平台追踪${n ? ` <span class="num" title="还有平台没发的条数">${n}</span>` : ''}`]]
       .map(([k, l]) => `<button type="button" class="${S.view === k ? 'on' : ''}" data-pubgo="${k}">${l}</button>`).join('');
     $$('[data-pubgo]', nav).forEach((b) => (b.onclick = () => go(b.dataset.pubgo)));
   });
@@ -18,15 +19,18 @@ function paintPubSubnav() {
 window.paintPubSubnav = paintPubSubnav;
 
 function bfCell(v, p) {
+  const url = (v.links || {})[p.key];
+  if (p.key === 'douyin') return `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="在抖音上打开">↗</a>`;
   const st = v.done[p.key];
-  if (st === 'record') return `<span class="bf-dot on" title="${esc(p.label)}：发布台记过已发">✓</span>`;
+  if (st === 'record' && url) return `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(p.label)}：${esc(url)}">↗</a>`;
+  if (st === 'record') return `<span class="bf-dot on" title="${esc(p.label)}：发过了，没记链接">✓</span>`;
   if (st === 'mark') return `<button class="bf-dot on mark" type="button" data-bfunmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：你标过已经发过，点一下撤回">✓</button>`;
   return `<button class="bf-dot" type="button" data-bfmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：还没发。在工作台外面发过的，点一下标成已发">·</button>`;
 }
 
 /* 每条只有一个按钮，永远是下一步：没有成片 → 先下成片；正在下 → 等；有了 → 拿去补发。 */
 function bfNext(v) {
-  if (!v.missing.length) return v.topic_id ? `<button class="linklike" type="button" data-bfopen="${v.topic_id}">看发布台 →</button>` : '';
+  if (!v.missing.length) return '';
   const has = v.video === 'master' || v.video === 'download';
   const d = v.download;
   if (!has && d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下成片…</span>';
@@ -47,16 +51,13 @@ window.VIEWS.backfill = {
     const d = BF.data;
     const cols = d.platforms;
     const todo = d.videos.filter((v) => v.missing.length);
-    const done = d.videos.filter((v) => !v.missing.length);
-    $('#backfillFigs').innerHTML = `<div class="pub-figs">${cols.map((p) => `<span>${esc(p.label)} 缺 <b>${p.missing}</b></span>`).join('')}</div>`;
-    const kinds = []; cols.forEach((p) => { const last = kinds[kinds.length - 1]; if (last && last.kind === p.kind) last.n += 1; else kinds.push({ kind: p.kind, n: 1 }); });
+    $('#backfillFigs').innerHTML = `<div class="pub-figs"><span>${d.videos.length} 条内容 · ${todo.length} 条还有平台没发</span><button class="btn small" type="button" id="bfCsv">下载表格</button></div>`;
     const row = (v) => `<tr>
       <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${day(v.published_at)} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
         <div class="bf-acts">${bfNext(v)}</div></td>
       ${cols.map((p) => `<td class="c">${bfCell(v, p)}</td>`).join('')}
     </tr>`;
-    const head = `<tr class="bf-kinds"><th></th>${kinds.map((k) => `<th class="c kind" colspan="${k.n}">${esc(k.kind)}</th>`).join('')}</tr>
-      <tr><th>抖音发过的</th>${cols.map((p) => `<th class="c">${esc(p.label)}</th>`).join('')}</tr>`;
+    const head = `<tr><th>内容</th>${cols.map((p) => `<th class="c">${esc(p.label)}</th>`).join('')}</tr>`;
     const a = BF.archive || {};
     const p = a.progress || {};
     const running = p.state === 'downloading';
@@ -70,9 +71,15 @@ window.VIEWS.backfill = {
       <small>按时长和日期在本机找原片，不从抖音下。以后每次同步发现新视频，也只在本机找。</small>`;
     body.innerHTML = `
       <div class="panel bf-archive">${strip}</div>
-      <p class="in-note">没东西拍的那天，从上往下挑一条：作品库里有成片的，点「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。缺成片的在另一台电脑上，拷进来后点上面「在本机再找一遍」。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。文字平台和小红书图文用文章版：在「打包」里写，用这条视频的逐字稿；封面、标题、描述也在那里做。小宇宙发音频。</p>
-      <div class="panel bf-tbl"><table><colgroup><col>${cols.map(() => '<col class="bf-pcol">').join('')}</colgroup><thead>${head}</thead><tbody>${todo.map(row).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">都补齐了。</td></tr>`}</tbody></table></div>
-      ${done.length ? `<details class="panel bf-done"><summary>已经补齐 <span class="num">${done.length}</span></summary><table><tbody>${done.map(row).join('')}</tbody></table></details>` : ''}`;
+      <p class="in-note">${esc(d.order)}。↗ 点开就是那个平台上的这一条；· 是还没发，在工作台外面发过的点一下标成已发。没发齐、作品库里有成片的，点「拿去补发」，先进打包定稿，再到发布台发。</p>
+      <div class="panel bf-tbl"><table><colgroup><col>${cols.map(() => '<col class="bf-pcol">').join('')}</colgroup><thead>${head}</thead><tbody>${d.videos.map(row).join('')}</tbody></table></div>`;
+    const csvBtn = $('#bfCsv');
+    if (csvBtn) csvBtn.onclick = () => {
+      const q = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+      const lines = [['内容', '发布日期', ...cols.map((c) => c.label)], ...d.videos.map((v) => [v.headline || v.title, (v.published_at || '').slice(0, 10), ...cols.map((c) => (v.links || {})[c.key] || (v.done[c.key] ? '已发' : ''))])];
+      const blob = new Blob(['\ufeff' + lines.map((l) => l.map(q).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a2 = document.createElement('a'); a2.href = URL.createObjectURL(blob); a2.download = `全平台追踪-${new Date().toISOString().slice(0, 10)}.csv`; a2.click(); URL.revokeObjectURL(a2.href);
+    };
     const mark = async (vid, p, doneFlag) => { try { await api(`/api/backfill/${vid}/mark`, { method: 'POST', body: { platform: p, done: doneFlag } }); await loadBackfill(); renderView(); } catch (err) { toast(err.message); } };
     $$('[data-bfmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfmark, b.dataset.p, true)));
     $$('[data-bfunmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfunmark, b.dataset.p, false)));

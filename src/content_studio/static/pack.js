@@ -137,7 +137,7 @@ function paintApproval(it) {
   const isLocked = it.state === 'lock';
   body.classList.toggle('pk-locked', isLocked);
   $('.pk-lock', body).innerHTML = isLocked
-    ? `<div class="pk-lockbar"><b>✓ 已定稿</b><small>${a.at ? new Date(a.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''} · 锁住了，下一步照这一版做</small><span class="spacer"></span><button class="linklike" type="button" data-unlock="${it.key}">改这一步</button></div>` : '';
+    ? `<div class="pk-lockbar"><b>✓ 已定稿</b><small>${a.at ? new Date(a.at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''} · 锁住了，下一步照这一版做</small><span class="spacer"></span><button class="btn small" type="button" data-unlock="${it.key}">✎ 改这一步</button></div>` : '';
   const canApprove = !isLocked && a.made && PK_APPROVE[it.key] && (!dep || locked(d, dep)) && it.state !== 'wip';
   $('.pk-approve', body).innerHTML = canApprove
     ? `<button class="btn primary" type="button" data-approve="${it.key}">${PK_APPROVE[it.key]}</button><small>这一版就用它：锁住、收起来，下一步才开始。想改再点「改这一步」。</small>`
@@ -352,7 +352,7 @@ window.VIEWS.pack = {
       const w = d.waiting;
       body.innerHTML = `<div class="pub-empty"><b>还没有能打包的成片</b>
         ${w ? `<span>最近的一条是《${esc(w.title)}》，还在<b>${esc(w.stage_label || w.stage)}</b>。成片出现在项目 final/ 里，它就会出现在这儿。</span>
-          <button class="btn small" type="button" data-pk-work="${w.id}">去看这一条 →</button>` : '<span>「加工中」里的一条剪完，就会出现在这里。</span>'}</div>`;
+          <button class="btn small" type="button" data-pk-work="${w.id}">去看这一条 →</button>` : '<span>手上的都发完了。「加工中」里的下一条剪完，就会出现在这里。</span><button class="btn small" type="button" onclick="go(\'backfill\')">看全平台追踪 →</button>'}</div>`;
       $$('[data-pk-work]', body).forEach((b) => (b.onclick = () => openWork(Number(b.dataset.pkWork))));
       return;
     }

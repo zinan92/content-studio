@@ -408,6 +408,24 @@ def test_rewriting_an_existing_article_needs_an_instruction(client: TestClient) 
     assert client.get(f"/api/topics/{topic['id']}/article").json().get("instruction") == "短一点"
 
 
+def test_upload_folder_holds_the_video_and_both_covers(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """9/29：抖音点上传，就弹开一个文件夹，里面只有这次要传的视频和竖、横封面（硬链接，不多占硬盘）。"""
+    monkeypatch.setenv("CONTENT_STUDIO_NO_OPEN", "1")
+    root = tmp_path / "videos"
+    base = root / "2026-09-28_流量"
+    (base / "final" / "covers").mkdir(parents=True)
+    (base / "final" / "成片.mp4").write_bytes(b"0" * 64)
+    (base / "final" / "covers" / "t-竖封面.png").write_bytes(b"p")
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "流量", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": base.name})
+    got = client.post(f"/api/topics/{topic['id']}/upload-folder", json={"platform": "douyin"}).json()
+    folder = Path(got["folder"])
+    assert folder.name == "上传-抖音" and sorted(got["files"]) == ["竖封面.png", "视频.mp4"] and got["missing"] == ["横封面"]
+    assert (folder / "视频.mp4").stat().st_ino == (base / "final" / "成片.mp4").stat().st_ino
+    assert client.post(f"/api/topics/{topic['id']}/upload-folder", json={"platform": "x"}).status_code == 400
+
+
 def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
     root = tmp_path / "vault3"
     (root / "003_park原始输出").mkdir(parents=True)
@@ -1432,10 +1450,12 @@ def test_backfill_queue_mark_and_take_never_download_or_publish(client: TestClie
     client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
     _wait_sync(client)
     q = client.get("/api/backfill").json()
-    keys = [p["key"] for p in q["platforms"]]
-    assert keys and "douyin" not in keys and set(keys) <= set(backfill_mod.PLATFORMS)
+    # 9/29 全平台追踪：抖音排第一列（每条都在抖音上，不算缺）
+    assert q["platforms"][0]["key"] == "douyin"
+    keys = [p["key"] for p in q["platforms"]][1:]
+    assert keys and set(keys) <= set(backfill_mod.PLATFORMS)
     first = q["videos"][0]
-    assert first["missing"] == keys and first["video"] is None
+    assert first["missing"] == keys and first["video"] is None and first["links"]["douyin"].startswith("https://www.douyin.com/video/")
 
     assert client.post(f"/api/backfill/{first['video_id']}/mark", json={"platform": "youtube"}).json()["ok"]
     assert client.post(f"/api/backfill/{first['video_id']}/mark", json={"platform": "nope"}).status_code == 400

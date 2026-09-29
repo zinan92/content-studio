@@ -98,8 +98,8 @@ function bindTeardownButtons(root) {
 /* ================= state & routing ================= */
 window.VIEWS = window.VIEWS || {};
 const CORE_VIEWS = ['mine', 'radar', 'report', 'settings'];
-const OUTPUT_FAMILY = ['output', 'mine', 'links', 'radar', 'report'];
-const SUBNAV = [['output', '概览'], ['mine', '总览'], ['links', '链接'], ['radar', '对标雷达'], ['report', '拆解报告']];
+const OUTPUT_FAMILY = ['output', 'mine', 'radar', 'report'];
+const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷达'], ['report', '拆解报告']];
 const S = {
   view: 'positioning',
   workId: null,
@@ -260,7 +260,7 @@ const PLAT_STATE = { linked: '已连接', ready: '凭据就绪', stale: '要重�
 function renderPlatformStrip() {
   const box = $('#platStrip');
   if (!box) return;
-  box.innerHTML = S.platforms.map((p) => {
+  box.innerHTML = S.platforms.filter((p) => p.on !== false).map((p) => {
     const title = `${p.label} · ${PLAT_STATE[p.state] || p.state}${p.note ? ' · ' + p.note : ''}`;
     const style = p.state === 'manual' || p.state === 'blocked' ? '' : ` style="--plat:${esc(p.hue)}"`;
     const warn = p.state === 'stale' || p.state === 'setup' ? '<b class="plat-warn">!</b>' : '';

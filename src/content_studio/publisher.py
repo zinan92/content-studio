@@ -12,8 +12,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
-import threading
 from typing import Any, Callable
 
 from . import conf
@@ -26,8 +24,6 @@ RUN_TIMEOUT_SECONDS = 45 * 60
 
 XINGQIU = conf.path("paths.xingqiu")
 # 抖音半自动用的 Chrome 配置：独立一份，不碰 Park 平时的 Chrome，也不和读作品列表的那份（douyin-chrome）抢
-DOUYIN_PROFILE = config_dir() / "douyin-publish-chrome"
-DOUYIN_FILL = Path(__file__).with_name("douyin_fill.py")
 
 
 def _secret(section: str, key: str) -> str:
@@ -52,24 +48,6 @@ def _gzh_html(article: str) -> str:
 # 9/29 Park：「都推到草稿箱，我再确认几天再说。」每个通道只留存草稿（YouTube 是私享），
 # 直接发布 / 公开的模式先拿掉；最后一下他在平台后台自己点。
 PUBLISHERS: dict[str, dict[str, Any]] = {
-    "douyin": {
-        "label": "抖音",
-        "copy_key": "douyin",
-        # 9/29 Park：抖音以前就是半自动——开网页后台，传视频、传封面、填标题介绍都自动，最后点「发布」
-        # 那一下他自己来。脚本停在「发布」前，永远不替他点；窗口一直开着，等他点完或关掉。
-        "semi": True,
-        "login_in_window": True,  # 登录就在弹出的窗口里扫码，没有要提前准备的 cookie 文件
-        "interactive": True,  # 边跑边报进度：「窗口已打开，等你在抖音点发布」
-        "timeout": 3 * 3600,
-        "credential": DOUYIN_PROFILE,
-        "login_hint": "第一次会在弹出的 Chrome 里让你扫码登录抖音，之后一直记着",
-        "modes": {
-            "fill": {"label": "打开抖音，填好等你点发布", "argv": [
-                str(PUBLISH_ROOT / ".venv/bin/python"), str(DOUYIN_FILL), "--toolkit", str(PUBLISH_ROOT), "--profile", str(DOUYIN_PROFILE),
-                "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}",
-                "--cover-landscape", "{cover}", "--cover-portrait", "{cover_portrait}"]},
-        },
-    },
     "channels": {
         "label": "视频号",
         "needs": ("playwright",),
@@ -333,60 +311,7 @@ def parse_result(stdout: str) -> dict[str, Any]:
     return {}
 
 
-def _progress(line: str) -> dict[str, Any] | None:
-    """脚本边跑边报的一行：{"progress": "..."}。不是这种的都不算。"""
-    line = line.strip()
-    if not line.startswith("{"):
-        return None
-    try:
-        value = json.loads(line)
-    except ValueError:
-        return None
-    return value if isinstance(value, dict) and "progress" in value else None
-
-
-def _run_streaming(argv: list[str], *, env: dict[str, str] | None, timeout: float,
-                   on_progress: Callable[[dict[str, Any]], None] | None) -> dict[str, Any]:
-    """窗口开着等 Park 的通道：一行一行读，进度当场交出去；最后一行才是结果。
-
-    stderr 写进临时文件而不是管道：工具箱的日志很多，管道写满了脚本会卡死。
-    """
-    killed = threading.Event()
-    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
-        try:
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=err, text=True, env=env,
-                                    cwd=str(CONTENT_OPS) if CONTENT_OPS.is_dir() else None)
-        except OSError as exc:
-            return {"ok": False, "status": "command_missing", "message": f"找不到发布脚本：{exc}"}
-        timer = threading.Timer(timeout, lambda: (killed.set(), proc.kill()))
-        timer.start()
-        kept: list[str] = []
-        try:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                event = _progress(line)
-                if event is None:
-                    kept.append(line)
-                elif on_progress:
-                    try:
-                        on_progress(event)
-                    except Exception:  # noqa: BLE001 - a progress hiccup must not stop the window
-                        pass
-            proc.wait()
-        finally:
-            timer.cancel()
-        if killed.is_set():
-            return {"ok": False, "status": "timeout", "message": f"等了 {int(timeout // 3600)} 小时，窗口已关掉"}
-        result = parse_result("".join(kept))
-        if not result:
-            err.seek(0)
-            result = {"ok": False, "status": "no_result", "message": err.read().strip()[-400:]}
-        result.setdefault("ok", proc.returncode == 0)
-        return result
-
-
-def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBLISHERS, timeout: float | None = None,
-        on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBLISHERS, timeout: float | None = None) -> dict[str, Any]:
     argv = command_for(payload, publishers)
     spec = publishers[payload["platform"]]
     timeout = timeout or spec.get("timeout") or RUN_TIMEOUT_SECONDS
@@ -395,8 +320,6 @@ def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBL
     if wanted:
         # 钥匙走环境变量，不进命令行参数（ps 里看得见）
         env = {**os.environ, **{name: _secret(*where) for name, where in wanted.items()}}
-    if spec.get("interactive"):
-        return _run_streaming(argv, env=env, timeout=timeout, on_progress=on_progress)
     try:
         completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env,
                                    cwd=str(CONTENT_OPS) if CONTENT_OPS.is_dir() else None)
