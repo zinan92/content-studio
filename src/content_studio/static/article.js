@@ -34,7 +34,7 @@ function refreshWorkTab() {
 
 window.VIDEO_TABS.push({
   key: 'article',
-  label: '研习室文章',
+  label: 'X 图文文章',
   badge: (t) => (t.write_state === 'running' ? '写作中' : t.article_path ? '已写' : ''),
   async render(topic, body) {
     if (AR.dirty && AR.topicId === topic.id && body.querySelector('#artText')) return; // never overwrite unsaved edits
@@ -45,7 +45,7 @@ window.VIDEO_TABS.push({
       if (topic.write_state === 'running') {
         main = `<div class="empty"><span class="spin"></span><b>卡兹克写作正在写《${esc(topic.title)}》</b><span>照视频字幕（SRT）写，一般 1–5 分钟。写完自动出现在这里，可以先去做别的。</span></div>`;
       } else if (!topic.article_path) {
-        main = `<div class="empty"><b>把这条写成研习室文章</b>${topic.write_state === 'failed' ? `<span class="err">${esc(topic.write_error || '写作失败')}</span>` : ''}<span>${topic.video_project || topic.published_video_id ? '以这条视频的原话为主，' : ''}${topic.note_paths.length ? `加上选题关联的 ${topic.note_paths.length} 条 Obsidian 笔记，` : ''}交给卡兹克写作 skill 写成文字版。作者是你，不会带卡兹克的署名。${topic.formats === 'video' ? '（这条原来只做视频，点了之后改成「文章 + 视频」）' : ''}</span><button class="btn primary" type="button" data-write="${topic.id}">${topic.write_state === 'failed' ? '重写' : '写文章'}</button></div>`;
+        main = `<div class="empty"><b>把这条写成文字版（X 图文文章）</b>${topic.write_state === 'failed' ? `<span class="err">${esc(topic.write_error || '写作失败')}</span>` : ''}<span>${topic.video_project || topic.published_video_id ? '以这条视频的原话为主，' : ''}${topic.note_paths.length ? `加上选题关联的 ${topic.note_paths.length} 条 Obsidian 笔记，` : ''}交给卡兹克写作 skill 写成文字版。作者是你，不会带卡兹克的署名。${topic.formats === 'video' ? '（这条原来只做视频，点了之后改成「文章 + 视频」）' : ''}</span><button class="btn primary" type="button" data-write="${topic.id}">${topic.write_state === 'failed' ? '重写' : '写文章'}</button></div>`;
       } else if (AR.draft && AR.draft.error) {
         main = `<div class="empty"><b>${esc(AR.draft.error)}</b></div>`;
       } else if (AR.draft) {

@@ -1156,7 +1156,10 @@ def create_app(
                 recs["douyin"] = {**recs["douyin"], "url": t["published_url"], "issue": None}
             rows.append({"id": topic_id, "title": t["title"], "first": min(v["published_at"] for v in recs.values()), "links": recs})
         rows.sort(key=lambda r: r["first"], reverse=True)
-        platforms = [{"key": k, "label": (copypack.PLATFORMS.get(k) or {}).get("label", k)} for k in publish_desk.SEQUENCE]
+        opened = store.settings().get("platform_accounts") or {}
+        # 设置里关掉的平台不占一列（9/29 研习室、小宇宙先关掉）；以前的记录还在，打开平台就回来
+        platforms = [{"key": k, "label": (copypack.PLATFORMS.get(k) or {}).get("label", k)} for k in publish_desk.SEQUENCE
+                     if (opened.get(k) or {}).get("on", True)]
         return {"platforms": platforms, "rows": rows}
 
     @app.get("/api/reach")

@@ -82,7 +82,9 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
   const traffic = { ...trafficTags() };
   const f = copyFields(d.copy, traffic);
   const cover = release && release.cover_urls && (release.cover_urls.portrait || release.cover_urls.landscape);
-  const label = (keys) => keys.filter((k) => specs[k]).map((k) => specs[k].label).join(' / ');
+  // 设置里关掉的平台（9/29 研习室、小宇宙）不列出来
+  const enabled = (k) => { const m = (S.platforms || []).find((x) => x.key === k); return !m || m.on !== false; };
+  const label = (keys) => keys.filter((k) => specs[k] && enabled(k)).map((k) => specs[k].label).join(' / ');
   el.innerHTML = `<div class="cf">
     <div class="cf-form">
       <div class="cf-tools">
