@@ -84,9 +84,10 @@ def _job_view(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# 发布顺序（Park 9/27）：抖音发完，视频号 → B 站 → YouTube；再做图文和文字：小红书 → 公众号 → 研习室 → X；最后小宇宙。
+# 发布顺序（Park 9/29）：抖音 → 视频号 → B 站 → YouTube → X → 小红书 → 公众号。X 不用排版先发，公众号要排版放最后。
+# 研习室、小宇宙 9/29 先关掉（设置里平台开关），排在最后，打开时照这个位置出现。
 # 发布台按这个顺序排，一次只亮「下一步」，不用自己想下一个去哪。
-SEQUENCE = ("douyin", "channels", "bilibili", "youtube", "xiaohongshu", "wechat_mp", "miniprogram", "x", "xiaoyuzhou")
+SEQUENCE = ("douyin", "channels", "bilibili", "youtube", "x", "xiaohongshu", "wechat_mp", "miniprogram", "xiaoyuzhou")
 
 
 def in_sequence(rows_: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -2,7 +2,7 @@
 /* 03 打包：发之前把一条内容要的东西全备好，发布台那边就只剩一个个平台点出去。
    9/29 Park：「发布的时候，我希望就是纯发布；发布前准备就是 get ready for everything。」
    视频包：封面（选一帧）、标题、文案描述、简介、话题。
-   文字包：研习室文章、插图、公众号排版、小红书图文、X 图文。
+   文字包：X 图文文章、插图、公众号排版、小红书图文。（9/29 研习室先拿掉，要用时在设置里打开平台）
    这里不新做任何生成能力——封面、标题候选、写文章、配图、gzh 排版、小红书出图都是原来就有的，
    以前散在发布台的弹窗和「加工中」的页签里，现在收到一页。数据跟发布台共用 /api/publish/desk。 */
 window.VIEWS = window.VIEWS || {};
@@ -44,11 +44,11 @@ const PK_ICON = { lock: '✓', ok: '•', wip: '', no: '○', bad: '!' };
 /* 定稿（9/29 Park：「做好一件事就 lock in，再往上搭下一块积木」）。
    每一步要等上一步定稿才开始；定稿的那一版锁住，按钮收起来，想改点「改这一步」。
    后端按指纹判断定稿那一版还是不是现在这一版（approvals.py），改过就作废。 */
-// X 图文不单独一行：它发的就是研习室那篇文章 + 插图，定稿文章就是定稿 X（9/29 Park）
+// 文章这一行就是 X 图文：X 发的就是这篇文章 + 插图，定稿文章就是定稿 X（9/29 Park）；公众号、小红书图文也从它来
 const PK_DEPENDS = { cover: 'copy', figs: 'article', wx: 'figs', xhs: 'figs' };
-const PK_LABEL = { copy: '标题 · 描述 · 简介 · 话题', cover: '封面', article: '研习室文章 · X 图文', figs: '插图', wx: '公众号排版', xhs: '小红书图文' };
+const PK_LABEL = { copy: '标题 · 描述 · 简介 · 话题', cover: '封面', article: 'X 图文文章', figs: '插图', wx: '公众号排版', xhs: '小红书图文' };
 const PK_NEXT = { copy: 'cover', cover: 'article', article: 'figs', figs: 'wx', wx: 'xhs' };
-const PK_APPROVE = { cover: '定稿封面', article: '定稿（研习室和 X 都用这篇），下一步配图', figs: '定稿插图，下一步排版', wx: '定稿公众号排版', xhs: '定稿小红书图文' };
+const PK_APPROVE = { cover: '定稿封面', article: '定稿（X 和公众号都用这篇），下一步配图', figs: '定稿插图，下一步排版', wx: '定稿公众号排版', xhs: '定稿小红书图文' };
 const locked = (d, key) => { const a = ((d && d.approvals) || {})[key]; return Boolean(a && a.approved && a.valid); };
 window.packLocked = locked;
 
@@ -59,7 +59,7 @@ function packItems(d, t, st) {
   const art = !d.has_article
     ? (t && t.write_state === 'running' ? ['wip', '正在照视频字幕写，一般 1–5 分钟'] : t && t.write_state === 'failed' ? ['bad', t.write_error || '上次写失败了'] : ['no', '照这条视频的字幕（剪映导出的 SRT）写成文字版'])
     : ['ok', d.article && d.article.title ? `《${d.article.title}》` : '写好了'];
-  const needArt = (fn) => (d.has_article ? fn() : ['no', '先写研习室文章']);
+  const needArt = (fn) => (d.has_article ? fn() : ['no', '先写 X 图文文章']);
   // 9/29 Park：「有了文章和插图之后，才变成公众号排版、小红书图文、X 图文。」
   const needFigs = (fn) => needArt(() => (figsReady(st) ? fn() : ['no', '先配图']));
   const figs = needArt(() => {
@@ -73,7 +73,7 @@ function packItems(d, t, st) {
     if (s.running) return ['wip', '正在用 gzh 排版，5–10 分钟'];
     if (s.error) return ['bad', s.error];
     if (s.has_layout && s.stale) return ['bad', '文章改过了，旧排版作废'];
-    return s.has_layout ? ['ok', `gzh 排好了（${s.theme || '橄榄手记'}），公众号和研习室都用这份`] : ['no', '不排也能发，用的是基础排版'];
+    return s.has_layout ? ['ok', `gzh 排好了（${s.theme || '橄榄手记'}），公众号用这份`] : ['no', '不排也能发，用的是基础排版'];
   });
   const xhs = needFigs(() => {
     const s = st.xhs || {};
@@ -85,7 +85,7 @@ function packItems(d, t, st) {
   return [
     { key: 'copy', group: 'video', label: '标题 · 描述 · 简介 · 话题', state: d.has_copy ? 'ok' : 'no', note: d.has_copy ? (e.title || '已保存') : '先写这个：标题、描述、简介、话题。封面的字就用这个标题' },
     { key: 'cover', group: 'video', label: '封面', state: covers.length ? 'ok' : 'no', note: covers.length ? `${covers.join(' · ')}都有了` : d.has_copy ? '用标题出，画面和橙色关键词机器定，5–10 分钟' : '写好标题后自动出' },
-    { key: 'article', group: 'text', label: '研习室文章 · X 图文', state: art[0], note: art[1] },
+    { key: 'article', group: 'text', label: 'X 图文文章', state: art[0], note: art[1] },
     { key: 'figs', group: 'text', label: '插图', state: figs[0], note: figs[1] },
     { key: 'wx', group: 'text', label: '公众号排版', state: wx[0], note: wx[1] },
     { key: 'xhs', group: 'text', label: '小红书图文', state: xhs[0], note: xhs[1] },
@@ -273,19 +273,19 @@ function renderRow(key, box) {
   } else if (key === 'article') {
     const tab = (window.VIDEO_TABS || []).find((x) => x.key === 'article');
     if (tab && t) tab.render(t, box).then(() => {
-      if (d.has_article) box.insertAdjacentHTML('afterbegin', '<p class="pdl-note pk-also">研习室和 X 发的都是这一篇（X 发的时候连插图一起传，封面按标题出一张纯文字横幅，不用另外做）。</p>');
+      if (d.has_article) box.insertAdjacentHTML('afterbegin', '<p class="pdl-note pk-also">X 发的就是这一篇（连插图一起传，封面按标题出一张纯文字横幅，不用另外做）；公众号、小红书图文也都从这一篇来。</p>');
     });
   } else if (PK_DEPENDS[key] && !locked(d, PK_DEPENDS[key]) && !((d.approvals || {})[key] || {}).made) {
     box.dataset.done = 'gated';
     box.innerHTML = `<p class="pdl-note">先定稿「${PK_LABEL[PK_DEPENDS[key]]}」：一块一块往上搭，上一步定了这里自己解开。</p>`;
   } else if (key === 'figs') {
     box.innerHTML = '<div id="pdlFigs"></div>';
-    if (d.has_article) renderFigs(box, id); else box.innerHTML = '<p class="pdl-note">插图插在文章里，先把上面的研习室文章写好。</p>';
+    if (d.has_article) renderFigs(box, id); else box.innerHTML = '<p class="pdl-note">插图插在文章里，先把上面的 X 图文文章写好。</p>';
   } else if (key === 'wx') {
-    box.innerHTML = d.has_article ? '<div class="pdl-wx" id="pdlWx"></div>' : '<p class="pdl-note">公众号发的是研习室那篇文章，先把它写好。</p>';
+    box.innerHTML = d.has_article ? '<div class="pdl-wx" id="pdlWx"></div>' : '<p class="pdl-note">公众号发的是上面那篇文章，先把它写好。</p>';
     if (d.has_article) renderWx(box, id);
   } else if (key === 'xhs') {
-    box.innerHTML = d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : '<p class="pdl-note">小红书图文是把研习室那篇文章排成图，先把它写好。</p>';
+    box.innerHTML = d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : '<p class="pdl-note">小红书图文是把上面那篇文章排成图，先把它写好。</p>';
     if (d.has_article) renderXhs(box, id);
   }
 }
@@ -364,7 +364,7 @@ window.VIEWS.pack = {
     body.innerHTML = `<div class="pub-head"><div class="pub-topics"><small>打包这条</small>${list.map(chip).join('')}</div></div>
       ${d.release && d.release.copy && !d.has_copy ? '<p class="pk-hint">成片包里有一份写好的发布文案，打开「标题 · 描述 · 简介 · 话题」可以一键填进来。</p>' : ''}
       ${group('video', '视频包', '抖音、视频号、B 站、YouTube、小红书视频都用这一份')}
-      ${group('text', '文字包', '公众号、研习室、X、小红书图文用的是研习室那篇文章')}`;
+      ${group('text', '文字包', 'X、小红书图文、公众号用的都是这一篇文章')}`;
     $$('[data-pk-topic]', body).forEach((b) => (b.onclick = () => {
       S.packId = Number(b.dataset.pkTopic); PK.data = null; PK.open = new Set(); body.dataset.sig = '';
       history.replaceState(null, '', `#pack/${S.packId}`); renderView();
