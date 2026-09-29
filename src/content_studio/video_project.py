@@ -258,6 +258,7 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         "release": release.find_release(base),
         "h2_review": find_h2_review(base),
         "visual_target": contract.get("visual_coverage_target"),
+        "visual_max": contract.get("visual_coverage_max"),
         "spec": contract.get("spec") or {},
         "hook_skipped": (contract.get("approvals") or {}).get("hook") == "skipped",
         "summary": "已交付" if delivered else (f"Step {current}：{STEP_NAMES[current]}" + (f" · {gate['title']}" if gate else "")),

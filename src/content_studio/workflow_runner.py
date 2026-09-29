@@ -28,22 +28,31 @@ GATE_APPROVAL_KEYS = {"H1": "hook", "H2": "visual_spec", "H3": "final"}
 
 def _visual_rule(project_path: Path) -> str:
     try:
-        target = json.loads((project_path / "project.json").read_text(encoding="utf-8")).get("visual_coverage_target")
+        contract = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        target, top = contract.get("visual_coverage_target"), contract.get("visual_coverage_max")
     except (OSError, ValueError, AttributeError):
-        target = None
+        target = top = None
     if not isinstance(target, (int, float)):
         return ""
-    pct = round(target * 100)
-    extra = "" if 30 <= pct <= 40 else f"这个比例不在 30–40%，在 visual-plan.json 里写 coverage_exception：「Park 指定 {pct}%」。"
-    return f"\n- 动效占正文的比例 Park 定为 {pct}%（按时长算）。按这个数挑点，不要自己改。{extra}"
+    lo = round(target * 100)
+    hi = round(top * 100) if isinstance(top, (int, float)) and top > target else lo
+    text = f"{lo}%" if hi == lo else f"{lo}–{hi}%"
+    extra = "" if 30 <= lo and hi <= 40 else f"这个比例不在 30–40%，在 visual-plan.json 里写 coverage_exception：「Park 指定 {text}」。"
+    how = "按这个数挑点" if hi == lo else "落在这个范围里就行，按内容需要挑点，不为凑数加镜头"
+    return f"\n- 动效占正文的比例 Park 定为 {text}（按时长算）。{how}，不要自己改。{extra}"
 
 
 SPEC_RULES = {
     ("hook", "no"): "这条不做 Hook（Step 5/7/8/9 已跳过），整条都是正文。",
     ("captions", "burned_in"): "字幕 Park 已经在剪映里加好了：不要再渲染字幕（Step 8/9/13），用 park-caption-burned-in-v1；但要实测字幕带，所有动效避开它。",
-    ("layout", "vertical-full-overlay"): "版式是竖屏纯口播：用 park-talking-head-9x16-full-v1 和 park-card-overlay-c-v1，人脸全屏保留，动效只做胸前卡片（四种卡：odometer / marker / rows / chain），不做右侧笔记区。",
+    ("layout", "vertical-full-overlay"): "版式是竖屏纯口播：用 park-talking-head-9x16-full-v1 和 park-vertical-director-v2，按 skill 的 references/motion-director.md 当导演，从 motion/ 镜头库逐段挑镜头；胸前卡片为主，隔 1.5–3 分钟全屏挡脸一次（全屏整屏盖满，连字幕一起盖）。什么时候叠动效、什么时候全屏挡脸或用 B-roll，都由你判断，Park 不单独选。H2 给他看 2–3 段成片样片，不给文字镜头表。",
+    ("layout", "split-4x3"): "版式是横屏左原右屏（左边原画面、右边屏幕/笔记区）。",
     ("bgm", "none"): "不加背景音乐（Step 12 只做人声响度）。",
     ("bgm", "light"): "加一条轻背景音乐，压在人声下面。",
+    ("sfx", "none"): "不加音效。",
+    ("sfx", "low"): "音效低档：只在最关键的一两处（最重要的全屏镜头进场、最关键的数字落定）加，轻，压在人声下面。",
+    ("sfx", "mid"): "音效中档：每个全屏镜头进出场、关键数字和结论落定处加，压在人声下面，不和人声抢。",
+    ("sfx", "high"): "音效高档：全屏镜头进出场、数字滚动锁定、胸前卡片出现都配音效，节奏感强，但仍压在人声下面。",
 }
 
 

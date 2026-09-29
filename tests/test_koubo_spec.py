@@ -57,3 +57,26 @@ def test_no_spec_means_the_same_prompt_as_before(project: Path) -> None:
     assert "剪辑规格" not in workflow_runner.build_prompt(project)
     with pytest.raises(koubo.KouboError):
         koubo.set_spec(project, {"layout": "diagonal"}, skill=SKILL[0])
+
+
+def test_sfx_levels_reach_the_prompt(project: Path) -> None:
+    koubo.set_spec(project, {"sfx": "mid", "layout": "vertical-full-overlay"}, skill=SKILL[0])
+    prompt = workflow_runner.build_prompt(project)
+    assert "音效中档" in prompt and "motion-director.md" in prompt and "B-roll" in prompt
+    koubo.set_spec(project, {"sfx": "none"}, skill=SKILL[0])
+    assert "不加音效" in workflow_runner.build_prompt(project)
+    with pytest.raises(koubo.KouboError):
+        koubo.set_spec(project, {"sfx": "loud"}, skill=SKILL[0])
+
+
+def test_coverage_range(project: Path) -> None:
+    assert koubo.set_visual_target(project, 30, 40) == 0.3
+    assert _contract(project)["visual_coverage_max"] == 0.4
+    prompt = workflow_runner.build_prompt(project)
+    assert "Park 定为 30–40%" in prompt and "落在这个范围里就行" in prompt and "coverage_exception" not in prompt
+    koubo.set_visual_target(project, 30, 50)
+    assert "coverage_exception：「Park 指定 30–50%」" in workflow_runner.build_prompt(project)
+    koubo.set_visual_target(project, 35)
+    assert "visual_coverage_max" not in _contract(project) and "Park 定为 35%" in workflow_runner.build_prompt(project)
+    with pytest.raises(koubo.KouboError):
+        koubo.set_visual_target(project, 40, 30)
