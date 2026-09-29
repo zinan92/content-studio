@@ -1,4 +1,4 @@
-/* 内容工作台 · 进项 → 加工中 → 已发出
+/* 内容工作台 · 进项 → 加工中 → 打包 → 发布 → 已发出
    Each stage has its own hue; a view sets data-stage and every accent on it follows. */
 :root{
   --ground:#ECEEF1; --surface:#FFFFFF; --sunk:#F4F5F7; --line:#D8DCE2; --line-soft:#E6E8EC;
@@ -7,6 +7,7 @@
   --work:#C2480A; --work-soft:#FCE9DC;
   --out:#0B7F57; --out-soft:#DDF1E8;
   --pub:#6B4BD6; --pub-soft:#EBE6FA;
+  --pack:#0E7C94; --pack-soft:#DDF0F4;
   --accent:#2A2F36; --accent-soft:#E6E8EC;
   --hot:#B7770A; --hot-soft:#FBEFD6;
   --save:#0B7F57; --share:#3452D1; --talk:#8E4583; --warn:#B4412E; --warn-soft:#F7E2DC;
@@ -21,7 +22,7 @@
   :root:not([data-theme="light"]){
     --ground:#0C0E11; --surface:#15181D; --sunk:#111418; --line:#262B33; --line-soft:#1E2229;
     --ink:#E7EAEE; --ink-2:#A6ADB7; --ink-3:#6D747E; --on-accent:#0C0E11;
-    --in:#8197F7; --in-soft:#1C2340; --work:#FF8B45; --work-soft:#3A2314; --out:#3CC690; --out-soft:#12301F; --pub:#B39BFF; --pub-soft:#2A2250;
+    --in:#8197F7; --in-soft:#1C2340; --work:#FF8B45; --work-soft:#3A2314; --out:#3CC690; --out-soft:#12301F; --pub:#B39BFF; --pub-soft:#2A2250; --pack:#4CC7E0; --pack-soft:#10303A;
     --accent:#E7EAEE; --accent-soft:#262B33; --hot:#F0B540; --hot-soft:#3A2C0F;
     --save:#3CC690; --share:#8197F7; --talk:#D08BC6; --warn:#EE8A74; --warn-soft:#3A1E17;
     --rail:#08090B; --rail-2:#14171B; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
@@ -30,7 +31,7 @@
 :root[data-theme="dark"]{
   --ground:#0C0E11; --surface:#15181D; --sunk:#111418; --line:#262B33; --line-soft:#1E2229;
   --ink:#E7EAEE; --ink-2:#A6ADB7; --ink-3:#6D747E; --on-accent:#0C0E11;
-  --in:#8197F7; --in-soft:#1C2340; --work:#FF8B45; --work-soft:#3A2314; --out:#3CC690; --out-soft:#12301F; --pub:#B39BFF; --pub-soft:#2A2250;
+  --in:#8197F7; --in-soft:#1C2340; --work:#FF8B45; --work-soft:#3A2314; --out:#3CC690; --out-soft:#12301F; --pub:#B39BFF; --pub-soft:#2A2250; --pack:#4CC7E0; --pack-soft:#10303A;
   --accent:#E7EAEE; --accent-soft:#262B33; --hot:#F0B540; --hot-soft:#3A2C0F;
   --save:#3CC690; --share:#8197F7; --talk:#D08BC6; --warn:#EE8A74; --warn-soft:#3A1E17;
   --rail:#08090B; --rail-2:#14171B; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
@@ -39,6 +40,7 @@
 [data-stage="work"]{--accent:var(--work);--accent-soft:var(--work-soft)}
 [data-stage="out"]{--accent:var(--out);--accent-soft:var(--out-soft)}
 [data-stage="pub"]{--accent:var(--pub);--accent-soft:var(--pub-soft)}
+[data-stage="pack"]{--accent:var(--pack);--accent-soft:var(--pack-soft)}
 [data-stage="pos"]{--accent:#E0B34A;--accent-soft:rgba(224,179,74,.14)}
 *{box-sizing:border-box}
 body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;margin:0}
@@ -63,6 +65,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .flow button[data-stage="work"]{--accent:#FF8B45}
 .flow button[data-stage="out"]{--accent:#3CC690}
 .flow button[data-stage="pub"]{--accent:#B39BFF}
+.flow button[data-stage="pack"]{--accent:#4CC7E0}
 .flow-k{display:none}
 .flow-t{display:flex;flex-direction:column;font-size:15px;font-weight:700;line-height:1.3}
 .flow-t small{font-size:11.5px;font-weight:400;color:var(--rail-dim)}
@@ -1605,3 +1608,40 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .vp-spec select,.vp-spec input{font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
 .vp-spec input{width:64px}
 .vp-spec .vp-auto{font-size:13px;color:var(--ink-2);padding:5px 2px}
+
+/* ===== 03 打包 ===== */
+.pk-group{margin:18px 0 6px}
+.pk-gh{display:flex;align-items:baseline;gap:12px;margin:0 0 8px}
+.pk-gh h2{font-size:16px;margin:0}
+.pk-gh small{color:var(--ink-3);font-size:12px}
+.pk-hint{font-size:13px;color:var(--ink-2);background:var(--accent-soft);border-radius:8px;padding:8px 12px;margin:10px 0 0}
+.pk-row{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-bottom:8px}
+.pk-row>summary{display:grid;grid-template-columns:26px minmax(120px,190px) minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;list-style:none}
+.pk-row>summary::-webkit-details-marker{display:none}
+.pk-row>summary b{font-size:14px}
+.pk-note{color:var(--ink-2);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pk-word{font-size:12px;color:var(--ink-3);font-family:var(--mono)}
+.pk-dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:12px;font-weight:700;border:1.5px solid var(--line);color:var(--ink-3)}
+.pk-row.s-ok .pk-dot{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.pk-row.s-ok .pk-word{color:var(--accent)}
+.pk-row.s-wip .pk-dot{border-color:var(--hot)}
+.pk-row.s-wip .pk-word{color:var(--hot)}
+.pk-row.s-bad .pk-dot{border-color:var(--warn);color:var(--warn)}
+.pk-row.s-bad .pk-word{color:var(--warn)}
+.pk-row[open]{border-color:var(--accent)}
+.pk-row[open]>summary{border-bottom:1px solid var(--line-soft)}
+.pk-body{padding:14px 16px 16px}
+.pk-body:empty{display:none}
+.pk-body .cv-body{padding:0}
+.cv-shot.landscape{height:120px}.cv-shot.portrait{height:160px}.cv-shot.wechat{height:80px}
+/* 公众号排版在自己那一行；文章编辑器里那块排版就不再重复出现 */
+#v-pack #artLayout,#v-pack #artLayoutBox{display:none}
+.cf{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:22px}
+.cf-form{display:flex;flex-direction:column;gap:14px;min-width:0}
+.cf-tools{display:flex;gap:8px;flex-wrap:wrap}
+.cf-same{align-self:flex-start;font-size:12px}
+.cf-saved{font-size:12px;color:var(--ink-3)}
+.dy-hint b{font-weight:500}
+.dy-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.pub-guide.pack-first{border-color:var(--pack);background:var(--pack-soft)}
+@media (max-width:900px){.cf{grid-template-columns:1fr}.pk-row>summary{grid-template-columns:26px minmax(0,1fr) auto}.pk-note{grid-column:2/4}}

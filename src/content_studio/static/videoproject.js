@@ -204,8 +204,8 @@ async function renderNow(topic, info) {
         <span class="spacer"></span><button class="btn small primary" type="button" id="vpInit">初始化</button></div>
       <p class="vp-now-say">补一份 project.json，进度才算得出来，机器才跑得动。</p></div>${last}`;
   } else if (info.delivered) {
-    box.innerHTML = `<div class="vp-now ok"><div class="vp-now-h"><span class="chip ok">交付了</span><b>成片好了，去发</b>
-        <span class="spacer"></span><button class="btn small primary" type="button" onclick="go('publish')">去发布台 →</button></div>${bar}</div>${last}`;
+    box.innerHTML = `<div class="vp-now ok"><div class="vp-now-h"><span class="chip ok">交付了</span><b>成片好了，去打包</b>
+        <span class="spacer"></span><button class="btn small primary" type="button" onclick="S.packId = ${topic.id}; go('pack')">去打包 →</button></div>${bar}</div>${last}`;
   } else {
     const step = info.steps[(info.current_step || 1) - 1] || {};
     const early = (info.current_step || 1) <= 4;

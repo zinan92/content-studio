@@ -1,5 +1,6 @@
 'use strict';
-/* 加工中 · 一条视频的文章版：卡兹克写作草稿 → 编辑 → 交给研习室（视频页签） */
+/* 打包 · 一条视频的文章版：卡兹克写作草稿 → 编辑。9/29 起在「03 打包」里显示（pack.js 借这个 render），
+   加工中不再挂这个页签；发给研习室、公众号、X 在发布台。 */
 window.VIDEO_TABS = window.VIDEO_TABS || [];
 
 const AR = { topicId: null, draft: null, dirty: false, mode: 'preview' };
@@ -31,6 +32,7 @@ function copyArticle(text) {
 function refreshWorkTab() {
   const box = $('#videoBody');
   if (box) box.dataset.sig = '';
+  if (window.rerenderPackRow) window.rerenderPackRow('article');
   renderView();
 }
 

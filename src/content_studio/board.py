@@ -66,7 +66,7 @@ def next_action(topic: dict[str, Any], stage: str, project: dict[str, Any] | Non
         return {"text": project.get("summary") or "剪辑中", "mine": False}
     if opening is not None and not opening.get("passed"):
         return {"text": "开头 15 秒没过，发之前看一眼", "mine": True}
-    return {"text": "成片好了，去发", "mine": True}
+    return {"text": "成片好了，去打包", "mine": True}
 
 
 def is_snoozed(topic: dict[str, Any], today: str) -> bool:

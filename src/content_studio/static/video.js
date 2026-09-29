@@ -129,7 +129,8 @@ window.VIDEO_TABS.push({
   },
 });
 
-const TAB_ORDER = ['outline', 'edit', 'article'];
+// 研习室文章 9/29 搬去「03 打包」了：加工中只管骨架和剪辑
+const TAB_ORDER = ['outline', 'edit'];
 const WORK_STEPS = [['outline', '骨架'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
 const WK = { topics: null, at: 0 };
 
@@ -151,7 +152,8 @@ window.VIEWS.work = {
     if (!topic) { root.innerHTML = '<div class="panel empty"><b>找不到这条视频</b><button class="btn" type="button" onclick="go(\'board\')">回到看板</button></div>'; return; }
     const card = BD.data && BD.data.cards.find((c) => c.id === topic.id);
     const stage = (topic.published_video_id || topic.closed_at) ? 'shipped' : card ? card.stage : 'outline';
-    const tabs = window.VIDEO_TABS.slice().sort((a, b) => TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key));
+    const tabs = window.VIDEO_TABS.filter((x) => TAB_ORDER.includes(x.key)).sort((a, b) => TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key));
+    if (!TAB_ORDER.includes(VD.tab)) VD.tab = 'outline';
     let body = $('#videoBody');
     const sig = JSON.stringify([VD.topicId, VD.tab, VD.mode, VD.outline && VD.outline.updated_at, stage, card && card.next.text, topic.outline_state, Boolean(topic.outline_path), topic.video_project, topic.status, topic.published_video_id, topic.write_state, Boolean(topic.article_path), topic.archived_at]);
     if (body && body.dataset.sig === sig && !VD.forceRender) return;

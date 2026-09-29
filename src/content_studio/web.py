@@ -1106,7 +1106,8 @@ def create_app(
             pass
         rows = publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready,
                                  records=store.publish_records(topic["id"]), jobs=store.publish_jobs(topic["id"]), entry=entry,
-                                 douyin_linked=board.is_shipped(topic), handoff_done=handoff_done, skips=store.publish_skips(topic["id"]))
+                                 douyin_linked=board.is_shipped(topic), handoff_done=handoff_done, skips=store.publish_skips(topic["id"]),
+                                 copies=(copy or {}).get("platforms"))
         return {
             # 能发的才列出来；其余的留在 others 里，页面上折起来。
             "candidates": sendable,
@@ -2343,7 +2344,7 @@ def create_app(
             raise ValueError(str(exc)) from None
         title = store.topic(topic_id)["title"][:24]
         store.log_event("edit", f"《{title}》{'Hook' if what == 'hook' else '整条'}在外面做完了，已记下", topic_id)
-        return {**result, "message": "记下了：Hook 在外面剪好了" if what == "hook" else "记下了：整条在外面做完了，可以去发布台"}
+        return {**result, "message": "记下了：Hook 在外面剪好了" if what == "hook" else "记下了：整条在外面做完了，可以去打包"}
 
     @app.put("/api/topics/{topic_id}/video-project/spec")
     def koubo_spec(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
