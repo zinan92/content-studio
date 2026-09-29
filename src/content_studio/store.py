@@ -37,6 +37,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # {platform: [话题]} — 各平台的流量话题（活动、扶持计划），每条视频自动带上、排在内容话题前面。
     # 9/29 Park：抖音那四个是他每条都带的；别的平台他还不知道，在打包页里填一次就记住。
     "traffic_tags": {},
+    # 9/29 Park：KPI 由 Claude 定，Park 照做。出摊和回私信算他的分；触达和收到私信是结果。
+    # reach_daily 是 7 天平均的目标，reach_by 之前要到；dm_daily 在 dm_baseline_until 摸底完再定（0 = 还没定）。
+    "kpi": {"started": "2026-09-29", "reach_daily": 10000, "reach_by": "2026-10-31", "reach_next": 20000,
+            "dm_daily": 0, "dm_baseline_until": "2026-10-06"},
 }
 
 # Kept as history only: Park collapsed 对标 and 老师 into one category on 2026-09-20, so nothing
@@ -189,6 +193,28 @@ CREATE TABLE IF NOT EXISTS reach_entries (
     views INTEGER NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (day, platform)
+);
+CREATE TABLE IF NOT EXISTS shoot_list (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    position REAL NOT NULL,
+    topic_id INTEGER,
+    created_at TEXT NOT NULL,
+    done_at TEXT
+);
+CREATE TABLE IF NOT EXISTS dm_entries (
+    day TEXT PRIMARY KEY,
+    received INTEGER NOT NULL,
+    replied INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS driver_log (
+    day TEXT NOT NULL,
+    key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    reason TEXT,
+    at TEXT NOT NULL,
+    PRIMARY KEY (day, key, kind)
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -906,6 +932,85 @@ class StudioStore:
                     "ON CONFLICT(day, platform) DO UPDATE SET views = excluded.views, updated_at = excluded.updated_at",
                     (day, platform, int(views), now_iso()),
                 )
+
+    # -- 今天：接下来要拍的、私信数、跳过和做完 ------------------------------
+
+    def shoot_list(self, include_done: bool = False) -> list[dict[str, Any]]:
+        where = "" if include_done else "WHERE done_at IS NULL"
+        return self._rows(f"SELECT * FROM shoot_list {where} ORDER BY done_at IS NOT NULL, position, id")
+
+    def shoot_item(self, item_id: int) -> dict[str, Any]:
+        row = self._row("SELECT * FROM shoot_list WHERE id = ?", (item_id,))
+        if row is None:
+            raise StoreError("这一条已经不在清单里了")
+        return row
+
+    def add_shoot_item(self, text: str, *, top: bool = False, topic_id: int | None = None) -> dict[str, Any]:
+        text = (text or "").strip()
+        if not text:
+            raise StoreError("写一句要拍什么")
+        edge = self._row(f"SELECT {'MIN' if top else 'MAX'}(position) AS p FROM shoot_list WHERE done_at IS NULL")
+        base = edge["p"] if edge and edge["p"] is not None else 0.0
+        with self.tx() as conn:
+            cur = conn.execute("INSERT INTO shoot_list(text, position, topic_id, created_at) VALUES (?, ?, ?, ?)",
+                               (text[:200], base - 1 if top else base + 1, topic_id, now_iso()))
+        return self.shoot_item(cur.lastrowid)
+
+    def update_shoot_item(self, item_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"text", "position", "topic_id", "done_at"}
+        if set(fields) - allowed:
+            raise StoreError(f"不可更新的字段：{sorted(set(fields) - allowed)}")
+        self.shoot_item(item_id)
+        if fields:
+            cols = ", ".join(f"{k} = ?" for k in fields)
+            with self.tx() as conn:
+                conn.execute(f"UPDATE shoot_list SET {cols} WHERE id = ?", (*fields.values(), item_id))
+        return self.shoot_item(item_id)
+
+    def move_shoot_item(self, item_id: int, step: int) -> list[dict[str, Any]]:
+        """上移（-1）或下移（+1）一格：和相邻那条交换位置。"""
+        items = self.shoot_list()
+        idx = next((i for i, it in enumerate(items) if it["id"] == item_id), None)
+        if idx is None:
+            raise StoreError("这一条已经不在清单里了")
+        other = idx + step
+        if 0 <= other < len(items):
+            a, b = items[idx], items[other]
+            with self.tx() as conn:
+                conn.execute("UPDATE shoot_list SET position = ? WHERE id = ?", (b["position"], a["id"]))
+                conn.execute("UPDATE shoot_list SET position = ? WHERE id = ?", (a["position"], b["id"]))
+        return self.shoot_list()
+
+    def delete_shoot_item(self, item_id: int) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM shoot_list WHERE id = ?", (item_id,))
+
+    def dm_entries(self, since_day: str) -> dict[str, dict[str, int]]:
+        return {r["day"]: {"received": r["received"], "replied": r["replied"]}
+                for r in self._rows("SELECT * FROM dm_entries WHERE day >= ?", (since_day,))}
+
+    def set_dm(self, day: str, received: int, replied: int) -> None:
+        if received < 0 or replied < 0:
+            raise StoreError("私信数不能是负数")
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO dm_entries(day, received, replied, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(day) DO UPDATE SET received = excluded.received, replied = excluded.replied, updated_at = excluded.updated_at",
+                (day, int(received), int(replied), now_iso()),
+            )
+
+    def driver_mark(self, day: str, key: str, kind: str, reason: str | None = None) -> None:
+        with self.tx() as conn:
+            conn.execute(
+                "INSERT INTO driver_log(day, key, kind, reason, at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(day, key, kind) DO UPDATE SET reason = excluded.reason, at = excluded.at",
+                (day, key, kind, reason, now_iso()),
+            )
+
+    def driver_log(self, since_day: str = "", kind: str | None = None) -> list[dict[str, Any]]:
+        if kind:
+            return self._rows("SELECT * FROM driver_log WHERE day >= ? AND kind = ? ORDER BY at", (since_day, kind))
+        return self._rows("SELECT * FROM driver_log WHERE day >= ? ORDER BY at", (since_day,))
 
     def snapshots(self, video_id: str) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM video_snapshots WHERE video_id = ? ORDER BY fetched_at", (video_id,))

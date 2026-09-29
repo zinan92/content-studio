@@ -89,6 +89,20 @@ def gather_inputs(
             "median_likes": median_likes, "topics_done": done_topics, "breakouts": week_breakouts}
 
 
+def kpi_block(kpi: dict[str, Any] | None) -> str:
+    """9/29 Park：KPI 由 Claude 定，他照做；出摊、回私信没做到算减分。跳过要写理由，复盘把重复的借口摆出来。"""
+    if not kpi:
+        return ""
+    skips = "\n".join(f"- {s['day']}｜跳过 {s['what']}｜理由：{s['reason']}" for s in kpi["skips"]) or "（没有跳过）"
+    return f"""
+## 执行分（Park 自己能控制的，这 7 天）
+出摊（抖音发出）{kpi['posted']}/7 天；私信没回完 {kpi['dm_missed']} 天；一共减 {kpi['demerits']} 分。
+跳过时写的理由：
+{skips}
+problems 里必须有一条直说执行分：减了几分、哪个借口重复出现了几次（没有重复就说没有）；这一条的 video_ids 给 []。
+"""
+
+
 def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
     def fmt_video(v: dict[str, Any]) -> str:
         lines = [f"- id {v['video_id']}｜{v['title']}｜{v['published_at'][:10]}｜点赞 {v['likes']}｜倍数 {v['multiple']}｜收藏/赞 {v['collect_per_like']}"
@@ -115,6 +129,7 @@ def build_prompt(inputs: dict[str, Any], error: str | None = None) -> str:
 
 ## 同期对标账号的爆款
 {breakouts}
+{kpi_block(inputs.get("kpi"))}
 
 ## 要求
 只输出一个 JSON 对象，不要其他文字；字符串里需要引号时用「」。
@@ -141,7 +156,7 @@ def validate(raw: dict[str, Any], inputs: dict[str, Any]) -> list[str]:
         for i, item in enumerate(items):
             if not isinstance(item, dict) or not str(item.get("text") or "").strip():
                 problems.append(f"{key}[{i}].text 缺失")
-            elif not item.get("video_ids") or any(vid not in ids for vid in item["video_ids"]):
+            elif (not item.get("video_ids") and not (key == "problems" and inputs.get("kpi"))) or any(vid not in ids for vid in item.get("video_ids") or []):
                 problems.append(f"{key}[{i}].video_ids 必须是输入里的视频 id")
     if not isinstance(raw.get("next_week"), list) or len(raw["next_week"]) != 1 or not str(raw["next_week"][0] or "").strip():
         problems.append("next_week 需要恰好 1 条")
