@@ -210,10 +210,11 @@ async function renderNow(topic, info) {
     const step = info.steps[(info.current_step || 1) - 1] || {};
     const early = (info.current_step || 1) <= 4;
     const pct = info.visual_target === null || info.visual_target === undefined ? 30 : Math.round(info.visual_target * 100);
+    const pctMax = info.visual_max === null || info.visual_max === undefined ? (info.visual_target === null || info.visual_target === undefined ? 40 : pct) : Math.round(info.visual_max * 100);
     box.innerHTML = `<div class="vp-now todo"><div class="vp-now-h"><span class="chip busy">该跑了</span>
         <b>Step ${info.current_step} · ${esc(step.name || '')}</b><span class="spacer"></span>
         ${data.busy_elsewhere ? '<span class="muted">另一个项目正在跑</span>' : '<button class="btn small primary" type="button" id="runStart">让机器跑到下一个审批门</button>'}</div>
-      ${(info.current_step || 1) <= 11 ? specRow(info, pct) : ''}
+      ${(info.current_step || 1) <= 11 ? specRow(info, pct, pctMax) : ''}
       ${bar}<p class="vp-now-say">${early ? (((info.spec || {}).hook === 'no' || info.hook_skipped) ? '先确认下面的粗剪就是这一条、上面的规格选对了，再让机器跑：它会清点素材、查规格、对齐字幕时间，直接进正文和动效，做好动效方案停下给你看。' : '先确认下面的粗剪就是这一条，再让机器跑：它会清点素材、查规格、对字幕、做好标 Hook 的表，然后停下等你标 Hook。') : '在这台 Mac 上后台跑 ask-park-video，遇到要你拍板的地方、阻塞或全部完成就停。随时能中止。'}</p>
       ${early ? '<div id="vpNowMedia"></div>' : `<p class="vp-now-need">这一步在等：${esc(step.evidence || '')}</p>`}</div>${last}`;
   }
@@ -230,11 +231,12 @@ async function renderNow(topic, info) {
     } catch (err) { toast(err.message); }
   }));
   const vis = $('#vpVis');
+  const visMax = $('#vpVisMax');
   const saveVis = async () => {
-    if (!vis) return;
-    try { await api(`/api/topics/${topic.id}/video-project/visual-target`, { method: 'PUT', body: { percent: Number(vis.value) } }); } catch (err) { toast(err.message); throw err; }
+    if (!vis) return null;
+    try { return await api(`/api/topics/${topic.id}/video-project/visual-target`, { method: 'PUT', body: { percent: Number(vis.value), max: visMax ? Number(visMax.value) : null } }); } catch (err) { toast(err.message); throw err; }
   };
-  if (vis) vis.onchange = () => saveVis().then(() => { toast(`记下了：动效占正文 ${vis.value}%`); delete VP.cache[topic.id]; }).catch(() => {});
+  [vis, visMax].forEach((el) => { if (el) el.onchange = () => saveVis().then((r) => { toast(r.message); delete VP.cache[topic.id]; }).catch(() => {}); });
   box.insertAdjacentHTML('beforeend', '<div class="vp-act" id="vpAct"></div>');
   renderActivity(topic);
   if (info.final_video) { box.insertAdjacentHTML('beforeend', '<div class="vp-phone" id="vpPhone"></div>'); renderPhone(topic); }
@@ -407,13 +409,15 @@ async function renderOpening(topic) {
 const VP_SPEC = [
   ['hook', 'Hook', [['yes', '要剪 Hook'], ['no', '不剪 Hook']], 'yes'],
   ['captions', '字幕', [['generate', '流程来加字幕'], ['burned_in', '剪映里已经加好']], 'generate'],
-  ['layout', '版式', [['split-4x3', '横屏 · 左脸右屏'], ['vertical-full-overlay', '竖屏 · 全屏叠卡片']], 'split-4x3'],
+  ['layout', '版式', [['split-4x3', '横屏 · 左原右屏'], ['vertical-full-overlay', '竖屏 · 全屏 + 动效']], 'split-4x3'],
   ['bgm', '背景音乐', [['none', '不加'], ['light', '加轻音乐']], 'none'],
+  ['sfx', '音效', [['none', '不加'], ['low', '低'], ['mid', '中'], ['high', '高']], 'none'],
 ];
-function specRow(info, pct) {
+function specRow(info, pct, pctMax) {
   const spec = info.spec || {};
   const hookNow = spec.hook || (info.hook_skipped ? 'no' : 'yes');
   const cur = { ...spec, hook: hookNow };
   return `<div class="vp-spec" title="从剪映拿出来之后由你选，机器照做">${VP_SPEC.map(([key, label, opts, dflt]) => `<label data-label="${label}"><span>${label}</span><select data-spec="${key}">${opts.map(([v, t]) => `<option value="${v}"${(cur[key] || dflt) === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`).join('')}
-    <label class="vp-vis" data-label="动效" title="正文里有动效的时长占比。只给这个数，挑哪几处由机器定"><span>动效占正文</span><span><input id="vpVis" type="number" min="0" max="100" step="5" value="${pct}"> %</span></label></div>`;
+    <label class="vp-vis" data-label="动效" title="正文里有动效的时长占比，填一个范围（两个数一样就是定死一个数）。挑哪几处由机器定"><span>动效占正文</span><span><input id="vpVis" type="number" min="0" max="100" step="5" value="${pct}"> – <input id="vpVisMax" type="number" min="0" max="100" step="5" value="${pctMax}"> %</span></label>
+    <label data-label="B-roll" title="什么时候在画面上叠动效、什么时候全屏挡脸或用 B-roll，由机器按内容判断"><span>B-roll</span><span class="vp-auto">AI 判断</span></label></div>`;
 }

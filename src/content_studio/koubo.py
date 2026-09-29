@@ -434,12 +434,17 @@ def mark_external(base: Path, what: str, *, source: Path | None = None) -> dict[
     return {"steps": steps}
 
 
-def set_visual_target(base: Path, percent: float) -> float:
-    """动效占正文的比例。Park 只给一个数，其余机器定。"""
-    if not 0 <= percent <= 100:
-        raise KouboError("比例要在 0 到 100 之间")
+def set_visual_target(base: Path, percent: float, maximum: float | None = None) -> float:
+    """动效占正文的比例。Park 给一个数或一个范围（9/29：「30 到 40，可以变」），挑哪几处机器定。
+    visual_coverage_target 存下限（老项目只有这一个数），visual_coverage_max 存上限；只给一个数时删掉上限。"""
+    if not 0 <= percent <= 100 or (maximum is not None and not percent <= maximum <= 100):
+        raise KouboError("比例要在 0 到 100 之间，范围要从小到大")
     path, data = _contract(base)
     data["visual_coverage_target"] = round(percent / 100, 3)
+    if maximum is None or maximum == percent:
+        data.pop("visual_coverage_max", None)
+    else:
+        data["visual_coverage_max"] = round(maximum / 100, 3)
     _save_contract(path, data)
     return data["visual_coverage_target"]
 
@@ -505,6 +510,7 @@ SPEC_OPTIONS: dict[str, tuple[str, ...]] = {
     "captions": ("generate", "burned_in"),
     "layout": ("split-4x3", "vertical-full-overlay"),
     "bgm": ("none", "light"),
+    "sfx": ("none", "low", "mid", "high"),  # 音效：不加 / 低 / 中 / 高（Park 9/29）
 }
 SPEC_PRESETS = {
     ("captions", "burned_in"): ("caption_style", "park-caption-burned-in-v1"),

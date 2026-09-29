@@ -2347,7 +2347,7 @@ def create_app(
 
     @app.put("/api/topics/{topic_id}/video-project/spec")
     def koubo_spec(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-        """Park 从剪映导出后手动选的剪辑规格：Hook、字幕、版式、背景音乐。"""
+        """Park 从剪映导出后手动选的剪辑规格：Hook、字幕、版式、背景音乐、音效。"""
         from . import koubo
 
         try:
@@ -2361,10 +2361,13 @@ def create_app(
         from . import koubo
 
         try:
-            value = koubo.set_visual_target(_koubo_dir(topic_id), float(payload.get("percent")))
+            top = payload.get("max")
+            value = koubo.set_visual_target(_koubo_dir(topic_id), float(payload.get("percent")),
+                                            None if top in (None, "") else float(top))
         except (koubo.KouboError, TypeError, ValueError) as exc:
             raise ValueError(str(exc) or "比例要是一个数") from None
-        return {"visual_target": value, "message": f"记下了：动效占正文 {round(value * 100)}%"}
+        text = f"{round(value * 100)}%" if top in (None, "") or float(top) == value * 100 else f"{round(value * 100)}–{round(float(top))}%"
+        return {"visual_target": value, "message": f"记下了：动效占正文 {text}"}
 
     @app.get("/api/topics/{topic_id}/video-project/activity")
     def koubo_activity(topic_id: int) -> dict[str, Any]:
