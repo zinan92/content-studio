@@ -377,9 +377,28 @@ window.VIEWS.publish = {
     // 发不了的时候，说清最近那条卡在哪，别只说「没有」。
     const others = (d.others || []).length
       ? `<details class="pub-others"><summary>我已经有成片了，工作台还不知道</summary><div class="pub-topics">${d.others.map((c) => chip(c, null)).join('')}</div></details>` : '';
-    if (!d.topic && !d.waiting) {
-      // 9/29：手上这条发完了、也没有下一条在路上 → 直接看全平台追踪
-      go('backfill');
+    if (!d.topic && (d.finished || !d.waiting)) {
+      // 9/29：手上没有要发的。说清刚发完的是哪条（每个平台的链接能点）、下一条在哪，去全平台追踪看全貌。
+      // （以前这里直接跳去全平台追踪，但跳之前已经记下「画过了」，再点「这一条」就是一片空白。）
+      const f = d.finished;
+      const w = d.waiting;
+      body.innerHTML = `<div class="pub-idle">
+          <div class="pub-idle-h"><b>手上没有要发的</b>${f ? `<span>最近一条《${esc(f.title)}》${f.shipped_count}/${f.on_count} 个平台都发完了</span>` : ''}</div>
+          ${f ? `<div class="pub-idle-links">${Object.entries(f.links).sort(([a], [b]) => d.platforms.findIndex((x) => x.key === a) - d.platforms.findIndex((x) => x.key === b)).map(([, l]) => l.url
+            ? `<a class="pub-idle-link" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`
+            : `<span class="pub-idle-link muted">${esc(l.label)} ✓</span>`).join('')}</div>` : ''}
+          <p class="pub-idle-next">${w ? `下一条《${esc(w.title)}》还在<b>${esc(w.stage_label || w.stage)}</b>，剪完就会进打包。` : '「加工中」里还没有剪完的下一条。'}</p>
+          <div class="pdl-acts">
+            <button class="btn primary" type="button" data-pd-track>看全平台追踪 →</button>
+            ${w ? `<button class="btn" type="button" data-pd-work="${w.id}">去看下一条</button>` : '<button class="btn" type="button" data-pd-board>去加工中</button>'}
+            ${f ? `<button class="btn ghost" type="button" data-pd-topic="${f.id}">打开刚发完的这一条</button>` : ''}
+          </div>
+        </div>`;
+      $$('[data-pd-track]', body).forEach((b) => (b.onclick = () => go('backfill')));
+      $$('[data-pd-board]', body).forEach((b) => (b.onclick = () => go('board')));
+      $$('[data-pd-work]', body).forEach((b) => (b.onclick = () => openWork(Number(b.dataset.pdWork))));
+      $$('[data-pd-topic]', body).forEach((b) => (b.onclick = () => { PD.topicId = Number(b.dataset.pdTopic); S.publishId = PD.topicId; PD.data = null; history.replaceState(null, '', `#publish/${PD.topicId}`); renderView(); }));
+      $('#publishFigs').innerHTML = '';
       return;
     }
     if (!d.topic) {

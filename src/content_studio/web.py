@@ -1119,7 +1119,16 @@ def create_app(
         platform_rows = _platform_rows(ready)
         if chosen is None:
             empty = {"title": "", "body": "", "tags": []}
-            return {"candidates": [], "waiting": waiting, "others": candidates, "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty,
+            # 手上没有要发的：告诉 Park 刚发完的是哪条（各平台链接）、下一条在哪（9/29：发布页不能一片空白）
+            done = [c for c in sendable if c not in unfinished]
+            finished = None
+            if done:
+                last = done[0]
+                recs = store.publish_records(last["id"])
+                finished = {"id": last["id"], "title": last["title"], "shipped_count": last["shipped_count"], "on_count": on_count,
+                            "links": {k: {"url": v.get("url"), "label": (copypack.PLATFORMS.get(k) or {}).get("label", k)} for k, v in recs.items()}}
+            return {"candidates": [], "waiting": waiting or publish_desk.waiting_for(candidates), "finished": finished,
+                    "others": candidates, "topic": None, "video": None, "has_copy": False, "has_article": False, "entry": empty,
                     "platforms": publish_desk.rows(platform_rows, specs=copypack.PLATFORMS, publishers=publisher_specs(), readiness=ready, records={}, jobs=[], entry=empty)}
         topic = store.topic(chosen["id"])
         copy = copypack.read_copy(drafts_root, topic["id"])
