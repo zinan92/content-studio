@@ -140,35 +140,74 @@ def sync_everything(
     enqueue: bool = True,
     has_report=lambda _video_id: False,
     platform_fetchers: dict | None = None,
+    benchmarks: bool = True,
 ) -> dict:
-    """One pass over every Douyin account. Stops the whole pass on risk control."""
-    from .accounts import RiskControlStop
+    """自己的账号先同步，再（benchmarks=True 时）同步对标。撞上风控整趟停下。
 
+    9/29 Park：对标用处不大、每天看一眼有没有更新就够，别占抖音额度把主号搞限流。所以工作台上的
+    「同步全部账号」只同步自己的号（benchmarks=False），对标只在对标雷达页单独同步；每天 9:30 的
+    自动同步两样都做，对标每个号只看最新一页。
+    """
     from . import platform_stats
 
     factory = _cookie_client_factory(cookie_path)
     # B站 / X / 研习室 的触达和抖音无关，放最前面：抖音撞上风控提前结束也不耽误它们。
     summary: dict = {"accounts": [], "creator_metrics": None, "enqueued": 0, "platforms": platform_stats.sync(store, platform_fetchers)}
-    for account in store.accounts():
-        if account["platform"] != PLATFORM_DOUYIN:
-            continue
-        try:
-            result = sync_account(store, account["id"], client_factory=factory)
-            summary["accounts"].append({"id": account["id"], "status": "ok", "videos": result["video_count"]})
-        except RiskControlStop as exc:
-            summary["accounts"].append({"id": account["id"], "status": "stopped", "error": str(exc)})
-            summary["stopped"] = str(exc)
-            return summary
-        except AccountError as exc:
-            summary["accounts"].append({"id": account["id"], "status": "failed", "error": str(exc)})
-    if store.self_account() is not None:
+    mine = [a for a in store.my_accounts() if a["platform"] == PLATFORM_DOUYIN]
+    if _sync_douyin(store, mine, factory, summary):
+        return summary
+    if mine:
         summary["creator_metrics"] = sync_creator_metrics(cookie_path=cookie_path, creator_db=creator_db)
+    if benchmarks:
+        bench = sync_benchmarks(store, cookie_path=cookie_path, enqueue=enqueue, has_report=has_report, factory=factory)
+        summary["accounts"] += bench["accounts"]
+        summary["enqueued"] = bench["enqueued"]
+        if bench.get("stopped"):
+            summary["stopped"] = bench["stopped"]
+    return summary
+
+
+BENCHMARK_PAGES = 1  # 对标只看最新一页（约 20 条）：够看出有没有新发的，少占抖音额度
+
+
+def sync_benchmarks(
+    store: StudioStore,
+    *,
+    cookie_path: Path,
+    enqueue: bool = True,
+    has_report=lambda _video_id: False,
+    factory=None,
+) -> dict:
+    """对标账号：每个号读资料 + 最新一页作品，新发的排进拆解。撞上风控整趟停下。"""
+    factory = factory or _cookie_client_factory(cookie_path)
+    summary: dict = {"accounts": [], "enqueued": 0}
+    if _sync_douyin(store, store.followed_accounts(), factory, summary, pages=BENCHMARK_PAGES):
+        return summary
     if enqueue:
         # Every recent post from a followed account, so its transcript lands in 进项; the
         # outlier pass on top of it still catches older breakouts outside that window.
         queued = auto_enqueue_new_posts(store, has_report=has_report) + auto_enqueue_outliers(store, has_report=has_report)
         summary["enqueued"] = len(queued)
     return summary
+
+
+def _sync_douyin(store: StudioStore, accounts: list[dict], factory, summary: dict, pages: int | None = None) -> bool:
+    """一个个同步；撞上风控记下 stopped 并返回 True（后面的都不再碰抖音）。"""
+    from .accounts import RiskControlStop
+
+    for account in accounts:
+        if account["platform"] != PLATFORM_DOUYIN:
+            continue
+        try:
+            result = sync_account(store, account["id"], client_factory=factory, pages=pages)
+            summary["accounts"].append({"id": account["id"], "status": "ok", "videos": result["video_count"]})
+        except RiskControlStop as exc:
+            summary["accounts"].append({"id": account["id"], "status": "stopped", "error": str(exc)})
+            summary["stopped"] = str(exc)
+            return True
+        except AccountError as exc:
+            summary["accounts"].append({"id": account["id"], "status": "failed", "error": str(exc)})
+    return False
 
 
 def sync_creator_metrics(*, cookie_path: Path, creator_db: Path) -> dict:

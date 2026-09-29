@@ -169,7 +169,7 @@ def _wait_sync(client: TestClient) -> None:
     import time
 
     for _ in range(100):
-        if not client.app.state.ops.syncing and not client.app.state.ops.full_sync_running:
+        if not client.app.state.ops.busy:
             return
         time.sleep(0.02)
     raise AssertionError("sync did not finish")
@@ -1537,3 +1537,33 @@ def test_update_endpoints_use_the_injected_git(client: TestClient, monkeypatch: 
     st = client.get("/api/update?fetch=false").json()
     assert st["can_update"] is False and "开发机" in st["reason"]
     assert client.post("/api/update").status_code == 409
+
+
+def test_background_syncs_never_overlap() -> None:
+    """自己的同步、对标同步、单个账号同步都碰抖音：同一时间只跑一趟。"""
+    import threading
+
+    from content_studio.web import BackgroundOps
+
+    ops = BackgroundOps()
+    gate = threading.Event()
+    assert ops.run("benchmarks", gate.wait) is True
+    assert ops.benchmarks_running and not ops.full_sync_running
+    assert ops.run("all", lambda: None) is False
+    assert ops.run(7, lambda: None) is False
+    gate.set()
+    for _ in range(100):
+        if not ops.busy:
+            break
+        threading.Event().wait(0.02)
+    assert ops.run("all", lambda: None) is True
+
+
+def test_benchmark_sync_route_is_separate(client: TestClient) -> None:
+    res = client.post("/api/sync/benchmarks").json()
+    assert res["started"] is True
+    assert "对标" in res["message"]
+    _wait_sync(client)
+    state = client.get("/api/state").json()
+    assert state["benchmarks_running"] is False
+    assert "benchmark_count" in state

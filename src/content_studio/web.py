@@ -207,36 +207,52 @@ class ReachBody(BaseModel):
 
 
 class BackgroundOps:
-    """Single-flight background syncs so the UI never blocks and never double-fetches."""
+    """Single-flight background syncs so the UI never blocks and never double-fetches.
+
+    "all"（自己的全部账号）、"benchmarks"（对标）、单个账号都会碰抖音，互相排队：同一时间只有一趟。
+    """
+
+    BATCHES = ("all", "benchmarks")
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.syncing: set[int] = set()
         self.full_sync_running = False
+        self.benchmarks_running = False
         self.last_full_sync: dict[str, Any] | None = None
+
+    @property
+    def busy(self) -> bool:
+        return self.full_sync_running or self.benchmarks_running or bool(self.syncing)
+
+    def _flag(self, key: str, value: bool) -> None:
+        if key == "all":
+            self.full_sync_running = value
+        else:
+            self.benchmarks_running = value
 
     def run(self, key: int | str, fn: Callable[[], Any]) -> bool:
         with self._lock:
-            if self.full_sync_running or (isinstance(key, int) and key in self.syncing):
+            if self.busy:
                 return False
-            if key == "all":
-                self.full_sync_running = True
+            if key in self.BATCHES:
+                self._flag(key, True)  # type: ignore[arg-type]
             else:
                 self.syncing.add(key)  # type: ignore[arg-type]
 
         def target() -> None:
             try:
                 result = fn()
-                if key == "all":
+                if key in self.BATCHES:
                     self.last_full_sync = result
             except Exception as exc:  # noqa: BLE001 - surfaced through account status
                 logger.warning("background sync %s failed: %s", key, exc)
-                if key == "all":
+                if key in self.BATCHES:
                     self.last_full_sync = {"error": str(exc)}
             finally:
                 with self._lock:
-                    if key == "all":
-                        self.full_sync_running = False
+                    if key in self.BATCHES:
+                        self._flag(key, False)  # type: ignore[arg-type]
                     else:
                         self.syncing.discard(key)  # type: ignore[arg-type]
 
@@ -325,6 +341,20 @@ def _apply_profile(store: StudioStore, data: dict[str, Any] | None) -> None:
                 logger.warning("profile: 对标账号 %s 没登记上：%s", url[:40], exc)
 
 
+SCREEN_REACH_APP = Path("~/Applications/内容工作台读数.app").expanduser()
+
+
+def _start_screen_reach() -> str:
+    """叫「内容工作台读数」小 App 读一次小红书；没装就说一声。"""
+    if not SCREEN_REACH_APP.exists():
+        return "没装读数小 App，小红书只能每天 9:25 读"
+    try:
+        subprocess.run(["open", "-g", str(SCREEN_REACH_APP)], check=False, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"读数小 App 没叫起来：{exc}"
+    return "started"
+
+
 def create_app(
     *,
     store_path: Path,
@@ -387,15 +417,28 @@ def create_app(
         else:
             from .cli import sync_everything
 
-            result = sync_everything(
+            # 小红书读数要截 Park 自己 Chrome 的窗口，只有「内容工作台读数」小 App 有录屏和控制 Chrome 的授权，
+            # 所以这里只是叫它起来跑一趟（和每天 9:25 同一件事），结果一分钟左右后自己写进来。
+            result = {"xiaohongshu": _start_screen_reach()}
+            result.update(sync_everything(
                 store,
                 cookie_path=cookie_path,
                 creator_db=creator_db or Path("/nonexistent"),
                 has_report=lambda vid: report_file(vid) is not None,
-            )
+                benchmarks=False,
+            ))
         worker.notify()
         if not result.get("stopped"):
             start_archive(limit=5)
+        return result
+
+    def benchmark_sync() -> dict:
+        from .cli import sync_benchmarks
+
+        result = sync_benchmarks(store, cookie_path=cookie_path, factory=factory,
+                                 has_report=lambda vid: report_file(vid) is not None)
+        store.log_event("sync", f"对标同步完：{sum(1 for a in result['accounts'] if a['status'] == 'ok')} 个号，排进拆解 {result['enqueued']} 条")
+        worker.notify()
         return result
 
     stop_auto = threading.Event()
@@ -467,7 +510,7 @@ def create_app(
         return {
             **account,
             "pending_note": PENDING_NOTES.get(account["platform"]),
-            "syncing": account["id"] in ops.syncing or (ops.full_sync_running and account["platform"] == PLATFORM_DOUYIN),
+            "syncing": account["id"] in ops.syncing or (account["platform"] == PLATFORM_DOUYIN and (ops.full_sync_running if account["is_self"] else ops.benchmarks_running)),
             "video_count": len(videos),
             "latest_published_at": next((v["published_at"] for v in videos if v["published_at"]), None),
             "median_likes": median,
@@ -542,9 +585,11 @@ def create_app(
             "cookies": cookies,
             "creator_metrics_available": bool(_creator_rows(creator_db)),
             "full_sync_running": ops.full_sync_running,
+            "benchmarks_running": ops.benchmarks_running,
             "last_full_sync": ops.last_full_sync,
             "active_jobs": sum(1 for j in jobs if j["stage"] not in ("done", "failed")),
             "account_count": len(store.accounts()),
+            "benchmark_count": len(store.followed_accounts()),
         }
 
     @app.put("/api/settings")
@@ -559,8 +604,16 @@ def create_app(
 
     @app.post("/api/sync")
     def sync_all() -> dict[str, Any]:
+        """你自己的全部账号：抖音主号和后台、B站、X、YouTube、小红书。不碰对标。"""
         started = ops.run("all", full_sync)
-        return {"started": started, "message": "开始同步全部账号" if started else "同步已经在进行中"}
+        return {"started": started, "message": "开始同步你自己的全部账号" if started else "已经有一趟同步在跑，等它跑完"}
+
+    @app.post("/api/sync/benchmarks")
+    def sync_benchmarks_route() -> dict[str, Any]:
+        """对标账号：每个号只看最新一页，只在对标雷达页点。"""
+        started = ops.run("benchmarks", benchmark_sync)
+        n = len(store.followed_accounts())
+        return {"started": started, "message": f"开始同步 {n} 个对标账号，每个号只看最新一页" if started else "已经有一趟同步在跑，等它跑完"}
 
     # -- my videos ----------------------------------------------------------
 
@@ -600,12 +653,17 @@ def create_app(
         account = add_account(store, body.url, client_factory=factory if needs_client else None, is_self=body.is_self)
         syncing = False
         if account["platform"] == PLATFORM_DOUYIN:
-            syncing = ops.run(account["id"], lambda: _sync_and_queue(account["id"]))
+            syncing = ops.run(account["id"], lambda: _sync_and_queue(account["id"], first=True))
         threshold = float(store.settings()["threshold"])
         return {"account": {**account_view(account, threshold), "syncing": syncing}}
 
-    def _sync_and_queue(account_id: int, deep: bool = False) -> dict:
-        result = sync_account(store, account_id, client_factory=factory, pages=DEEP_SYNC_PAGES if deep else None)
+    def _sync_and_queue(account_id: int, deep: bool = False, first: bool = False) -> dict:
+        from .cli import BENCHMARK_PAGES
+
+        is_self = bool(store.account(account_id)["is_self"])
+        # 对标平时只看最新一页（省抖音额度）；刚加进来那次读够 3 页好算中位数，「往回翻」才多翻
+        pages = DEEP_SYNC_PAGES if deep else (None if is_self or first else BENCHMARK_PAGES)
+        result = sync_account(store, account_id, client_factory=factory, pages=pages)
         acct = store.account(account_id)
         store.log_event("sync", f"{'往回翻完' if deep else '同步完'} {acct.get('nickname') or '账号'}，这次拉到 {result.get('video_count', '?')} 条作品")
         if deep:

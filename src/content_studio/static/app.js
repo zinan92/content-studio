@@ -239,12 +239,11 @@ function renderChrome() {
   const failedJobs = S.jobs.filter((j) => j.stage === 'failed').length;
   $('#qSummary').textContent = `${st.active_jobs ? `${st.active_jobs} 条进行中` : '没有进行中的'}${failedJobs ? ` · ${failedJobs} 条失败` : ''}`;
   paintChrome(S.view);
-  const syncBtn = $('#syncAllBtn');
-  syncBtn.disabled = st.full_sync_running;
-  syncBtn.textContent = st.full_sync_running ? '同步中…' : '同步全部账号';
-  $('#syncState').innerHTML = st.full_sync_running
-    ? '<span class="spin"></span><span>正在同步全部账号</span>'
-    : `<span class="dot"></span><span>${st.account_count} 个账号 · ${st.active_jobs} 个拆解进行中</span>`;
+  $$('[data-sync-all]').forEach((b) => { b.disabled = st.full_sync_running || st.benchmarks_running; b.textContent = st.full_sync_running ? '同步中…' : '同步全部账号'; });
+  $$('[data-sync-bench]').forEach((b) => { b.disabled = st.full_sync_running || st.benchmarks_running; b.textContent = st.benchmarks_running ? '同步中…' : '同步对标账号'; });
+  $('#syncState').innerHTML = st.full_sync_running ? '<span class="spin"></span><span>正在同步你自己的账号</span>'
+    : st.benchmarks_running ? `<span class="spin"></span><span>正在同步 ${st.benchmark_count} 个对标账号</span>`
+    : `<span class="dot"></span><span>${st.active_jobs} 个拆解进行中</span>`;
   const thr = $('#thr');
   if (document.activeElement !== thr) {
     thr.value = st.settings.threshold;
@@ -268,16 +267,17 @@ function renderPlatformStrip() {
   }).join('');
 }
 
-async function syncAll(btn) {
+/* 「同步全部账号」= 你自己的全部账号；对标只在对标雷达页单独同步（9/29 Park：别占抖音额度）。 */
+async function syncAll(btn, path = '/api/sync') {
   if (btn) btn.disabled = true;
   try {
-    const res = await api('/api/sync', { method: 'POST' });
+    const res = await api(path, { method: 'POST' });
     toast(res.message);
     await refreshAll();
-  } catch (err) { toast(err.message); } finally { if (btn) btn.disabled = false; }
+  } catch (err) { toast(err.message); if (btn) btn.disabled = false; }
 }
-$('#syncAllBtn').onclick = () => syncAll($('#syncAllBtn'));
 $$('[data-sync-all]').forEach((b) => (b.onclick = () => syncAll(b)));
+$$('[data-sync-bench]').forEach((b) => (b.onclick = () => syncAll(b, '/api/sync/benchmarks')));
 
 function renderView() {
   if (!S.state) return;
@@ -363,9 +363,9 @@ function renderMine() {
   }
   const acct = m.account;
   $('#mineActions').innerHTML = `<span class="sync-note">${acct.syncing ? '<span class="spin"></span> 同步中' : esc(ago(acct.last_synced_at))}</span>
-    <button class="btn" type="button" id="mineSync" ${acct.syncing ? 'disabled' : ''}>同步我的数据</button>`;
+    <button class="btn" type="button" id="mineSync" ${acct.syncing ? 'disabled' : ''}>同步全部账号</button>`;
   $('#mineSync').onclick = async () => {
-    try { const r = await api('/api/sync', { method: 'POST' }); toast(r.message === '开始同步全部账号' ? '开始同步：作品、后台数据和对标账号' : r.message); await refreshAll(); } catch (err) { toast(err.message); }
+    try { const r = await api('/api/sync', { method: 'POST' }); toast(r.message); await refreshAll(); } catch (err) { toast(err.message); }
   };
   if (acct.status === 'error' && acct.last_error) {
     body.innerHTML = `<div class="banner warn" style="margin-bottom:18px"><div><b>同步失败：</b>${esc(acct.last_error)}</div></div>`;
