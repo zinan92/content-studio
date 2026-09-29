@@ -23,6 +23,8 @@ from . import conf
 FACE_QUALITY = Path(__file__).parent / "native" / "face_quality.swift"
 WORD_BREAKS = Path(__file__).parent / "native" / "word_breaks.swift"
 STYLE_REFS = {"3x4": "assets/covers/park-bold-orange-v1-3x4.png", "4x3": "assets/covers/park-bold-orange-v1-4x3.png"}
+# 出哪几张：竖 3:4（抖音、视频号、小红书）、横 4:3（抖音横封面、公众号垫宽）、宽 16:9（YouTube、B 站，9/29 起）
+SHAPES = (("竖", "cover-3x4.png", 3 / 4), ("横", "cover-4x3.png", 4 / 3), ("YouTube", "cover-16x9.png", 16 / 9))
 WORK = "analysis/cover-imagegen"
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
 # 预览、样片、试做都是小码率的副本，不拿来取帧
@@ -213,7 +215,7 @@ def style_refs() -> dict[str, Path]:
 
 
 def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
-    return f"""用 image_gen 生成两张抖音视频封面，直接生成，不用等我确认。当前目录里有：
+    return f"""用 image_gen 生成三张视频封面（竖、横、宽），直接生成，不用等我确认。当前目录里有：
 
 - person.jpg — SOLE PERSON SOURCE：本期视频里的真人截图。封面上的人必须就是他：同一张脸、同样发型、同样的衣服和配饰、同样的手势。不要换脸、不要美颜成另一个人、不要换衣服。原图里如果有烧进去的字幕框，封面上必须去掉，一个字都不能留；背景的杂物（灯、椅子、桌子）也不要。
 - style-3x4.png（竖版）和 style-4x3.png（横版）— STYLE REFERENCE ONLY：只学视觉语言，不要用里面的人、衣服、手势或文字。
@@ -228,7 +230,9 @@ def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
 
 2) 横版 4:3（1448×1086）：标题压左边约 55% 宽，分 {len(landscape)} 行「{' / '.join(landscape)}」；人物压右边，胸口以上，占满右侧高度，脸大而清楚。单独构图，不要把竖版裁成横版。保存为 out/cover-4x3.png。
 
-生成后自己看一遍：字是否逐字一致、有没有残留字幕、人是不是 person.jpg 里那个人、缩到 360 像素宽时标题是否还能一眼读清。不合格就重生成，最多各试 3 次。最后只保留最好的两张在 out/ 里，另写 out/receipt.json：{{"prompt": 你实际用的完整提示词, "checks": {{"text": ..., "person": ..., "no_caption": ..., "thumbnail": ...}}}}。不要改当前目录里的其他文件。
+3) 宽版 16:9（1920×1080，给 YouTube 和 B 站）：和横版同一套——同样的标题断行、橙色关键词、底色、斜角条、笔刷下划线；标题压左边约 50% 宽，人物压右边、占满右侧高度。精确 16:9，不要拉伸。保存为 out/cover-16x9.png。
+
+生成后自己看一遍：字是否逐字一致、有没有残留字幕、人是不是 person.jpg 里那个人、缩到 360 像素宽时标题是否还能一眼读清。不合格就重生成，最多各试 3 次。最后只保留最好的三张在 out/ 里，另写 out/receipt.json：{{"prompt": 你实际用的完整提示词, "checks": {{"text": ..., "person": ..., "no_caption": ..., "thumbnail": ...}}}}。不要改当前目录里的其他文件。
 """
 
 
@@ -274,12 +278,12 @@ def generate(base: Path, source: Path, *, at: float, title: str, runner: Runner 
     text = prompt(title, split_title(title), split_title(title, per_line=5.5))
     (work / "prompt.md").write_text(text, encoding="utf-8")
     runner(text, work)
-    made = {"竖": work / "out" / "cover-3x4.png", "横": work / "out" / "cover-4x3.png"}
+    made = {label: work / "out" / name for label, name, _ in SHAPES}
     for label, path in made.items():
         if not path.is_file():
             raise CoverError(f"{label}版封面没出来")
-    if not _ratio_ok(made["竖"], 3 / 4) or not _ratio_ok(made["横"], 4 / 3):
-        raise CoverError("出来的封面比例不对（要竖 3:4、横 4:3），再出一次")
+    if not all(_ratio_ok(made[label], want) for label, _, want in SHAPES):
+        raise CoverError("出来的封面比例不对（要竖 3:4、横 4:3、宽 16:9），再出一次")
     covers = base / "final" / "covers"
     covers.mkdir(parents=True, exist_ok=True)
     old = covers / "_old"

@@ -532,7 +532,7 @@ function sideCore(p, d) {
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
-      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? ({ x: '。发的是研习室那篇文章，封面按标题单独出一张纯文字的（不带人脸）；需要 X Premium', wechat_mp: '。发的是研习室那篇文章 + 公众号封面，存进草稿箱，群发你在公众号后台自己点', miniprogram: '。发的是「研习室文章」那一篇，排版和网页后台导入一样；再发一次会更新同一篇' }[p.key] || '') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${p.key === 'bilibili' && d.release && d.release.covers && d.release.covers.landscape ? '，封面用横版封面' : ''}`}。</p>
+      block = `<p class="pdl-note">${esc(p.note)}${p.needs_article ? ({ x: '。发的是研习室那篇文章，封面按标题单独出一张纯文字的（不带人脸）；需要 X Premium', wechat_mp: '。发的是研习室那篇文章 + 公众号封面，存进草稿箱，群发你在公众号后台自己点', miniprogram: '。发的是「研习室文章」那一篇，排版和网页后台导入一样；再发一次会更新同一篇' }[p.key] || '') : p.no_video ? '。发的是文字，不带视频' : `。会上传 ${esc(d.video.name)}（${d.video.mb} MB）${['bilibili', 'youtube'].includes(p.key) && d.release && d.release.covers ? (d.release.covers.wide ? '，封面用 16:9 那张' : d.release.covers.landscape ? '，封面用 4:3 横版（还没有 16:9 的，回打包重出封面会多出一张）' : '') : ''}`}。</p>
         <div class="pdl-acts">${Object.entries(p.modes).map(([mode, label]) => `<button class="btn primary" type="button" data-pj-prepare="${mode}">${esc(label)}</button>`).join('')}</div>
         <p class="pdl-note">点了之后先看摘要，再由你确认。</p>`;
     } else {

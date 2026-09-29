@@ -54,7 +54,7 @@ window.packLocked = locked;
 
 function packItems(d, t, st) {
   const c = (d.release && d.release.covers) || {};
-  const covers = [['landscape', '横版'], ['portrait', '竖版'], ['wechat', '公众号']].filter(([k]) => c[k]).map(([, l]) => l);
+  const covers = [['portrait', '竖版'], ['landscape', '横版'], ['wide', 'YouTube 16:9']].filter(([k]) => c[k]).map(([, l]) => l);
   const e = d.entry || { title: '', body: '', tags: [] };
   const art = !d.has_article
     ? (t && t.write_state === 'running' ? ['wip', '正在照视频字幕写，一般 1–5 分钟'] : t && t.write_state === 'failed' ? ['bad', t.write_error || '上次写失败了'] : ['no', '照这条视频的字幕（剪映导出的 SRT）写成文字版'])
@@ -212,15 +212,15 @@ async function renderCoverMaker(topicId, box, { auto = false } = {}) {
   const pick = o.frames.find((f) => f.pick) || o.frames[Math.floor(o.frames.length / 2)] || {};
   let at = box.dataset.at ? Number(box.dataset.at) : pick.at || 0;
   const rel = PK.data && PK.data.release;
-  const current = rel && rel.cover_urls ? [['portrait', '竖版'], ['landscape', '横版']].filter(([k]) => rel.cover_urls[k]) : [];
+  const current = rel && rel.cover_urls ? [['portrait', '竖版'], ['landscape', '横版'], ['wide', 'YouTube 16:9']].filter(([k]) => rel.cover_urls[k]) : [];
   const stamp = Date.now();
   box.innerHTML = `<div class="cv-auto">
     <p class="cv-words">封面上的字：<span>${esc(o.title)}</span><small>就是标题；橙色关键词机器挑。想改字，改上面的标题再出一次。</small></p>
     <div class="cv-l">画面<small>从「${esc(o.source)}」里按人脸清晰、正对镜头挑了一张；想换就点另一张</small></div>
     <div class="cv-frames six">${o.frames.map((f) => `<button type="button" class="cv-frame ${f.at === at ? 'on' : ''}" data-cv-at="${f.at}" ${o.running ? 'disabled' : ''}><img src="${f.url}" alt="第 ${Math.round(f.at)} 秒"><small>${f.pick ? '机器挑的 · ' : ''}${Math.floor(f.at / 60)}:${String(Math.round(f.at % 60)).padStart(2, '0')}</small></button>`).join('')}</div>
     <div class="cv-foot">${o.running
-      ? '<span class="pdl-note"><span class="spin"></span> 正在用图像生成出竖版和横版，一般 5–10 分钟。可以先去做别的，出好这里会变。</span>'
-      : `<button class="btn primary" type="button" id="cvGo">${current.length ? '用这一帧重新出' : '出封面（竖 3:4、横 4:3）'}</button><span class="pdl-note">${o.error ? `<b class="bad">上次没出成：${esc(o.error)}</b>` : '图像生成，5–10 分钟'}</span>`}</div>
+      ? '<span class="pdl-note"><span class="spin"></span> 正在用图像生成出竖版、横版和 YouTube 16:9，一般 5–10 分钟。可以先去做别的，出好这里会变。</span>'
+      : `<button class="btn primary" type="button" id="cvGo">${current.length ? '用这一帧重新出' : '出封面（竖 3:4、横 4:3、YouTube 16:9）'}</button><span class="pdl-note">${o.error ? `<b class="bad">上次没出成：${esc(o.error)}</b>` : '图像生成，5–10 分钟'}</span>`}</div>
     <div class="cv-out">${current.map(([k, l]) => `<a href="${rel.cover_urls[k]}" target="_blank" rel="noopener"><img class="cv-shot ${k}" src="${rel.cover_urls[k]}?t=${stamp}" alt="${l}封面"></a>`).join('')}</div>
   </div>`;
   $$('[data-cv-at]', box).forEach((b) => (b.onclick = () => { at = Number(b.dataset.cvAt); box.dataset.at = String(at); $$('[data-cv-at]', box).forEach((x) => x.classList.toggle('on', x === b)); }));

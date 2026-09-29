@@ -80,12 +80,15 @@ def find_covers(base: Path) -> dict[str, str | None]:
         p for p in found
         if any(h in p.name.lower() for h in COVER_HINTS) and not any(n in p.name.lower() for n in COVER_NOISE)
     ]
-    out: dict[str, str | None] = {"landscape": None, "portrait": None, "wechat": None}
+    # wide 是 16:9（YouTube、B 站的框，9/29 起封面多出这一张）；landscape 是 4:3
+    out: dict[str, str | None] = {"landscape": None, "portrait": None, "wechat": None, "wide": None}
     # 新的在前：改过一版封面，旧的那张不该再被选中。
     for p in sorted(covers, key=lambda p: p.stat().st_mtime, reverse=True):
         size = image_size(p)
         if "公众号" in p.name or (size and size[0] / size[1] >= 2.2):
             kind = "wechat"  # 2.35:1 的公众号封面也是「宽 > 高」，不能被当成横版
+        elif "YouTube" in p.name or (size and 1.6 <= size[0] / size[1] < 2.2):
+            kind = "wide"
         elif size:
             kind = "landscape" if size[0] > size[1] else "portrait"
         elif "竖" in p.name:

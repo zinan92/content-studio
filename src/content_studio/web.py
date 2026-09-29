@@ -2620,7 +2620,7 @@ def create_app(
         if rel:
             try:
                 base = _media_base(topic)
-                covers = [base / v for k, v in (rel.get("covers") or {}).items() if v and k in ("landscape", "portrait")]
+                covers = [base / v for k, v in (rel.get("covers") or {}).items() if v and k in ("landscape", "portrait", "wide")]
             except VideoProjectError:
                 pass
         art = _article_path(topic)
@@ -2835,8 +2835,11 @@ def create_app(
         article = Path(topic["article_path"]) if topic.get("article_path") else None
         release_info = _release_for(topic) or {}
         covers = release_info.get("covers") or {}
-        # 公众号要 2.35:1：有专门出的公众号封面就用它，没有就用横版（发的时候垫宽）
-        chosen = (covers.get("wechat") if body.platform == "wechat_mp" else None) or covers.get("landscape")
+        # 公众号要 2.35:1：有专门出的公众号封面就用它，没有就用横版（发的时候垫宽）。
+        # YouTube、B 站是 16:9 的框：有 16:9 那张就用它，没有退回 4:3 横版。
+        chosen = ((covers.get("wechat") if body.platform == "wechat_mp" else None)
+                  or (covers.get("wide") if body.platform in ("youtube", "bilibili") else None)
+                  or covers.get("landscape"))
         cover = _media_base(topic) / chosen if chosen else None
         # 抖音的封面框横竖各一张
         portrait = _media_base(topic) / covers["portrait"] if covers.get("portrait") else None
