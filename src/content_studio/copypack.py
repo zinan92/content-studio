@@ -13,7 +13,8 @@ import re
 from typing import Any
 
 PLATFORMS: dict[str, dict[str, Any]] = {
-    "douyin": {"label": "抖音", "title": 30, "body": 1000, "tags": 5, "admin": "https://creator.douyin.com/creator-micro/content/upload"},
+    # 话题 8：抖音作品描述里带多少个 # 都行，Park 以前的视频最多带过 7 个（4 个流量话题 + 内容话题）
+    "douyin": {"label": "抖音", "title": 30, "body": 1000, "tags": 8, "admin": "https://creator.douyin.com/creator-micro/content/upload"},
     "channels": {"label": "视频号", "title": 16, "body": 1000, "tags": 5, "admin": "https://channels.weixin.qq.com/platform/post/create"},
     # 小红书标题 20「字」：两个英文字母算一个字（9/24 Park 实测：按 20 个字符截出来，小红书显示 14）。不截，超了提醒。
     "xiaohongshu": {"label": "小红书", "title": 20, "body": 1000, "tags": 10, "admin": "https://creator.xiaohongshu.com/publish/publish",

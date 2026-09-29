@@ -34,6 +34,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "local_video_roots": [],
     # {platform: {"on": bool, "handle": str}} — which platforms Park has opened accounts on.
     "platform_accounts": {},
+    # {platform: [话题]} — 各平台的流量话题（活动、扶持计划），每条视频自动带上、排在内容话题前面。
+    # 9/29 Park：抖音那四个是他每条都带的；别的平台他还不知道，在打包页里填一次就记住。
+    "traffic_tags": {},
 }
 
 # Kept as history only: Park collapsed 对标 and 老师 into one category on 2026-09-20, so nothing
@@ -693,6 +696,11 @@ class StudioStore:
             cleaned["obsidian_vault"] = cleaned["obsidian_vault"].strip()
             if not cleaned["obsidian_vault"]:
                 raise StoreError("Obsidian 库路径不能为空")
+        if "traffic_tags" in cleaned:
+            cleaned["traffic_tags"] = {
+                str(k): list(dict.fromkeys(str(t).strip().lstrip("#").strip() for t in (v or []) if str(t).strip().lstrip("#").strip()))
+                for k, v in cleaned["traffic_tags"].items()
+            }
         if "threshold" in cleaned and not 1 <= cleaned["threshold"] <= 100:
             raise StoreError("爆款门槛需在 1× 到 100× 之间")
         if "auto_enqueue_limit" in cleaned and not 0 <= cleaned["auto_enqueue_limit"] <= 50:

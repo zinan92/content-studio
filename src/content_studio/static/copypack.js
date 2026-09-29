@@ -8,6 +8,18 @@ const CP = { data: {}, dirty: false };
 const DESC_KEYS = ['douyin', 'channels', 'xiaohongshu'];
 const INTRO_KEYS = ['bilibili', 'youtube', 'xiaoyuzhou'];
 const LEN_KEYS = ['douyin', 'channels', 'xiaohongshu', 'bilibili', 'youtube'];
+// 9/29 Park：每个平台有自己的流量话题（抖音的「青年创作者成长计划」这类），每条都带、排在前面。
+// 存在设置里（traffic_tags），填一次以后每条都用；内容话题每条自己写。
+const TRAFFIC_KEYS = LEN_KEYS;
+const trafficTags = () => ((S.state && S.state.settings && S.state.settings.traffic_tags) || {});
+
+/** 这个平台最后发出去的话题：流量话题在前，内容话题在后，去重，按平台上限截。 */
+function platformTags(key, content, traffic, specs) {
+  const all = [...new Set([...(traffic[key] || []), ...content])];
+  const cap = specs && specs[key] ? specs[key].tags : all.length;
+  return { tags: all.slice(0, cap), dropped: all.slice(cap), cap };
+}
+window.platformTags = platformTags;
 
 async function loadCopy(topicId, force) {
   if (!force && CP.data[topicId] && Date.now() - CP.data[topicId]._at < 30000) return CP.data[topicId];
@@ -17,8 +29,9 @@ async function loadCopy(topicId, force) {
 
 const filled = (e) => e && (e.title || e.body);
 
-/** 读出四样：标题、话题取第一个写过的平台；描述、简介各取自己那组里第一个写过的，没有就用共用的那段。 */
-function copyFields(copy) {
+/** 读出四样：标题、话题取第一个写过的平台；描述、简介各取自己那组里第一个写过的，没有就用共用的那段。
+ *  存下的话题里混着流量话题，读回来时拿掉，只剩这条自己的内容话题。 */
+function copyFields(copy, traffic = {}) {
   const platforms = (copy && copy.platforms) || {};
   const first = (keys) => keys.map((k) => platforms[k]).find(filled);
   const shared = first([...DESC_KEYS, ...INTRO_KEYS, ...Object.keys(platforms)]) || { title: '', body: '', tags: [] };
@@ -28,7 +41,7 @@ function copyFields(copy) {
     title: shared.title || '',
     desc: (desc || shared).body || '',
     intro: (intro || shared).body || '',
-    tags: shared.tags || [],
+    tags: (shared.tags || []).filter((t) => !Object.values(traffic).some((list) => (list || []).includes(t))),
   };
 }
 window.copyFields = copyFields;
@@ -66,7 +79,8 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
   let d;
   try { d = await loadCopy(topic.id, false); } catch (err) { el.innerHTML = `<div class="bad">${esc(err.message)}</div>`; return; }
   const specs = d.platforms_spec;
-  const f = copyFields(d.copy);
+  const traffic = { ...trafficTags() };
+  const f = copyFields(d.copy, traffic);
   const cover = release && release.cover_urls && (release.cover_urls.portrait || release.cover_urls.landscape);
   const label = (keys) => keys.filter((k) => specs[k]).map((k) => specs[k].label).join(' / ');
   el.innerHTML = `<div class="cf">
@@ -82,10 +96,15 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
       <label class="dy-field"><span>文案描述<i class="dy-hint">${esc(label(DESC_KEYS))} · <b id="cbDescN">0</b>/1000</i></span><textarea id="cbDesc" rows="5" placeholder="刷到时看的那一段。第一句就要留住人。">${esc(f.desc)}</textarea></label>
       <label class="dy-field"><span>简介<i class="dy-hint">${esc(label(INTRO_KEYS))} · 点进去才看的说明 · <b id="cbIntroN">0</b> 字</i></span><textarea id="cbIntro" rows="3" placeholder="这期讲了什么、适合谁看。可以和描述一样。">${esc(f.intro)}</textarea>
         <button class="linklike cf-same" type="button" id="cbSame">和描述一样</button></label>
-      <label class="dy-field"><span>话题<i class="dy-hint">逗号分隔 · 抖音最多 5 个，多的只发到能放下的平台</i></span><input id="cbTags" value="${esc(f.tags.join('，'))}" placeholder="AI，自媒体，变现" autocomplete="off"></label>
+      <label class="dy-field"><span>内容话题<i class="dy-hint">这条讲什么 · 逗号分隔 · 所有平台都带</i></span><input id="cbTags" value="${esc(f.tags.join('，'))}" placeholder="自媒体，变现，AI" autocomplete="off"></label>
+      <div class="tt"><div class="tt-h">各平台流量话题<small>活动、扶持计划这类。填一次，以后每条都自动带上，排在内容话题前面</small></div>
+        ${TRAFFIC_KEYS.filter((k) => specs[k]).map((k) => `<div class="tt-row"><b>${esc(specs[k].label)}</b>
+          <input data-tt="${k}" value="${esc((traffic[k] || []).join('，'))}" placeholder="${k === 'douyin' ? '青年创作者成长计划，AI新星计划' : '还没有，知道了就填'}" autocomplete="off">
+          <span class="tt-out" id="tt-${k}"></span></div>`).join('')}
+      </div>
       <div class="dy-foot">
         <button class="btn primary" type="button" id="cbSave">保存</button>
-        <button class="btn ghost" type="button" id="cbCopy">复制标题 + 描述 + 话题</button>
+        <button class="btn ghost" type="button" id="cbCopy">复制抖音用的标题 + 描述 + 话题</button>
         <span class="cf-saved" id="cbSaved"></span>
       </div>
     </div>
@@ -93,12 +112,18 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
   </div>`;
   const title = $('#cbTitle', el);
   const read = () => ({ title: title.value.trim(), desc: $('#cbDesc', el).value.trim(), intro: $('#cbIntro', el).value.trim(), tags: tagsOf($('#cbTags', el).value) });
+  const readTraffic = () => Object.fromEntries($$('[data-tt]', el).map((i) => [i.dataset.tt, tagsOf(i.value)]));
   const repaint = () => {
     const v = read();
     $('#cbLens', el).innerHTML = lengthChips(v.title, specs);
     $('#cbDescN', el).textContent = v.desc.length;
     $('#cbIntroN', el).textContent = v.intro.length;
-    $('#cbPreview', el).innerHTML = dyPreview(v.title, v.desc, v.tags, cover);
+    const tr = readTraffic();
+    TRAFFIC_KEYS.filter((k) => specs[k]).forEach((k) => {
+      const r = platformTags(k, v.tags, tr, specs);
+      $(`#tt-${k}`, el).innerHTML = `发的时候 ${r.tags.length}/${r.cap}${r.dropped.length ? ` · <b class="bad">超了，${esc(r.dropped.map((t) => '#' + t).join(' '))} 不带</b>` : ''}`;
+    });
+    $('#cbPreview', el).innerHTML = dyPreview(v.title, v.desc, platformTags('douyin', v.tags, tr, specs).tags, cover);
   };
   const touched = () => { CP.dirty = true; $('#cbSaved', el).textContent = '有改动，还没保存'; repaint(); };
   $$('input, textarea', el).forEach((input) => (input.oninput = touched));
@@ -157,11 +182,18 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
     const v = read();
     if (!v.title) { toast('先写标题'); title.focus(); return; }
     const intro = v.intro || v.desc;
+    const tr = readTraffic();
+    const tagsFor = (k) => platformTags(k, v.tags, tr, specs).tags;
     const platforms = {
-      ...Object.fromEntries(DESC_KEYS.filter((k) => specs[k]).map((k) => [k, { title: v.title, body: v.desc, tags: v.tags }])),
-      ...Object.fromEntries(INTRO_KEYS.filter((k) => specs[k]).map((k) => [k, { title: v.title, body: intro, tags: v.tags }])),
+      ...Object.fromEntries(DESC_KEYS.filter((k) => specs[k]).map((k) => [k, { title: v.title, body: v.desc, tags: tagsFor(k) }])),
+      ...Object.fromEntries(INTRO_KEYS.filter((k) => specs[k]).map((k) => [k, { title: v.title, body: intro, tags: tagsFor(k) }])),
     };
     try {
+      // 流量话题是全局的：改过就存进设置，下一条视频直接带上
+      if (JSON.stringify(tr) !== JSON.stringify(Object.fromEntries(TRAFFIC_KEYS.filter((k) => specs[k]).map((k) => [k, traffic[k] || []])))) {
+        const saved = await api('/api/settings', { method: 'PUT', body: { traffic_tags: { ...trafficTags(), ...tr } } });
+        if (S.state) S.state.settings = saved;
+      }
       await api(`/api/topics/${topic.id}/copy`, { method: 'PUT', body: { platforms } });
       CP.dirty = false; delete CP.data[topic.id];
       toast('文字信息已保存');
@@ -170,7 +202,7 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
   };
   $('#cbCopy', el).onclick = () => {
     const v = read();
-    const text = [v.title, v.desc, v.tags.map((t) => '#' + t).join(' ')].filter(Boolean).join('\n\n');
+    const text = [v.title, v.desc, platformTags('douyin', v.tags, readTraffic(), specs).tags.map((t) => '#' + t).join(' ')].filter(Boolean).join('\n\n');
     navigator.clipboard.writeText(text).then(() => toast('已复制'), () => toast('复制失败'));
   };
 }

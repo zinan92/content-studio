@@ -249,6 +249,13 @@ def test_settings_validation(client: TestClient) -> None:
     assert client.put("/api/settings", json={"sync_delay_seconds": 0.2}).status_code == 400
 
 
+def test_traffic_tags_are_kept_per_platform_without_hashes_or_repeats(client: TestClient) -> None:
+    """9/29：各平台的流量话题存在设置里，填一次每条都带。"""
+    saved = client.put("/api/settings", json={"traffic_tags": {"douyin": ["#青年创作者成长计划", " Ai新星计划", "Ai新星计划", ""]}}).json()
+    assert saved["traffic_tags"] == {"douyin": ["青年创作者成长计划", "Ai新星计划"]}
+    assert client.get("/api/state").json()["settings"]["traffic_tags"]["douyin"][0] == "青年创作者成长计划"
+
+
 def test_report_404_for_missing_and_legacy_reports(client: TestClient, tmp_path: Path) -> None:
     assert client.get("/api/reports/999").status_code == 404
     legacy = tmp_path / "data" / "reports" / "777"
