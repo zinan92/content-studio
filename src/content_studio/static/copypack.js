@@ -1,9 +1,13 @@
 'use strict';
-/* 视频 · 发布：一个标题 + 一段简介，所有平台共用；各平台只提示字数，发布记录按平台记 */
+/* 03 打包 · 文字信息：一个标题 + 简介（短）+ 文案描述（长）+ 话题。
+   9/29 Park：简介和描述是两样。描述给抖音、视频号、小红书（刷到时看的那一段），简介给 B 站、YouTube、小宇宙
+   （点进去才看的说明）。存的时候按平台 key 分开写，一键发布读的就是各自那一份。 */
 
 const CP = { data: {}, dirty: false };
-// Platforms Park publishes a video to; the shared title/简介 is saved under each of these keys.
-const SHARED_KEYS = ['douyin', 'channels', 'bilibili', 'youtube'];
+// 哪些平台读「文案描述」，哪些读「简介」。标题和话题所有平台共用。
+const DESC_KEYS = ['douyin', 'channels', 'xiaohongshu'];
+const INTRO_KEYS = ['bilibili', 'youtube', 'xiaoyuzhou'];
+const LEN_KEYS = ['douyin', 'channels', 'xiaohongshu', 'bilibili', 'youtube'];
 
 async function loadCopy(topicId, force) {
   if (!force && CP.data[topicId] && Date.now() - CP.data[topicId]._at < 30000) return CP.data[topicId];
@@ -11,21 +15,32 @@ async function loadCopy(topicId, force) {
   return CP.data[topicId];
 }
 
-function sharedEntry(copy) {
+const filled = (e) => e && (e.title || e.body);
+
+/** 读出四样：标题、话题取第一个写过的平台；描述、简介各取自己那组里第一个写过的，没有就用共用的那段。 */
+function copyFields(copy) {
   const platforms = (copy && copy.platforms) || {};
-  const key = ['douyin', 'channels', ...Object.keys(platforms)].find((k) => platforms[k] && (platforms[k].title || platforms[k].body));
-  return key ? platforms[key] : { title: '', body: '', tags: [] };
+  const first = (keys) => keys.map((k) => platforms[k]).find(filled);
+  const shared = first([...DESC_KEYS, ...INTRO_KEYS, ...Object.keys(platforms)]) || { title: '', body: '', tags: [] };
+  const desc = first(DESC_KEYS);
+  const intro = first(INTRO_KEYS);
+  return {
+    title: shared.title || '',
+    desc: (desc || shared).body || '',
+    intro: (intro || shared).body || '',
+    tags: shared.tags || [],
+  };
 }
+window.copyFields = copyFields;
 
 // 按平台的算法数字数：小红书两个英文字母算一个字
 const titleUnits = (text, spec) => (spec && spec.count === 'half_ascii' ? [...text].reduce((n, ch) => n + (ch.charCodeAt(0) < 128 ? 0.5 : 1), 0) : text.length);
 
 function lengthChips(title, specs) {
-  return SHARED_KEYS.map((k) => {
+  return LEN_KEYS.filter((k) => specs[k]).map((k) => {
     const cap = specs[k].title;
     const n = titleUnits(title, specs[k]);
-    const over = n > cap;
-    return `<span class="len-chip ${over ? 'bad' : ''}" title="${esc(specs[k].label)}标题最多 ${cap} 字">${esc(specs[k].label)} ${n}/${cap}</span>`;
+    return `<span class="len-chip ${n > cap ? 'bad' : ''}" title="${esc(specs[k].label)}标题最多 ${cap} 字">${esc(specs[k].label)} ${n}/${cap}</span>`;
   }).join('');
 }
 
@@ -34,94 +49,62 @@ function thesisFromOutline(markdown) {
   return m ? m[1].replace(/\s+/g, ' ').trim() : '';
 }
 
-/** 抖音没有自动发布通道（只有视频号 / B 站 / YouTube 有），所以这一页是「在这里写好，
- *  到抖音粘贴」。样子照着 creator.douyin.com 的发布页做，手感一致；但凡不能真正带过去的
- *  开关（谁可以看、允许他人保存、定时发布）一律不放假控件，只在确认框里提醒去抖音那边设。 */
-function dyPreview(title, body, tags) {
-  const text = [title, body].filter(Boolean).join('\n');
+/* 手机上大概长这样：抖音刷到时，标题 + 描述 + 话题叠在画面下面。 */
+function dyPreview(title, desc, tags, cover) {
+  const text = [title, desc].filter(Boolean).join('\n');
   const tagLine = tags.map((t) => `<span class="dy-tag">#${esc(t)}</span>`).join(' ');
   return `<div class="dy-phone"><div class="dy-screen">
-      <div class="dy-cover">封面</div>
-      <div class="dy-cap">${text ? esc(text).replace(/\n/g, '<br>') : '<span class="dy-ph">作品描述会显示在这里</span>'}${tagLine ? `<div class="dy-tags">${tagLine}</div>` : ''}</div>
-    </div><small>手机上大概长这样</small></div>`;
+      <div class="dy-cover">${cover ? `<img src="${esc(cover)}" alt="竖版封面">` : '封面'}</div>
+      <div class="dy-cap">${text ? esc(text).replace(/\n/g, '<br>') : '<span class="dy-ph">描述会显示在这里</span>'}${tagLine ? `<div class="dy-tags">${tagLine}</div>` : ''}</div>
+    </div><small>刷到时大概长这样</small></div>`;
 }
 
-async function renderCopyBox(topic, el) {
+const tagsOf = (raw) => raw.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
+
+/** 打包页里的文字信息表单。release 是成片交付包（有 Codex 写好的「发布文案」就能一键填）。 */
+async function renderCopyForm(topic, el, { release, onSaved } = {}) {
   let d;
   try { d = await loadCopy(topic.id, false); } catch (err) { el.innerHTML = `<div class="bad">${esc(err.message)}</div>`; return; }
   const specs = d.platforms_spec;
-  const e = sharedEntry(d.copy);
-  const records = d.records || {};
-  const tagsOf = (raw) => raw.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean);
-  el.innerHTML = `<section class="cb dy">
-    <div class="dy-bar"><span class="dy-logo">抖音</span><b>发布视频</b><small>在这里写好，到抖音粘贴</small><span class="spacer"></span>
-      <button class="btn small ghost" type="button" id="cbTitles">出标题</button>
-      ${topic.outline_path ? '<button class="btn small ghost" type="button" id="cbFill">用提纲填</button>' : ''}</div>
-    <div class="dy-grid">
-      <div class="dy-form">
-        <label class="dy-field"><span>标题</span><input id="cbTitle" value="${esc(e.title)}" placeholder="${esc(topic.title)}" autocomplete="off" maxlength="60"></label>
-        <div class="len-row" id="cbLens">${lengthChips(e.title, specs)}</div>
-        <div class="tc" id="cbTitleList" hidden></div>
-        <label class="dy-field"><span>作品描述<i class="dy-count" id="cbCount">0/1000</i></span><textarea id="cbBody" rows="5" placeholder="好的开头能留住人。把第一句写在这里。">${esc(e.body)}</textarea></label>
-        <label class="dy-field"><span>添加话题<i class="dy-hint">逗号分隔，抖音最多 5 个</i></span><input id="cbTags" value="${esc((e.tags || []).join('，'))}" placeholder="AI，投资，副业" autocomplete="off"></label>
-        <div class="dy-foot">
-          <button class="btn dy-publish" type="button" id="cbPublish">发布</button>
-          <button class="btn" type="button" id="cbSave">存草稿</button>
-          <button class="btn ghost" type="button" id="cbCopy">复制</button>
-        </div>
-        <div class="dy-note">抖音这一步要你自己在抖音里传视频、粘贴描述。「谁可以看」「允许他人保存」「定时发布」也在抖音那边设。<br>视频号 / B 站 / YouTube 可以从下面「一键发布」直接走。</div>
-        <span class="cb-rec">${[...new Set([...SHARED_KEYS.filter((k) => k !== 'douyin'), ...Object.keys(records)])].filter((k) => specs[k]).map((k) => records[k]
-          ? `<button class="chip-state shipped" type="button" data-cb-unmark="${k}" title="点一下撤销">${esc(specs[k].label)} 已发</button>`
-          : `<button class="chip-state" type="button" data-cb-mark="${k}">${esc(specs[k].label)} 标为已发</button>`).join('')}</span>
+  const f = copyFields(d.copy);
+  const cover = release && release.cover_urls && (release.cover_urls.portrait || release.cover_urls.landscape);
+  const label = (keys) => keys.filter((k) => specs[k]).map((k) => specs[k].label).join(' / ');
+  el.innerHTML = `<div class="cf">
+    <div class="cf-form">
+      <div class="cf-tools">
+        <button class="btn small" type="button" id="cbTitles">出标题</button>
+        ${topic.outline_path ? '<button class="btn small ghost" type="button" id="cbFill">用提纲填</button>' : ''}
+        ${release && release.copy ? `<button class="btn small ghost" type="button" id="cbRelease" title="${esc(release.copy.title || '')}">用成片包里的发布文案填</button>` : ''}
       </div>
-      <div class="dy-side" id="cbPreview">${dyPreview(e.title, e.body, e.tags || [])}</div>
+      <label class="dy-field"><span>标题<i class="dy-hint">所有平台共用，超了的平台发的时候自动裁</i></span><input id="cbTitle" value="${esc(f.title)}" placeholder="${esc(topic.title)}" autocomplete="off" maxlength="100"></label>
+      <div class="len-row" id="cbLens"></div>
+      <div class="tc" id="cbTitleList" hidden></div>
+      <label class="dy-field"><span>文案描述<i class="dy-hint">${esc(label(DESC_KEYS))} · <b id="cbDescN">0</b>/1000</i></span><textarea id="cbDesc" rows="5" placeholder="刷到时看的那一段。第一句就要留住人。">${esc(f.desc)}</textarea></label>
+      <label class="dy-field"><span>简介<i class="dy-hint">${esc(label(INTRO_KEYS))} · 点进去才看的说明 · <b id="cbIntroN">0</b> 字</i></span><textarea id="cbIntro" rows="3" placeholder="这期讲了什么、适合谁看。可以和描述一样。">${esc(f.intro)}</textarea>
+        <button class="linklike cf-same" type="button" id="cbSame">和描述一样</button></label>
+      <label class="dy-field"><span>话题<i class="dy-hint">逗号分隔 · 抖音最多 5 个，多的只发到能放下的平台</i></span><input id="cbTags" value="${esc(f.tags.join('，'))}" placeholder="AI，自媒体，变现" autocomplete="off"></label>
+      <div class="dy-foot">
+        <button class="btn primary" type="button" id="cbSave">保存</button>
+        <button class="btn ghost" type="button" id="cbCopy">复制标题 + 描述 + 话题</button>
+        <span class="cf-saved" id="cbSaved"></span>
+      </div>
     </div>
-    <div id="cbPlatforms"></div>
-  </section>`;
+    <div class="dy-side" id="cbPreview"></div>
+  </div>`;
   const title = $('#cbTitle', el);
-  const read = () => ({ title: title.value.trim(), body: $('#cbBody', el).value.trim(), tags: $('#cbTags', el).value.split(/[，,\s]+/).map((t) => t.replace(/^#/, '').trim()).filter(Boolean) });
-  /** 每个平台一张卡：标题/正文/话题按这个平台的字数上限裁好，每个空一个「复制」。
-   *  不替 Park 上传——但他到了平台上，每个空该粘什么，这里已经备好了。 */
-  function platformCards() {
-    const box = $('#cbPlatforms', el);
-    if (!box) return;
-    const entry = read();
-    const on = (S.platforms || []).filter((m) => m.on && specs[m.key]);
-    box.innerHTML = on.length ? `<section class="pf">
-      <div class="panel-h"><h3>各平台怎么填</h3><small>按各家的字数裁好了，点「复制」去粘贴 · 不会替你上传</small></div>
-      ${on.map((m) => {
-        const spec = specs[m.key];
-        const title = spec.title ? (spec.no_trim ? entry.title : entry.title.slice(0, spec.title)) : '';
-        const body = entry.body.slice(0, spec.body);
-        const tags = entry.tags.slice(0, spec.tags);
-        const over = spec.title && titleUnits(entry.title, spec) > spec.title;
-        const field = (label, value, hint) => value
-          ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-pf-copy="${esc(value)}">复制</button></div>`
-          : '';
-        return `<article class="pf-card">
-          <div class="pf-h"><i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>
-            <b>${esc(m.label)}</b>
-            <span class="rp-tag ${m.state === 'linked' ? 'ok' : m.state === 'manual' ? '' : 'warn'}" title="${esc(m.note || '')}">${ {linked: '可自动发布', ready: '凭据就绪', stale: '通道要重新登录', blocked: '平台限制了自动发布', setup: '差一步配置'}[m.state] || '手动上传'}</span>
-            <span class="spacer"></span>
-            ${m.admin ? `<a class="btn small ghost" href="${esc(m.admin)}" target="_blank" rel="noopener">去${esc(m.label)}上传 ↗</a>` : ''}</div>
-          ${field('标题', title, `最多 ${spec.title} 字${over ? ' · 已裁短' : ''}`)}
-          ${field(m.key === 'wechat_mp' ? '正文开头' : '简介', body, `最多 ${spec.body} 字`)}
-          ${field('话题', tags.map((t) => '#' + t).join(' '), `最多 ${spec.tags} 个`)}
-        </article>`;
-      }).join('')}
-    </section>` : '';
-    $$('[data-pf-copy]', box).forEach((b) => (b.onclick = () => navigator.clipboard.writeText(b.dataset.pfCopy).then(() => toast('已复制'), () => toast('复制失败'))));
-  }
-
+  const read = () => ({ title: title.value.trim(), desc: $('#cbDesc', el).value.trim(), intro: $('#cbIntro', el).value.trim(), tags: tagsOf($('#cbTags', el).value) });
   const repaint = () => {
-    const entry = read();
-    $('#cbLens', el).innerHTML = lengthChips(entry.title, specs);
-    $('#cbCount', el).textContent = `${entry.body.length}/1000`;
-    $('#cbPreview', el).innerHTML = dyPreview(entry.title, entry.body, entry.tags);
-    platformCards();
+    const v = read();
+    $('#cbLens', el).innerHTML = lengthChips(v.title, specs);
+    $('#cbDescN', el).textContent = v.desc.length;
+    $('#cbIntroN', el).textContent = v.intro.length;
+    $('#cbPreview', el).innerHTML = dyPreview(v.title, v.desc, v.tags, cover);
   };
-  $$('input, textarea', el).forEach((input) => (input.oninput = () => { CP.dirty = true; repaint(); }));
+  const touched = () => { CP.dirty = true; $('#cbSaved', el).textContent = '有改动，还没保存'; repaint(); };
+  $$('input, textarea', el).forEach((input) => (input.oninput = touched));
   repaint();
+  $('#cbSame', el).onclick = () => { $('#cbIntro', el).value = $('#cbDesc', el).value; touched(); };
+
   const fill = $('#cbFill', el);
   if (fill) fill.onclick = async () => {
     try {
@@ -129,11 +112,21 @@ async function renderCopyBox(topic, el) {
       const heading = /^#\s+(.+)$/m.exec(o.markdown || '');
       title.value = heading ? heading[1].trim() : topic.title;
       const thesis = thesisFromOutline(o.markdown);
-      if (thesis) $('#cbBody', el).value = thesis;
-      CP.dirty = true;
-      repaint();
+      if (thesis) { $('#cbDesc', el).value = thesis; if (!$('#cbIntro', el).value.trim()) $('#cbIntro', el).value = thesis; }
+      touched();
     } catch (err) { toast(err.message); }
   };
+  const rel = $('#cbRelease', el);
+  if (rel) rel.onclick = () => {
+    const c = release.copy;
+    if ((title.value || $('#cbDesc', el).value) && !confirm(`用成片包里的发布文案覆盖现在填的？\n\n标题：${c.title}`)) return;
+    title.value = c.title || '';
+    $('#cbDesc', el).value = c.body || '';
+    $('#cbIntro', el).value = c.body || '';
+    $('#cbTags', el).value = (c.tags || []).join('，');
+    touched();
+  };
+
   /* 标题候选：按 Anna 的「标题」工作流出，点一条填进标题框。不替 Park 选。 */
   const list = $('#cbTitleList', el);
   const showTitles = (t) => {
@@ -144,7 +137,7 @@ async function renderCopyBox(topic, el) {
     if (!r) { list.hidden = true; return; }
     list.innerHTML = `<p class="tc-note">点一条填进标题${r.had_transcript ? '' : ' · 没找到转写，只看了选题和骨架'}${r.people.length ? ` · 视频里点名了 ${esc(r.people.join('、'))}` : ''}</p>
       ${r.candidates.map((c, i) => `<button type="button" class="tc-row" data-tc="${i}"><b>${esc(c.title)}${c.over ? ` <i class="tc-over" title="抖音标题最多 30 字，发之前删几个字">${c.title.length} 字</i>` : ''}</b><span class="tc-pat ${c.pattern.includes('借力') ? 'borrow' : ''}">${esc(c.pattern)}</span><small>${esc(c.basis)}</small></button>`).join('')}`;
-    $$('[data-tc]', list).forEach((b) => (b.onclick = () => { title.value = r.candidates[Number(b.dataset.tc)].title; CP.dirty = true; repaint(); title.focus(); }));
+    $$('[data-tc]', list).forEach((b) => (b.onclick = () => { title.value = r.candidates[Number(b.dataset.tc)].title; touched(); title.focus(); }));
   };
   const pollTitles = async () => {
     let t;
@@ -159,37 +152,26 @@ async function renderCopyBox(topic, el) {
     try { await api(`/api/topics/${topic.id}/titles`, { method: 'POST' }); tb.textContent = '再出一批标题'; showTitles({ running: true }); setTimeout(pollTitles, 3000); }
     catch (err) { toast(err.message); }
   };
-  const refresh = () => { CP.dirty = false; delete CP.data[topic.id]; const body = $('#videoBody'); if (body) body.dataset.sig = ''; renderView(); };
+
   $('#cbSave', el).onclick = async () => {
-    const entry = read();
-    if (!entry.title) { toast('先写标题'); return; }
-    const platforms = Object.fromEntries(SHARED_KEYS.map((k) => [k, entry]));
-    try { await api(`/api/topics/${topic.id}/copy`, { method: 'PUT', body: { platforms } }); toast('已保存'); refresh(); } catch (err) { toast(err.message); }
+    const v = read();
+    if (!v.title) { toast('先写标题'); title.focus(); return; }
+    const intro = v.intro || v.desc;
+    const platforms = {
+      ...Object.fromEntries(DESC_KEYS.filter((k) => specs[k]).map((k) => [k, { title: v.title, body: v.desc, tags: v.tags }])),
+      ...Object.fromEntries(INTRO_KEYS.filter((k) => specs[k]).map((k) => [k, { title: v.title, body: intro, tags: v.tags }])),
+    };
+    try {
+      await api(`/api/topics/${topic.id}/copy`, { method: 'PUT', body: { platforms } });
+      CP.dirty = false; delete CP.data[topic.id];
+      toast('文字信息已保存');
+      if (onSaved) onSaved();
+    } catch (err) { toast(err.message); }
   };
-  const copyText = () => {
-    const entry = read();
-    const text = [entry.title, entry.body, entry.tags.map((t) => '#' + t).join(' ')].filter(Boolean).join('\n\n');
-    return navigator.clipboard.writeText(text).then(() => text, () => text);
+  $('#cbCopy', el).onclick = () => {
+    const v = read();
+    const text = [v.title, v.desc, v.tags.map((t) => '#' + t).join(' ')].filter(Boolean).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => toast('已复制'), () => toast('复制失败'));
   };
-  $('#cbCopy', el).onclick = () => copyText().then(() => toast('已复制'));
-  $('#cbPublish', el).onclick = async () => {
-    if (!read().title) { toast('先写标题'); return; }
-    // 抖音没有自动通道：这个按钮只是把描述复制走、打开抖音的发布页，不会替 Park 发布。
-    if (!confirm('抖音不能自动发。点「确定」会复制描述、打开抖音发布页，你在那边传视频、粘贴描述，并设置「谁可以看」。')) return;
-    await copyText();
-    window.open(specs.douyin.admin, '_blank', 'noopener');
-    toast('描述已复制，抖音发布页已打开');
-  };
-  const mark = async (platform, published) => {
-    let url = null;
-    if (published) {
-      url = prompt(`${specs[platform].label}的链接（可留空）`, '');
-      if (url === null) return;
-      url = url.trim() || null;
-    }
-    try { await api(`/api/topics/${topic.id}/platforms`, { method: 'PUT', body: { platform, published, url } }); toast(published ? '已记下' : '已撤销'); refresh(); } catch (err) { toast(err.message); }
-  };
-  $$('[data-cb-mark]', el).forEach((b) => (b.onclick = () => mark(b.dataset.cbMark, true)));
-  $$('[data-cb-unmark]', el).forEach((b) => (b.onclick = () => mark(b.dataset.cbUnmark, false)));
 }
-window.renderCopyBox = renderCopyBox;
+window.renderCopyForm = renderCopyForm;

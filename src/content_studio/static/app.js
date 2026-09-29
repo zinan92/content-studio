@@ -104,6 +104,7 @@ const S = {
   view: 'positioning',
   workId: null,
   publishId: null,
+  packId: null,
   accountId: (() => { try { return Number(localStorage.getItem('cs-account')) || null; } catch (_) { return null; } })(),
   state: null,
   mine: null,
@@ -148,7 +149,7 @@ function go(view, { push = true } = {}) {
   S.view = view;
   paintChrome(view);
   if (push) {
-    const hash = view === 'report' && S.reportId ? `#report/${S.reportId}` : view === 'work' && S.workId ? `#work/${S.workId}` : view === 'publish' && S.publishId ? `#publish/${S.publishId}` : `#${view}`;
+    const hash = view === 'report' && S.reportId ? `#report/${S.reportId}` : view === 'work' && S.workId ? `#work/${S.workId}` : view === 'publish' && S.publishId ? `#publish/${S.publishId}` : view === 'pack' && S.packId ? `#pack/${S.packId}` : `#${view}`;
     if (location.hash !== hash) history.pushState(null, '', hash);
   }
   window.scrollTo(0, 0);
@@ -162,6 +163,7 @@ function readHash() {
   view = OLD_ROUTES[view] || view; // old bookmarks
   if (view === 'report' && id) S.reportId = id;
   if (view === 'publish') S.publishId = id ? Number(id) : null;
+  if (view === 'pack') S.packId = id ? Number(id) : null;
   if (view === 'work') {
     if (!id) return 'board';
     S.workId = Number(id);
@@ -206,6 +208,7 @@ async function refreshAll() {
   renderChrome();
   renderView();
   if (window.refreshPublishNav) window.refreshPublishNav();
+  if (window.refreshPackNav) window.refreshPackNav();
 }
 
 function renderChrome() {

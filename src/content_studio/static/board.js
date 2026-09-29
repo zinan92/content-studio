@@ -19,7 +19,7 @@ async function loadBoard(force) {
 }
 
 window.refreshBoard = async () => { BD.data = null; try { await loadBoard(true); } catch (_) { /* shown on render */ } };
-window.refreshTopics = async () => { await window.refreshBoard(); if (window.invalidateWork) window.invalidateWork(); if (window.invalidatePublish) window.invalidatePublish(); renderView(); };
+window.refreshTopics = async () => { await window.refreshBoard(); if (window.invalidateWork) window.invalidateWork(); if (window.invalidatePublish) window.invalidatePublish(); if (window.invalidatePack) window.invalidatePack(); renderView(); };
 window.patchTopic = async (id, body, message) => {
   try {
     await api(`/api/topics/${id}`, { method: 'PATCH', body });

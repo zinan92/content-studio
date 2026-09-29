@@ -280,7 +280,7 @@ def publish_article(article: Path, *, cover: Path, publish: bool = False, author
     if len(title) > TITLE_MAX:
         raise WechatError(f"公众号标题最多 {TITLE_MAX} 字，这篇 {len(title)} 字")
     if not cover.is_file():
-        raise WechatError("还没有封面：先在发布台做封面")
+        raise WechatError("还没有封面：先在「打包」里做封面")
     wide = wide_cover(cover, article.parent / "公众号封面.jpg")
     token = get_token(creds or load_credentials(), send)
     thumb = upload_cover(wide, token, send)
@@ -349,7 +349,7 @@ def main() -> int:
         author = None
     try:
         if not args.cover:
-            raise WechatError("还没有封面：先在发布台做封面")
+            raise WechatError("还没有封面：先在「打包」里做封面")
         result = publish_article(args.article, cover=Path(args.cover), publish=args.publish, author=author)
         print(json.dumps({"ok": True, **result}, ensure_ascii=False))
     except WechatError as exc:

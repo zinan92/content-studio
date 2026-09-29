@@ -1,5 +1,5 @@
 'use strict';
-/* 03 发布台：一条内容 × 每个平台。每个平台一张它自己的上传页（720×480 的画布，瓦片里缩小、
+/* 04 发布台：一条内容 × 每个平台。只管发——封面、文案、文章在 03 打包里备好（pack.js）。每个平台一张它自己的上传页（720×480 的画布，瓦片里缩小、
    弹窗里放大）。灰的还没发，彩色的发了；正在发的闪。点开一张，右边是这个平台该做的事：
    手动的复制文案去粘贴，扫码的机器代发（Park 先确认），全自动的直接发，公众号交给流水线。 */
 window.VIEWS = window.VIEWS || {};
@@ -285,10 +285,43 @@ function guideBar(d) {
   if (!next && d.topic.closed_at) return ''; // 已经发布完毕，上面那条已经说了，不再叠一条
   if (!next) return `<div class="pub-guide done"><b>✓ ${steps.length} 步都走完了</b><span>该发的都发了（跳过的不算）。下面点「这条发布完毕」收尾。</span></div>`;
   const i = steps.indexOf(next) + 1;
+  // 9/29 Park：一进来就点了紫色「开始」，直接被带去抖音，可封面和文案还没做。没打包好，主按钮就是去打包。
+  const missing = packMissing(d);
+  if (missing.length && !done) {
+    return `<div class="pub-guide pack-first"><span class="num">还没打包</span><b>先把${esc(missing.join('、'))}备好</b>
+      <small>备好了再发，每个平台点进去就是现成的</small><span class="spacer"></span>
+      <button class="btn primary" type="button" data-pd-pack>去打包 →</button>
+      <button class="btn ghost" type="button" data-pd-open="${next.key}">已经在外面备好了，直接发${esc(next.label)}</button></div>`;
+  }
   return `<div class="pub-guide"><span class="num">第 ${i} 步 / 共 ${steps.length} 步</span><b>下一个：${esc(next.label)}</b>
     <small>${done} 个已经发了或跳过</small><span class="spacer"></span>
-    <button class="btn primary" type="button" data-pd-open="${next.key}">开始 →</button>
+    <button class="btn primary" type="button" data-pd-open="${next.key}">${esc(stepVerb(next, d))} →</button>
     <button class="btn ghost" type="button" data-pd-skip="${next.key}">这条不发${esc(next.label)}，跳过</button></div>`;
+}
+
+/* 这一步点下去会发生什么，按钮上直接说：机器发，还是复制文案去平台自己传。 */
+function stepVerb(p, d) {
+  if (p.job && p.job.state === 'awaiting_confirm') return `去确认${p.label}`;
+  if (p.treatment === 'handoff') return `把文章交给${p.label}流水线`;
+  if (p.can_auto && (d.video || p.no_video)) return `发到${p.label}`;
+  if (p.admin) return `复制文案，去${p.label}上传`;
+  return `打开${p.label}`;
+}
+
+/* 打包还缺什么（视频要的那几样）。文字包缺了不挡：没写文章的平台，点进去会说。 */
+function packMissing(d) {
+  const c = (d.release && d.release.covers) || {};
+  const miss = [];
+  if (!(c.landscape || c.portrait)) miss.push('封面');
+  if (!d.has_copy) miss.push('标题和描述');
+  return miss;
+}
+
+function goPack(topicId) {
+  const dlg = $('#pubDlg');
+  if (dlg && dlg.open) dlg.close();
+  S.packId = topicId;
+  go('pack');
 }
 
 async function setSkip(topicId, key, skip) {
@@ -331,10 +364,8 @@ window.VIEWS.publish = {
     $('#publishFigs').innerHTML = d.topic ? `<div class="pub-figs">
       <span>已发 <b>${shipped}</b> / ${on} 个平台</span>
       <span>成片 ${d.video ? `<b>${d.video.mb}</b> MB` : '<span class="bad">还没有</span>'}</span>
-      <span>文案 ${d.has_copy ? '<b>✓</b>' : '<span class="bad">还没写</span>'}</span>
-      <button class="linklike" type="button" id="pdEditCopy">${d.has_copy ? '改文案' : '去写文案'} →</button>
-      ${d.release && d.release.copy ? `<button class="linklike" type="button" id="pdFillRelease" title="${esc(d.release.copy.title || '')}">用发布文案填 →</button>` : ''}
-      ${d.video ? `<button class="linklike" type="button" id="pdCover">${d.release && d.release.covers && (d.release.covers.landscape || d.release.covers.portrait) ? '重做封面' : '做封面'} →</button>` : ''}
+      <span>打包 ${packMissing(d).length ? `<span class="bad">还差${esc(packMissing(d).join('、'))}</span>` : '<b>✓</b>'}</span>
+      <button class="linklike" type="button" data-pd-pack>${packMissing(d).length ? '去打包' : '改封面或文案'} →</button>
     </div>${releaseStrip(d.release)}` : '';
     const chip = (c, cur) => `<button class="pub-topic ${c.id === cur ? 'on' : ''}" type="button" data-pd-topic="${c.id}"><span class="ms-chip s-${c.stage}" title="${esc(c.stage_label || '')}"><i aria-hidden="true">${typeof MS_ICON !== 'undefined' ? (MS_ICON[c.stage] || '') : ''}</i>${esc(c.stage_label || '')}</span><b>${esc(c.title)}</b>${c.shipped_count === undefined ? '' : `<span class="num">${c.shipped_count}/${on}</span>`}</button>`;
     // 发不了的时候，说清最近那条卡在哪，别只说「没有」。
@@ -364,19 +395,7 @@ window.VIEWS.publish = {
     $$('[data-pd-topic]', body).forEach((b) => (b.onclick = () => { PD.topicId = Number(b.dataset.pdTopic); S.publishId = PD.topicId; PD.data = null; history.replaceState(null, '', `#publish/${PD.topicId}`); renderView(); }));
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
     $$('[data-pd-skip]', body).forEach((b) => (b.onclick = async () => { try { await setSkip(d.topic.id, b.dataset.pdSkip, true); renderView(); } catch (err) { toast(err.message); } }));
-    const edit = $('#pdEditCopy');
-    if (edit) edit.onclick = () => openCopy(d.topic);
-    const coverBtn = $('#pdCover');
-    if (coverBtn) coverBtn.onclick = () => openCover(d.topic.id);
-    const fill = $('#pdFillRelease');
-    if (fill) fill.onclick = async () => {
-      const c = d.release.copy;
-      if (d.has_copy && !confirm(`用发布文案覆盖现在的标题和简介？\n\n标题：${c.title}`)) return;
-      const entry = { title: c.title || '', body: c.body || '', tags: c.tags || [] };
-      const platforms = Object.fromEntries(['douyin', 'channels', 'bilibili', 'youtube'].map((k) => [k, entry]));
-      try { await api(`/api/topics/${d.topic.id}/copy`, { method: 'PUT', body: { platforms } }); toast('已用发布文案填好'); PD.data = null; $('#publishBody').dataset.sig = ''; renderView(); }
-      catch (err) { toast(err.message); }
-    };
+    $$('[data-pd-pack]').forEach((b) => (b.onclick = () => goPack(d.topic.id)));
     if (d.platforms.some((p) => p.job && p.job.state === 'running')) setTimeout(() => { if (S.view === 'publish') { PD.data = null; renderView(); } }, 8000);
     if (PD.open) renderDialog();
   },
@@ -398,10 +417,10 @@ function copyAll(p) {
 }
 
 /* 文字、图文平台要的是「研习室文章」。补发的旧视频不经过加工中，直接到这里：
-   所以文章就地写（用这条视频的逐字稿），写好了也能跳回加工台去改。 */
+   所以文章就地写（用这条视频的逐字稿），写好了到「打包」里改。 */
 function articleBlock(p, d) {
   const t = d.topic;
-  const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去加工台改 →</button>`;
+  const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去打包里改 →</button>`;
   const figs = '<div class="pdl-figs" id="pdlFigs"></div>';
   if (d.has_article && p.key === 'wechat_mp') {
     // 公众号：只有一个预览（排过就是 gzh 的样子，没排就是基础排版），排版状态就地显示
@@ -447,7 +466,7 @@ function sideCore(p, d) {
       ${field('标题', p.fill.title, `最多 ${p.caps.title} 字${p.fill.title_trimmed ? ' · 已裁短' : p.fill.title_over ? ` · 现在 ${p.fill.title_units} 字，超了，发的时候删几个字` : ''}`)}
       ${field(p.key === 'wechat_mp' ? '正文开头' : p.key === 'x' ? '推文' : '简介', p.fill.body, `最多 ${p.caps.body} 字`)}
       ${field('话题', p.fill.tags.map((x) => '#' + x).join(' '), `最多 ${p.caps.tags} 个`)}
-    </div>` : `<p class="pdl-note">还没写文案。<button class="linklike" type="button" id="pdlWrite">去写标题和简介 →</button></p>`;
+    </div>` : `<p class="pdl-note">还没写文案。<button class="linklike" type="button" id="pdlWrite">去打包里写标题和描述 →</button></p>`;
   const manual = `<div class="pdl-acts">
       ${d.has_copy ? '<button class="btn" type="button" id="pdlCopyAll">复制全部文案</button>' : ''}
       ${p.admin ? `<a class="btn primary" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" ${p.key === 'xiaohongshu' ? 'data-xhs-open' : ''}>打开${esc(p.label)}上传 ↗${p.key === 'xiaohongshu' ? '（同时打开图片文件夹）' : ''}</a>` : ''}
@@ -498,7 +517,7 @@ function sideCore(p, d) {
       block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
     } else if (needsCover(p, d)) {
       block = `<p class="pdl-note">${esc(p.label)}要封面${p.key === 'wechat_mp' ? '（2.35:1）' : ''}，这条还没有。封面从成片里取一帧、抠人像、排标题，一分钟左右。</p>
-        <div class="pdl-acts"><button class="btn primary" type="button" id="pdlCover">先做封面</button></div>`;
+        <div class="pdl-acts"><button class="btn primary" type="button" id="pdlCover">去打包里做封面</button></div>`;
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
@@ -638,62 +657,6 @@ async function renderDouyinLink(dlg, topicId) {
   };
 }
 
-function openCopy(topic) {
-  const dlg = $('#copyDlg');
-  dlg.innerHTML = `<div class="pdl-h"><b>标题和简介</b><small>所有平台共用</small><span class="spacer"></span><small>${esc(topic.title)}</small><button class="pdl-x" type="button" id="cpClose" aria-label="关闭">×</button></div>
-    <div class="pdl-body"><div id="copyBox" style="flex:1;min-width:0"></div></div>`;
-  $('#cpClose', dlg).onclick = () => { dlg.close(); PD.data = null; $('#publishBody').dataset.sig = ''; renderView(); };
-  if (!dlg.open) dlg.showModal();
-  if (window.renderCopyBox) window.renderCopyBox(topic, $('#copyBox', dlg));
-}
-
-/* ================= 弹窗：做封面 =================
-   bold-orange 预设：标题原字 + 换行 + 一行强调 + 成片里的一帧。只接这四样。 */
-async function openCover(topicId) {
-  const dlg = $('#coverDlg');
-  dlg.innerHTML = '<div class="pdl-h"><b>做封面</b><span class="spacer"></span><button class="pdl-x" type="button" data-cv-x aria-label="关闭">×</button></div><div class="cv-body"><p class="pdl-note">正在从成片里取几帧…</p></div>';
-  if (!dlg.open) dlg.showModal();
-  dlg.onclick = (e) => { if (e.target === dlg || e.target.closest('[data-cv-x]')) dlg.close(); };
-  let o;
-  try { o = await api(`/api/topics/${topicId}/cover`); } catch (err) { $('.cv-body', dlg).innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
-  const st = { lines: o.lines, emphasis: o.emphasis, at: o.frames.length ? o.frames[Math.floor(o.frames.length / 2)].at : 0 };
-  const emphasisChips = () => st.lines.map((l) => `<button type="button" class="cv-em ${l === st.emphasis ? 'on' : ''}" data-cv-em="${esc(l)}">${esc(l)}</button>`).join('');
-  $('.cv-body', dlg).innerHTML = `
-    <div class="cv-col">
-      <label class="cv-l" for="cvLines">封面上的字<small>一行就是封面上的一行</small></label>
-      <textarea id="cvLines" rows="5">${esc(st.lines.join('\n'))}</textarea>
-      <div class="cv-l">哪一行用橙色<small>放大、加下划线</small></div>
-      <div class="cv-ems" id="cvEms">${emphasisChips()}</div>
-    </div>
-    <div class="cv-col">
-      <div class="cv-l">用哪一帧的人<small>挑表情好、眼睛睁着的</small></div>
-      <div class="cv-frames">${o.frames.map((f) => `<button type="button" class="cv-frame ${f.at === st.at ? 'on' : ''}" data-cv-at="${f.at}"><img src="${f.url}" alt="第 ${Math.round(f.at)} 秒"><small>${Math.floor(f.at / 60)}:${String(Math.round(f.at % 60)).padStart(2, '0')}</small></button>`).join('')}</div>
-    </div>
-    <div class="cv-foot"><button class="btn" type="button" id="cvGo">出横、竖、公众号三张</button><span class="pdl-note" id="cvMsg">抠人像要十几秒。</span></div>
-    <div class="cv-out" id="cvOut"></div>`;
-  const ta = $('#cvLines', dlg);
-  const bindEm = () => $$('[data-cv-em]', dlg).forEach((b) => (b.onclick = () => { st.emphasis = b.dataset.cvEm; $('#cvEms', dlg).innerHTML = emphasisChips(); bindEm(); }));
-  bindEm();
-  ta.oninput = () => {
-    st.lines = ta.value.split('\n').map((l) => l.trim()).filter(Boolean);
-    if (!st.lines.includes(st.emphasis)) st.emphasis = st.lines[st.lines.length - 1] || '';
-    $('#cvEms', dlg).innerHTML = emphasisChips(); bindEm();
-  };
-  $$('[data-cv-at]', dlg).forEach((b) => (b.onclick = () => { st.at = Number(b.dataset.cvAt); $$('[data-cv-at]', dlg).forEach((x) => x.classList.toggle('on', x === b)); }));
-  $('#cvGo', dlg).onclick = async () => {
-    const go = $('#cvGo', dlg);
-    go.disabled = true; $('#cvMsg', dlg).textContent = '正在抠人像、排字…';
-    try {
-      const r = await api(`/api/topics/${topicId}/cover`, { method: 'POST', body: st });
-      const stamp = Date.now();
-      $('#cvOut', dlg).innerHTML = Object.entries(r.urls).map(([k, url]) => `<img class="cv-shot ${k === '竖' ? 'portrait' : k === '公众号' ? 'wechat' : 'landscape'}" src="${url}?t=${stamp}" alt="${k}版封面">`).join('');
-      $('#cvMsg', dlg).textContent = '好了，已经放进交付包。不满意就换一帧或改字再出一次。';
-      PD.data = null; $('#publishBody').dataset.sig = ''; renderView();
-    } catch (err) { $('#cvMsg', dlg).textContent = err.message; }
-    finally { go.disabled = false; }
-  };
-}
-
 /* 交付包里的封面：项目 final/ 下现成的横版和竖版。 */
 function releaseStrip(rel) {
   if (!rel || !rel.covers) return '';
@@ -729,7 +692,7 @@ function renderDialog() {
   const refresh = async () => { PD.data = null; $('#publishBody').dataset.sig = ''; try { await loadDesk(true); } catch (err) { toast(err.message); } renderView(); };
   $$('[data-copy]', dlg).forEach((b) => (b.onclick = () => navigator.clipboard.writeText(b.dataset.copy).then(() => toast('已复制'), () => toast('复制失败'))));
   const all = $('#pdlCopyAll', dlg); if (all) all.onclick = () => copyAll(p);
-  const write = $('#pdlWrite', dlg); if (write) write.onclick = () => { dlg.close(); openCopy(t); };
+  const write = $('#pdlWrite', dlg); if (write) write.onclick = () => goPack(t.id);
   const mark = $('#pdlMark', dlg);
   if (mark) mark.onclick = async () => {
     const url = $('#pdlUrl', dlg).value.trim() || null;
@@ -743,7 +706,7 @@ function renderDialog() {
     art.disabled = true;
     try { toast((await api(`/api/topics/${t.id}/write`, { method: 'POST' })).message); await refresh(); } catch (err) { toast(err.message); art.disabled = false; }
   };
-  $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => { dlg.close(); openWork(t.id, 'article'); }));
+  $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => goPack(t.id)));
   if ($('#pdlWx', dlg)) renderWx(dlg, t.id);
   if ($('#pdlFigs', dlg)) renderFigs(dlg, t.id);
   const prev = $('#pdlArtPrev', dlg);
@@ -774,7 +737,7 @@ function renderDialog() {
   const xhsOpen = $('[data-xhs-open]', dlg);
   if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
   const nextBtn = $('#pdlNext', dlg); if (nextBtn) nextBtn.onclick = () => goNext();
-  const coverBtn2 = $('#pdlCover', dlg); if (coverBtn2) coverBtn2.onclick = () => { dlg.close(); openCover(t.id); };
+  const coverBtn2 = $('#pdlCover', dlg); if (coverBtn2) coverBtn2.onclick = () => goPack(t.id);
   const skipBtn = $('#pdlSkip', dlg);
   if (skipBtn) skipBtn.onclick = async () => { try { await setSkip(t.id, p.key, true); toast(`这条不发${p.label}`); renderView(); goNext(); } catch (err) { toast(err.message); } };
   const unskip = $('#pdlUnskip', dlg);

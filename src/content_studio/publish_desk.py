@@ -36,6 +36,15 @@ def shared_entry(copy: dict[str, Any] | None) -> dict[str, Any]:
     return {"title": "", "body": "", "tags": []}
 
 
+def own_entry(copies: dict[str, Any] | None, key: str, shared: dict[str, Any]) -> dict[str, Any]:
+    """这个平台自己那一份。9/29 起描述（抖音、视频号、小红书）和简介（B 站、YouTube、小宇宙）分开存，
+    发布台每个平台要填的就得读自己的；没单独写过的平台（补发种的、公众号这类）还用共用那份。"""
+    entry = (copies or {}).get(key)
+    if entry and (entry.get("title") or entry.get("body")):
+        return {"title": entry.get("title") or "", "body": entry.get("body") or "", "tags": list(entry.get("tags") or [])}
+    return shared
+
+
 def fill_for(spec: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
     """按这个平台的上限裁好，前端每个空一个「复制」。"""
     from .copypack import title_units
@@ -90,7 +99,7 @@ def next_step(rows_: list[dict[str, Any]]) -> str | None:
 def rows(platform_rows: list[dict[str, Any]], *, specs: dict[str, dict[str, Any]], publishers: dict[str, dict[str, Any]],
          readiness: dict[str, dict[str, Any]], records: dict[str, dict[str, Any]], jobs: list[dict[str, Any]],
          entry: dict[str, Any], douyin_linked: bool = False, handoff_done: bool = False,
-         skips: set[str] | None = None) -> list[dict[str, Any]]:
+         skips: set[str] | None = None, copies: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     out = []
     for p in in_sequence(platform_rows):
         key = p["key"]
@@ -107,7 +116,7 @@ def rows(platform_rows: list[dict[str, Any]], *, specs: dict[str, dict[str, Any]
             "treatment": how,
             "treatment_label": TREATMENT_LABEL[how],
             "caps": {"title": spec.get("title", 0), "body": spec.get("body", 0), "tags": spec.get("tags", 0)},
-            "fill": fill_for(spec, entry),
+            "fill": fill_for(spec, own_entry(copies, key, entry)),
             "shipped": shipped,
             "record": {"url": record.get("url"), "published_at": record.get("published_at")} if record else None,
             "job": _job_view(job) if job else None,

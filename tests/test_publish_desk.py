@@ -43,6 +43,23 @@ def test_fill_trims_to_platform_caps():
     assert x["title"] == "" and x["tags"] == ["a", "b", "c"] and x["title_over"] is False
 
 
+def test_each_platform_fills_from_its_own_copy():
+    """9/29：描述（抖音、视频号、小红书）和简介（B 站、YouTube）分开存，发布台每个平台读自己那份。"""
+    shared = {"title": "标题", "body": "长描述", "tags": ["t"]}
+    copies = {
+        "douyin": {"title": "标题", "body": "长描述", "tags": ["t"]},
+        "bilibili": {"title": "标题", "body": "短简介", "tags": ["t"]},
+        "youtube": {"title": "", "body": "", "tags": []},
+    }
+    rows = {r["key"]: r for r in publish_desk.rows([_platform("douyin"), _platform("bilibili"), _platform("youtube"), _platform("wechat_mp")],
+                                                      specs=copypack.PLATFORMS, publishers={}, readiness={}, records={}, jobs=[],
+                                                      entry=shared, copies=copies)}
+    assert rows["douyin"]["fill"]["body"] == "长描述"
+    assert rows["bilibili"]["fill"]["body"] == "短简介"
+    assert rows["youtube"]["fill"]["body"] == "长描述"  # 空的那份不算写过，用共用的
+    assert rows["wechat_mp"]["fill"]["title"] == "标题"
+
+
 def _platform(key, state="manual", **extra):
     return {"key": key, "label": key, "mark": key[0], "hue": "#000", "handle": "", "on": True, "state": state, "note": "", "admin": None, "login_hint": "", **extra}
 

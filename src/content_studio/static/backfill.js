@@ -70,7 +70,7 @@ window.VIEWS.backfill = {
       <small>按时长和日期在本机找原片，不从抖音下。以后每次同步发现新视频，也只在本机找。</small>`;
     body.innerHTML = `
       <div class="panel bf-archive">${strip}</div>
-      <p class="in-note">没东西拍的那天，从上往下挑一条：作品库里有成片的，点「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。缺成片的在另一台电脑上，拷进来后点上面「在本机再找一遍」。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。文字平台和小红书图文用文章版：发布台点那个平台，里面有「写文章」，用这条视频的逐字稿写；写好了也能跳回加工台改。小宇宙发音频。</p>
+      <p class="in-note">没东西拍的那天，从上往下挑一条：作品库里有成片的，点「拿去补发」，它会种好文案、打开发布台，每个平台照旧你点确认才发。缺成片的在另一台电脑上，拷进来后点上面「在本机再找一遍」。${esc(d.order)}。圆点可以点：在工作台外面已经发过的，点一下标成已发。文字平台和小红书图文用文章版：在「打包」里写，用这条视频的逐字稿；封面、标题、描述也在那里做。小宇宙发音频。</p>
       <div class="panel bf-tbl"><table><colgroup><col>${cols.map(() => '<col class="bf-pcol">').join('')}</colgroup><thead>${head}</thead><tbody>${todo.map(row).join('') || `<tr><td colspan="${cols.length + 1}" class="empty">都补齐了。</td></tr>`}</tbody></table></div>
       ${done.length ? `<details class="panel bf-done"><summary>已经补齐 <span class="num">${done.length}</span></summary><table><tbody>${done.map(row).join('')}</tbody></table></details>` : ''}`;
     const mark = async (vid, p, doneFlag) => { try { await api(`/api/backfill/${vid}/mark`, { method: 'POST', body: { platform: p, done: doneFlag } }); await loadBackfill(); renderView(); } catch (err) { toast(err.message); } };

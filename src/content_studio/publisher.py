@@ -221,11 +221,11 @@ def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[st
     if text_only:
         # X 发的是正文本身，没有标题这一栏——要求填标题会把他卡在一个根本不存在的字段上。
         if not body:
-            raise PublishError(f"先在「发布」页写好{spec['label']}的正文并保存")
+            raise PublishError(f"先在「打包」页写好{spec['label']}的正文并保存")
         return {"platform": platform, "platform_label": spec["label"], "mode": mode, "mode_label": spec["modes"][mode]["label"],
                 "video": "", "video_mb": 0, "title": title or body[:20], "body": body, "tags": tags}
     if not title:
-        raise PublishError(f"先在「发布」页写好标题并保存")
+        raise PublishError(f"先在「打包」页写好标题并保存")
     return {"platform": platform, "platform_label": spec["label"], "mode": mode, "mode_label": spec["modes"][mode]["label"],
             "video": str(video), "video_mb": round(video.stat().st_size / 1_048_576, 1), "title": title, "body": body, "tags": tags,
             "cover": str(cover) if cover and cover.is_file() else ""}
