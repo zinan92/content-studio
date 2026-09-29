@@ -372,6 +372,45 @@ def test_skills_endpoint_lists_registry(client: TestClient) -> None:
     assert client.get("/api/anna/soul/999").status_code == 400
 
 
+def test_article_for_a_finished_video_is_written_from_its_words_not_the_notes(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """9/29：9/28 那条在外面剪完，项目里没有字幕，文章就悄悄照 Obsidian 语音笔记写了。
+    有成片就先转写成片，照原话写；转不出来就报错，不拿笔记顶替。"""
+    from content_studio import koubo
+
+    vault_root = tmp_path / "vault-v"
+    (vault_root / "003_park原始输出").mkdir(parents=True)
+    (vault_root / "003_park原始输出" / "voice.md").write_text("# 语音笔记\n一开始的想法", encoding="utf-8")
+    root = tmp_path / "videos"
+    base = root / "2026-09-28_流量"
+    (base / "final").mkdir(parents=True)
+    (base / "final" / "成片.mp4").write_bytes(b"0" * 64)
+    client.put("/api/settings", json={"obsidian_vault": str(vault_root), "video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "流量", "note_paths": ["003_park原始输出/voice.md"], "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": base.name})
+
+    seen = []
+
+    def transcribe(video: Path, b: Path, **kw) -> Path:
+        seen.append(video.name)
+        (b / "subtitles").mkdir(parents=True, exist_ok=True)
+        srt = b / "subtitles" / "source.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:02,000\n流量只是用来触达人的\n", encoding="utf-8")
+        return srt
+
+    monkeypatch.setattr(koubo, "transcribe", transcribe)
+    client.post(f"/api/topics/{topic['id']}/write")
+    done = _wait_topic(client, topic["id"])
+    assert done["write_state"] is None and seen == ["成片.mp4"]
+    sources = client.get(f"/api/topics/{topic['id']}/article").json()["sources"]
+    assert sources[0]["title"] == "视频原话（转写）"
+
+    (base / "subtitles" / "source.srt").unlink()
+    monkeypatch.setattr(koubo, "transcribe", lambda *a, **k: (_ for _ in ()).throw(koubo.KouboError("这台机器上没有 mlx-whisper")))
+    client.post(f"/api/topics/{topic['id']}/write")
+    failed = _wait_topic(client, topic["id"])
+    assert failed["write_state"] == "failed" and "转不出原话" in failed["write_error"]
+
+
 def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
     root = tmp_path / "vault3"
     (root / "003_park原始输出").mkdir(parents=True)
