@@ -140,7 +140,9 @@ function reachBlock(r, posts7) {
     const value = p.auto
       ? `<b class="num">${p.today === null || p.today === undefined ? '—' : fmt(p.today)}</b>`
       : `<input class="ov-in num" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="待填">${p.stats_url ? `<a class="ov-look" href="${esc(p.stats_url)}" target="_blank" rel="noopener">去后台看今天的数 ↗</a>` : ''}`;
-    return `<div class="ov-plat"><small>${m.mark ? `<i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>` : ''}${esc(p.label)}</small>${value}<i>${[share, how].filter(Boolean).join(' · ')}</i></div>`;
+    // 9/29 Park：这一页的图标只分主攻 / 降权——主攻的用品牌色实心（抖音黑、视频号微信绿、小红书红、X 黑），
+    // 降权的三个一律灰；不按「手动 / 自动」画虚线，那是发布台的事。
+    return `<div class="ov-plat"><small>${m.mark ? `<i class="plat ${p.core ? 'tier-core' : 'tier-rest'}" style="--plat:${esc(m.hue)}">${esc(m.mark)}</i>` : ''}${esc(p.label)}</small>${value}<i>${[share, how].filter(Boolean).join(' · ')}</i></div>`;
   };
   const rows = r.platforms.filter((p) => (meta[p.key] || {}).on !== false || !p.auto).map((p) => `<div class="rp-row ${p.on ? '' : 'off'}">
       <label class="rp-on"><input type="checkbox" data-rp-on="${p.key}" ${p.on ? 'checked' : ''} ${p.auto ? 'disabled' : ''}><b>${esc(p.label)}</b></label>

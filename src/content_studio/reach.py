@@ -49,7 +49,7 @@ def form_of(key: str, accounts: dict | None) -> str:
     chosen = ((accounts or {}).get(key) or {}).get("form")
     return chosen if chosen in FORM_CHOICES.get(key, ()) else FORM.get(key, "video")
 PLATFORM_STYLE: dict[str, dict[str, str]] = {
-    "douyin": {"mark": "抖", "hue": "#FE2C55"},
+    "douyin": {"mark": "抖", "hue": "#111111"},  # 9/29 Park：抖音黑，和 X 一样是黑底品牌色
     "channels": {"mark": "视", "hue": "#07C160"},
     "xiaohongshu": {"mark": "红", "hue": "#FF2442"},
     "wechat_mp": {"mark": "公", "hue": "#07C160"},
