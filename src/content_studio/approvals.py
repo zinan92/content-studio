@@ -17,10 +17,11 @@ from pathlib import Path
 from typing import Any
 
 FILE = "approvals.json"
-KEYS = ("copy", "cover", "article", "figs", "wx", "xhs")
+KEYS = ("copy", "cover", "article", "figs", "wx")
 # 每一步要等哪一步定稿了才开始
 # X 图文不单独定稿：它发的就是研习室那篇文章 + 插图，没有自己要改的东西（9/29 Park）。
-DEPENDS = {"cover": "copy", "figs": "article", "wx": "figs", "xhs": "figs"}
+# 小红书 9/29 起发视频（图文三篇共 262 播放，抖音同一条 7,893），用的是封面和文案，不再单独定稿。
+DEPENDS = {"cover": "copy", "figs": "article", "wx": "figs"}
 
 
 class ApprovalError(RuntimeError):
@@ -36,7 +37,7 @@ def _files(paths: list[Path]) -> list[tuple[str, float]]:
 
 
 def fingerprints(*, copy: dict[str, Any] | None, covers: list[Path], article: str | None,
-                 figs: list[Path], wx: dict[str, Any], xhs: dict[str, Any]) -> dict[str, str | None]:
+                 figs: list[Path], wx: dict[str, Any]) -> dict[str, str | None]:
     """每一步现在的指纹；还没做出来的是 None。article 是去掉配图行的正文（配图插进文章不算改文章）。"""
     fp: dict[str, str | None] = {k: None for k in KEYS}
     fp["copy"] = digest(copy) if copy else None
@@ -45,7 +46,6 @@ def fingerprints(*, copy: dict[str, Any] | None, covers: list[Path], article: st
     fp["article"] = digest(article) if article else None
     fp["figs"] = digest(_files(figs), fp["article"]) if figs and fp["article"] else None
     fp["wx"] = digest(wx.get("generated_at"), fp["figs"]) if fp["article"] and wx.get("has_layout") and not wx.get("stale") else None
-    fp["xhs"] = digest(xhs.get("generated_at"), fp["figs"]) if fp["article"] and xhs.get("images") and not xhs.get("stale") else None
     return fp
 
 

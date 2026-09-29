@@ -14,8 +14,7 @@ def _fps(tmp_path: Path, *, title: str = "标题", article: str | None = "正文
     fig = tmp_path / "01.png"
     fig.write_bytes(b"f")
     return approvals.fingerprints(copy={"douyin": {"title": title, "body": "d", "tags": []}}, covers=[cover],
-                                  article=article, figs=[fig] if figs else [], wx={"has_layout": True, "generated_at": "t"},
-                                  xhs={"images": ["01.png"], "generated_at": "t"})
+                                  article=article, figs=[fig] if figs else [], wx={"has_layout": True, "generated_at": "t"})
 
 
 def test_lock_in_step_by_step(tmp_path: Path) -> None:

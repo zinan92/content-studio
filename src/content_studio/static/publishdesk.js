@@ -452,10 +452,10 @@ function copyAll(p) {
    没定稿就说回打包，不在这里就地补。 */
 const PACK_NEEDS = {
   wechat_mp: ['article', 'figs', 'wx'], miniprogram: ['article', 'figs', 'wx'], x: ['article', 'figs'],
-  xiaohongshu: ['article', 'figs', 'xhs'], douyin: ['copy', 'cover'], channels: ['copy', 'cover'],
+  xiaohongshu: ['copy', 'cover'], douyin: ['copy', 'cover'], channels: ['copy', 'cover'],
   bilibili: ['copy', 'cover'], youtube: ['copy', 'cover'], xiaoyuzhou: ['copy'],
 };
-const PACK_LABELS = { copy: '标题和描述', cover: '封面', article: '文章', figs: '插图', wx: '公众号排版', xhs: '小红书图文' };
+const PACK_LABELS = { copy: '标题和描述', cover: '封面', article: '文章', figs: '插图', wx: '公众号排版' };
 
 function packGaps(p, d) {
   if (!d.approvals) return [];
@@ -504,11 +504,11 @@ function sideCore(p, d) {
       ${field('话题', p.fill.tags.map((x) => '#' + x).join(' '), `最多 ${p.caps.tags} 个`)}
     </div>` : '';
   // 抖音、视频号这类手动传的：一键弹开装好视频和封面的文件夹，文案在下面复制（9/29 Park）
-  const kit = { douyin: '视频 + 竖封面 + 横封面', channels: '视频 + 竖封面', bilibili: '视频 + 16:9 封面', youtube: '视频 + 16:9 封面' }[p.key];
+  const kit = { douyin: '视频 + 竖封面 + 横封面', channels: '视频 + 竖封面', xiaohongshu: '视频 + 竖封面', bilibili: '视频 + 16:9 封面', youtube: '视频 + 16:9 封面' }[p.key];
   const manual = `<div class="pdl-acts">
       ${kit && d.video ? `<button class="btn primary" type="button" id="pdlFolder">打开上传文件夹（${kit}）</button>` : ''}
       ${d.has_copy ? '<button class="btn" type="button" id="pdlCopyAll">复制全部文案</button>' : ''}
-      ${p.admin ? `<a class="btn ${kit && d.video ? '' : 'primary'}" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" ${p.key === 'xiaohongshu' ? 'data-xhs-open' : ''}>打开${esc(p.label)}上传 ↗${p.key === 'xiaohongshu' ? '（同时打开图片文件夹）' : ''}</a>` : ''}
+      ${p.admin ? `<a class="btn ${kit && d.video ? '' : 'primary'}" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" >打开${esc(p.label)}上传 ↗</a>` : ''}
     </div>`;
   const mark = !manualish ? '' : `<div class="pdl-mark"><h4>发完了？记一笔</h4><input id="pdlUrl" placeholder="${esc(p.label)}的链接（可留空）" autocomplete="off"><button class="btn" type="button" id="pdlMark">标为已发</button></div>`;
   const hist = (d.platforms.find((x) => x.key === p.key) || {}).job;
@@ -574,9 +574,7 @@ function sideCore(p, d) {
     return `<h4>${esc(p.treatment_label)}</h4>${block}${mark}${history}${fields}`;
   }
   return `<h4>${esc(p.treatment_label)}</h4>
-    ${p.key === 'xiaohongshu'
-      ? `<p class="pdl-note">小红书发图文：按顺序传打包里定稿的那组图，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhsSend" class="xhs"></div>' : ''}`
-      : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
+    <p class="pdl-note">${esc(p.label)}没有自动通道：打开上传文件夹（视频、封面、文案都在里面），到${esc(p.label)}传，发完回来记一笔。</p>
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
 }
 
@@ -647,39 +645,6 @@ async function renderWx(dlg, topicId) {
     try { await api(`/api/topics/${topicId}/layout`, { method: 'POST' }); } catch (err) { box.insertAdjacentHTML('afterbegin', `<p class="pdl-note bad">${esc(err.message)}</p>`); }
     renderWx(dlg, topicId);
   };
-}
-
-/* 小红书图文：文章原文排成 3:4 图。01 是封面；打包下载的文件名就是顺序。 */
-async function renderXhs(dlg, topicId) {
-  const box = $('#pdlXhs', dlg);
-  if (!box) return;
-  let st;
-  try { st = await api(`/api/topics/${topicId}/xhs`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
-  if (window.prepTick) window.prepTick('xhs', st);
-  const has = st.images.length && !st.stale;
-  const note = st.running ? '<span class="spin"></span> 正在出图，十几秒'
-    : st.error ? `<span class="bad">${esc(st.error)}</span>`
-      : st.stale ? '<span class="bad">文章改过了，这组图是旧的：重新出一次</span>'
-        : has ? `${st.images.length} 张 · ${st.chars} 字一字不改${st.font_scale && st.font_scale < 1 ? ` · 字号缩到 ${Math.round(st.font_scale * 100)}% 才放进 ${st.max} 张` : ''}${st.over_limit ? ` · <b class="bad">超过小红书 ${st.max} 张上限，得拆成上下两篇</b>` : ''}`
-          : '还没出图';
-  box.innerHTML = `<div class="xhs-h"><button class="btn ${has ? '' : 'primary'}" type="button" id="xhsGo" ${st.running ? 'disabled' : ''}>${has || st.stale ? '重新出图文' : '出图文'}</button>
-      ${has ? `<a class="btn" href="/api/topics/${topicId}/xhs.zip" download>打包下载</a>` : ''}<small>${note}</small></div>
-    ${st.images.length ? `<div class="xhs-grid ${st.stale ? 'dim' : ''}">${st.urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener" title="第 ${i + 1} 张"><img src="${u}?t=${encodeURIComponent(st.generated_at || '')}" alt="第 ${i + 1} 张" loading="lazy"><small>${i + 1}</small></a>`).join('')}</div>` : ''}`;
-  $('#xhsGo', box).onclick = async () => {
-    try { toast((await api(`/api/topics/${topicId}/xhs`, { method: 'POST' })).message); renderXhs(dlg, topicId); } catch (err) { toast(err.message); }
-  };
-  if (st.running) setTimeout(() => { if (document.body.contains(box)) renderXhs(dlg, topicId); }, 2500);
-}
-
-/* 发布台的小红书：只给打包里定稿的那组图（缩略图 + 打包下载），不在这里出图、重出。 */
-async function renderXhsSend(dlg, topicId) {
-  const box = $('#pdlXhsSend', dlg);
-  if (!box) return;
-  let st;
-  try { st = await api(`/api/topics/${topicId}/xhs`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
-  if (!st.images.length || st.stale) { box.innerHTML = ''; return; }
-  box.innerHTML = `<div class="xhs-h"><a class="btn" href="/api/topics/${topicId}/xhs.zip" download>打包下载 ${st.images.length} 张</a><small>01 是封面，文件名就是顺序</small></div>
-    <div class="xhs-grid">${st.urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener" title="第 ${i + 1} 张"><img src="${u}?t=${encodeURIComponent(st.generated_at || '')}" alt="第 ${i + 1} 张" loading="lazy"><small>${i + 1}</small></a>`).join('')}</div>`;
 }
 
 /* 抖音单独有一块：把发出去的那条视频和这个选题对上。对上之后点赞和播放才会自己回来，
@@ -769,7 +734,6 @@ function renderDialog() {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: true, url } }); toast(`${p.label} 记为已发`); await refresh(); goNext(); } catch (err) { toast(err.message); }
   };
   if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
-  if (p.key === 'xiaohongshu') renderXhsSend(dlg, t.id);
   if (t.write_state === 'running') setTimeout(() => { if (dlg.open && PD.open === p.key) refresh(); }, 8000);
   // 这个平台正在发：弹窗自己隔几秒问一次，发完立刻变，不靠整页刷新
   clearTimeout(PD.dialogPoll);
@@ -784,9 +748,6 @@ function renderDialog() {
       } catch (_) { renderDialog(); }
     }, 5000);
   }
-  // 小红书上传页要选图：点「打开小红书上传」时顺手在访达里打开图片文件夹，不用去后台找
-  const xhsOpen = $('[data-xhs-open]', dlg);
-  if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
   const nextBtn = $('#pdlNext', dlg); if (nextBtn) nextBtn.onclick = () => goNext();
   const skipBtn = $('#pdlSkip', dlg);
   if (skipBtn) skipBtn.onclick = async () => { try { await setSkip(t.id, p.key, true); toast(`这条不发${p.label}`); renderView(); goNext(); } catch (err) { toast(err.message); } };
