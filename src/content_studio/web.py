@@ -188,6 +188,7 @@ class SettingsBody(BaseModel):
     douyin_archive: str | None = None
     local_video_roots: list[str] | None = None
     platform_accounts: dict[str, dict[str, Any]] | None = None
+    traffic_tags: dict[str, list[str]] | None = None
 
 
 class ReachBody(BaseModel):
