@@ -12,9 +12,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from typing import Any
+import tempfile
+import threading
+from typing import Any, Callable
 
 from . import conf
+from .paths import config_dir
 
 CONTENT_OPS = Path(os.environ.get("CONTENT_OPS_PATH", "~/work/content-ops")).expanduser()
 PUBLISH_ROOT = conf.path("paths.publish_toolkit")
@@ -22,6 +25,9 @@ CONFIRM_WINDOW_SECONDS = 30 * 60
 RUN_TIMEOUT_SECONDS = 45 * 60
 
 XINGQIU = conf.path("paths.xingqiu")
+# 抖音半自动用的 Chrome 配置：独立一份，不碰 Park 平时的 Chrome，也不和读作品列表的那份（douyin-chrome）抢
+DOUYIN_PROFILE = config_dir() / "douyin-publish-chrome"
+DOUYIN_FILL = Path(__file__).with_name("douyin_fill.py")
 
 
 def _secret(section: str, key: str) -> str:
@@ -44,6 +50,24 @@ def _gzh_html(article: str) -> str:
 
 
 PUBLISHERS: dict[str, dict[str, Any]] = {
+    "douyin": {
+        "label": "抖音",
+        "copy_key": "douyin",
+        # 9/29 Park：抖音以前就是半自动——开网页后台，传视频、传封面、填标题介绍都自动，最后点「发布」
+        # 那一下他自己来。脚本停在「发布」前，永远不替他点；窗口一直开着，等他点完或关掉。
+        "semi": True,
+        "login_in_window": True,  # 登录就在弹出的窗口里扫码，没有要提前准备的 cookie 文件
+        "interactive": True,  # 边跑边报进度：「窗口已打开，等你在抖音点发布」
+        "timeout": 3 * 3600,
+        "credential": DOUYIN_PROFILE,
+        "login_hint": "第一次会在弹出的 Chrome 里让你扫码登录抖音，之后一直记着",
+        "modes": {
+            "fill": {"label": "打开抖音，填好等你点发布", "argv": [
+                str(PUBLISH_ROOT / ".venv/bin/python"), str(DOUYIN_FILL), "--toolkit", str(PUBLISH_ROOT), "--profile", str(DOUYIN_PROFILE),
+                "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}",
+                "--cover-landscape", "{cover}", "--cover-portrait", "{cover_portrait}"]},
+        },
+    },
     "channels": {
         "label": "视频号",
         "needs": ("playwright",),
@@ -154,6 +178,9 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
                            "blocked": True, "note": spec["blocked"], "login_hint": "", "no_video": bool(spec.get("no_video")), "needs_article": bool(spec.get("needs_article")),
                            "modes": {m: v["label"] for m, v in spec["modes"].items()}}
             continue
+        if spec.get("login_in_window"):
+            result[key] = _window_readiness(spec)
+            continue
         path = Path(spec["credential"])
         section = spec.get("needs_keys")
         if section and path.is_file():
@@ -195,8 +222,21 @@ def readiness(publishers: dict[str, dict[str, Any]] = PUBLISHERS, now: datetime 
     return result
 
 
+def _window_readiness(spec: dict[str, Any]) -> dict[str, Any]:
+    """登录在弹出的窗口里做：不看 cookie 日期，只看跑脚本的工具在不在。"""
+    base = {"label": spec["label"], "age_days": None, "login_hint": spec["login_hint"], "no_video": False, "needs_article": False,
+            "modes": {m: v["label"] for m, v in spec["modes"].items()}}
+    runner = Path(next(iter(spec["modes"].values()))["argv"][0])
+    if not runner.is_file():
+        return {**base, "credential": False, "likely_expired": True, "setup": True,
+                "note": f"发布工具没装好：找不到 {runner}"}
+    profile = Path(spec["credential"])
+    return {**base, "credential": True, "likely_expired": False,
+            "note": "登录记在专用的 Chrome 里" if profile.is_dir() and any(profile.iterdir()) else "第一次会在弹出的 Chrome 里扫码登录"}
+
+
 def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[str, Any] | None, publishers: dict[str, dict[str, Any]] = PUBLISHERS,
-                  article: Path | None = None, cover: Path | None = None) -> dict[str, Any]:
+                  article: Path | None = None, cover: Path | None = None, cover_portrait: Path | None = None) -> dict[str, Any]:
     spec = publishers.get(platform)
     if spec is None:
         raise PublishError("这个平台还不能一键发布")
@@ -228,7 +268,8 @@ def build_payload(platform: str, mode: str, *, video: Path | None, copy: dict[st
         raise PublishError(f"先在「打包」页写好标题并保存")
     return {"platform": platform, "platform_label": spec["label"], "mode": mode, "mode_label": spec["modes"][mode]["label"],
             "video": str(video), "video_mb": round(video.stat().st_size / 1_048_576, 1), "title": title, "body": body, "tags": tags,
-            "cover": str(cover) if cover and cover.is_file() else ""}
+            "cover": str(cover) if cover and cover.is_file() else "",
+            "cover_portrait": str(cover_portrait) if cover_portrait and cover_portrait.is_file() else ""}
 
 
 # 9/24 B 站投稿报 No module named 'playwright'：工作台后台 PATH 里第一个 python3 是 Homebrew 的，
@@ -262,7 +303,7 @@ def command_for(payload: dict[str, Any], publishers: dict[str, dict[str, Any]] =
         template[0] = python_with(tuple(spec.get("needs") or ()))
     article = payload.get("article", "")
     values = {"video": payload["video"], "title": payload["title"], "body": payload["body"], "tags": ",".join(payload["tags"]),
-              "article": article, "cover": payload.get("cover", ""),
+              "article": article, "cover": payload.get("cover", ""), "cover_portrait": payload.get("cover_portrait", ""),
               # 同一选题的文章放在 drafts/topic-<id>/ 下：拿目录名当稳定 id，再发会更新同一篇而不是新建
               "brief_id": f"content-studio-{Path(article).parent.name}" if article else "",
               "yanxishi_env": _secret("yanxishi", "env_id") if "{yanxishi_env}" in template else "",
@@ -294,13 +335,70 @@ def parse_result(stdout: str) -> dict[str, Any]:
     return {}
 
 
-def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBLISHERS, timeout: float = RUN_TIMEOUT_SECONDS) -> dict[str, Any]:
+def _progress(line: str) -> dict[str, Any] | None:
+    """脚本边跑边报的一行：{"progress": "..."}。不是这种的都不算。"""
+    line = line.strip()
+    if not line.startswith("{"):
+        return None
+    try:
+        value = json.loads(line)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) and "progress" in value else None
+
+
+def _run_streaming(argv: list[str], *, env: dict[str, str] | None, timeout: float,
+                   on_progress: Callable[[dict[str, Any]], None] | None) -> dict[str, Any]:
+    """窗口开着等 Park 的通道：一行一行读，进度当场交出去；最后一行才是结果。
+
+    stderr 写进临时文件而不是管道：工具箱的日志很多，管道写满了脚本会卡死。
+    """
+    killed = threading.Event()
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=err, text=True, env=env,
+                                    cwd=str(CONTENT_OPS) if CONTENT_OPS.is_dir() else None)
+        except OSError as exc:
+            return {"ok": False, "status": "command_missing", "message": f"找不到发布脚本：{exc}"}
+        timer = threading.Timer(timeout, lambda: (killed.set(), proc.kill()))
+        timer.start()
+        kept: list[str] = []
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                event = _progress(line)
+                if event is None:
+                    kept.append(line)
+                elif on_progress:
+                    try:
+                        on_progress(event)
+                    except Exception:  # noqa: BLE001 - a progress hiccup must not stop the window
+                        pass
+            proc.wait()
+        finally:
+            timer.cancel()
+        if killed.is_set():
+            return {"ok": False, "status": "timeout", "message": f"等了 {int(timeout // 3600)} 小时，窗口已关掉"}
+        result = parse_result("".join(kept))
+        if not result:
+            err.seek(0)
+            result = {"ok": False, "status": "no_result", "message": err.read().strip()[-400:]}
+        result.setdefault("ok", proc.returncode == 0)
+        return result
+
+
+def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBLISHERS, timeout: float | None = None,
+        on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     argv = command_for(payload, publishers)
+    spec = publishers[payload["platform"]]
+    timeout = timeout or spec.get("timeout") or RUN_TIMEOUT_SECONDS
     env = None
-    wanted = publishers[payload["platform"]].get("secret_env") or {}
+    wanted = spec.get("secret_env") or {}
     if wanted:
         # 钥匙走环境变量，不进命令行参数（ps 里看得见）
         env = {**os.environ, **{name: _secret(*where) for name, where in wanted.items()}}
+    if spec.get("interactive"):
+        return _run_streaming(argv, env=env, timeout=timeout, on_progress=on_progress)
     try:
         completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env,
                                    cwd=str(CONTENT_OPS) if CONTENT_OPS.is_dir() else None)
@@ -348,6 +446,7 @@ def confirm_url(platform: str, result: dict[str, Any]) -> str | None:
 STATUS_TEXT = {
     "cookie_missing": "还没有登录信息，需要先在电脑上登录",
     "cookie_invalid": "登录已过期，需要在电脑上重新扫码登录",
+    "window_closed": "窗口关了，没发",
     "video_missing": "找不到视频文件",
 }
 

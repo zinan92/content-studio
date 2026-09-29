@@ -3,7 +3,8 @@
 Park 的比喻是「把每个平台的上传页截个图铺开，没发的是灰的，发了的变彩色」。
 这里只算数据；每个平台长什么样在前端画。三种对待方式（treatment）来自通道本身：
 
-- manual   没有通道：复制文案、打开平台、发完回来记一笔（抖音、小红书、小宇宙…）
+- manual   没有通道：复制文案、打开平台、发完回来记一笔（小红书、小宇宙…）
+- semi     机器开窗口把能填的都填好，最后点「发布」的是 Park（抖音，9/29 起）
 - scan     有通道但靠扫码登录的 cookie：登录还在就机器发，过期了就要重扫（B 站、YouTube、视频号）
 - auto     密钥在文件里、不用登录：直接发（X）
 - handoff  工作台只负责到正文，交给既有管线（公众号）
@@ -12,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-TREATMENT_LABEL = {"manual": "手动上传", "scan": "扫码后机器发", "auto": "全自动", "handoff": "交给流水线"}
+TREATMENT_LABEL = {"manual": "手动上传", "semi": "半自动 · 最后一下你点", "scan": "扫码后机器发", "auto": "全自动", "handoff": "交给流水线"}
 # 待发 → 剪辑 → 录制 → 提纲：越接近能发的越靠前；已发出的排最后，只留最近的。
 STAGE_ORDER = {"ready": 0, "edit": 1, "record": 2, "outline": 3, "shipped": 9}
 SHARED_KEYS = ("douyin", "channels", "bilibili", "youtube")
@@ -21,6 +22,8 @@ SHARED_KEYS = ("douyin", "channels", "bilibili", "youtube")
 def treatment(key: str, spec: dict[str, Any] | None) -> str:
     if spec is None:
         return "manual"
+    if spec.get("semi"):
+        return "semi"
     if spec.get("needs_keys"):
         return "auto"
     return "scan"
@@ -110,7 +113,7 @@ def rows(platform_rows: list[dict[str, Any]], *, specs: dict[str, dict[str, Any]
         job = latest_job(jobs, key)
         shipped = bool(record) or (key == "douyin" and douyin_linked)
         # 通道能不能真的走：有通道、登录没过期、不是被平台挡着、不是缺配置。
-        can_auto = how in ("scan", "auto") and p["state"] in ("linked", "ready")
+        can_auto = how in ("scan", "auto", "semi") and p["state"] in ("linked", "ready")
         out.append({
             **{k: p.get(k) for k in ("key", "label", "mark", "hue", "handle", "on", "state", "note", "admin", "login_hint")},
             "treatment": how,
