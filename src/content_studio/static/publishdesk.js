@@ -426,25 +426,28 @@ function copyAll(p) {
   return navigator.clipboard.writeText(text).then(() => toast('已复制，去粘贴'), () => toast('复制失败'));
 }
 
-/* 文字、图文平台要的是「研习室文章」。补发的旧视频不经过加工中，直接到这里：
-   所以文章就地写（用这条视频的逐字稿），写好了到「打包」里改。 */
-function articleBlock(p, d) {
-  const t = d.topic;
-  const back = `<button class="linklike" type="button" data-pd-article="${t.id}">去打包里改 →</button>`;
-  const figs = '<div class="pdl-figs" id="pdlFigs"></div>';
-  if (d.has_article && p.key === 'wechat_mp') {
-    // 公众号：只有一个预览（排过就是 gzh 的样子，没排就是基础排版），排版状态就地显示
-    return `${figs}<div class="pdl-wx" id="pdlWx"><span class="spin"></span></div><p class="pdl-note">想改文章：${back}</p>`;
-  }
-  if (d.has_article) {
-    return `${figs}<details class="pdl-art" id="pdlArtPrev"><summary>✓ 文章已经写好 · <b>点开看全文</b></summary><div class="md pdl-art-body"><span class="spin"></span></div></details>
-      <p class="pdl-note">想改：${back}</p>`;
-  }
-  if (t.write_state === 'running') return `<p class="pdl-note"><span class="spin"></span> 正在写文章，一般 1–5 分钟，写完这里自动变。</p>`;
-  const why = p.key === 'xiaohongshu' ? '小红书图文是把研习室那篇文章排成图' : `${esc(p.label)}发的是研习室那篇文章`;
-  return `<p class="pdl-note">${why}，这条还没写。${t.video_project || t.published_video_id ? '会以这条视频的原话为主写。' : ''}</p>
-    ${t.write_state === 'failed' ? `<p class="pdl-note bad">${esc(t.write_error || '上次写失败了')}</p>` : ''}
-    <div class="pdl-acts"><button class="btn primary" type="button" id="pdlArticle">${t.write_state === 'failed' ? '重写文章' : '写文章'}</button></div>`;
+/* 9/29 Park：「打包就是 package everything up，发布就是 send everything out。」发布台不再配图、排版、
+   预览全文、写文章——这些在打包里做完、定稿。这里只说一句这个平台用的是打包里定稿的哪几样；
+   没定稿就说回打包，不在这里就地补。 */
+const PACK_NEEDS = {
+  wechat_mp: ['article', 'figs', 'wx'], miniprogram: ['article', 'figs', 'wx'], x: ['article', 'figs'],
+  xiaohongshu: ['article', 'figs', 'xhs'], douyin: ['copy', 'cover'], channels: ['copy', 'cover'],
+  bilibili: ['copy', 'cover'], youtube: ['copy', 'cover'], xiaoyuzhou: ['copy'],
+};
+const PACK_LABELS = { copy: '标题和描述', cover: '封面', article: '文章', figs: '插图', wx: '公众号排版', xhs: '小红书图文' };
+
+function packGaps(p, d) {
+  if (!d.approvals) return [];
+  return (PACK_NEEDS[p.key] || []).filter((k) => !(d.approvals[k] && d.approvals[k].approved && d.approvals[k].valid));
+}
+
+function packStatus(p, d) {
+  const need = PACK_NEEDS[p.key] || [];
+  if (!need.length || !d.approvals) return '';
+  const gaps = packGaps(p, d);
+  return gaps.length
+    ? `<p class="pdl-note pack-need">打包里还没定稿：<b>${gaps.map((k) => PACK_LABELS[k]).join('、')}</b>。回「打包」定稿了再来发。</p>`
+    : `<p class="pdl-ok">✓ 用打包里定稿的：${need.map((k) => PACK_LABELS[k]).join(' · ')}</p>`;
 }
 
 /* 文字平台和小红书：不管在哪一步，最上面都能看到那篇文章（没写就能就地写） */
@@ -464,24 +467,26 @@ function sideFor(p, d) {
     : p.shipped
       ? (next ? `<div class="pdl-flow"><b>✓ ${esc(p.label)}发完了</b><button class="btn primary" type="button" id="pdlNext">下一个：${esc(next.label)} →</button></div>` : '<div class="pdl-flow"><b>✓ 顺序里的平台都走完了</b></div>')
       : `<div class="pdl-flow quiet"><button class="linklike" type="button" id="pdlSkip">这条不发${esc(p.label)}，跳过 →</button></div>`;
-  const art = (p.needs_article || p.key === 'xiaohongshu') && !p.shipped && !p.skipped ? articleBlock(p, d) : '';
+  const art = !p.shipped && !p.skipped ? packStatus(p, d) : '';
   return (p.shipped || p.skipped ? flow : '') + art + core + (p.shipped || p.skipped ? '' : flow);
 }
 
 function sideCore(p, d) {
   const t = d.topic;
+  // 自动、扫码的平台发完自己记；只有手动传的才要「复制」和「记一笔」
+  const manualish = p.treatment === 'manual' || p.treatment === 'semi' || p.state === 'blocked' || p.state === 'stale' || p.state === 'setup';
   const field = (label, value, hint) => value
     ? `<div class="pf-f"><span>${label}${hint ? `<i>${hint}</i>` : ''}</span><p>${esc(value)}</p><button class="btn small ghost" type="button" data-copy="${esc(value)}">复制</button></div>` : '';
-  const fields = d.has_copy ? `<h4>这个平台该填什么</h4><div class="pdl-fields">
+  const fields = !manualish ? '' : d.has_copy ? `<h4>这个平台该填什么</h4><div class="pdl-fields">
       ${field('标题', p.fill.title, `最多 ${p.caps.title} 字${p.fill.title_trimmed ? ' · 已裁短' : p.fill.title_over ? ` · 现在 ${p.fill.title_units} 字，超了，发的时候删几个字` : ''}`)}
       ${field(p.key === 'wechat_mp' ? '正文开头' : p.key === 'x' ? '推文' : '简介', p.fill.body, `最多 ${p.caps.body} 字`)}
       ${field('话题', p.fill.tags.map((x) => '#' + x).join(' '), `最多 ${p.caps.tags} 个`)}
-    </div>` : `<p class="pdl-note">还没写文案。<button class="linklike" type="button" id="pdlWrite">去打包里写标题和描述 →</button></p>`;
+    </div>` : '';
   const manual = `<div class="pdl-acts">
       ${d.has_copy ? '<button class="btn" type="button" id="pdlCopyAll">复制全部文案</button>' : ''}
       ${p.admin ? `<a class="btn primary" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center" ${p.key === 'xiaohongshu' ? 'data-xhs-open' : ''}>打开${esc(p.label)}上传 ↗${p.key === 'xiaohongshu' ? '（同时打开图片文件夹）' : ''}</a>` : ''}
     </div>`;
-  const mark = `<div class="pdl-mark"><h4>发完了？记一笔</h4><input id="pdlUrl" placeholder="${esc(p.label)}的链接（可留空）" autocomplete="off"><button class="btn" type="button" id="pdlMark">标为已发</button></div>`;
+  const mark = !manualish ? '' : `<div class="pdl-mark"><h4>发完了？记一笔</h4><input id="pdlUrl" placeholder="${esc(p.label)}的链接（可留空）" autocomplete="off"><button class="btn" type="button" id="pdlMark">标为已发</button></div>`;
   const hist = (d.platforms.find((x) => x.key === p.key) || {}).job;
   const history = hist && !['awaiting_confirm', 'running'].includes(hist.state)
     ? `<ul class="pdl-hist"><li><span class="pill ${hist.state === 'done' ? 'hot' : 'low'}">${PJ_TEXT[hist.state] || hist.state}</span> ${esc(hist.mode_label)} · ${day(hist.created_at)}${hist.message ? ` <span class="bad">${esc(hist.message)}</span>` : ''}</li></ul>` : '';
@@ -490,13 +495,13 @@ function sideCore(p, d) {
     return `<div class="pdl-done"><b>✓ 已发到${esc(p.label)}${p.record && p.record.published_at ? ' · ' + day(p.record.published_at) : ''}</b>
         ${p.record && p.record.url ? `<a href="${esc(p.record.url)}" target="_blank" rel="noopener">${esc(p.record.url)}</a>` : (p.key === 'douyin' && t.published_url ? `<a href="${esc(t.published_url)}" target="_blank" rel="noopener">${esc(t.published_url)}</a>` : '<small>没记链接</small>')}
         ${p.record ? '<button class="linklike" type="button" id="pdlUnmark">记错了，撤销</button>' : ''}</div>
-      ${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
+      ${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}`;
   }
   if (p.treatment === 'semi') return semiCore(p, d, { manual, mark, history, fields });
   if (p.job && p.job.state === 'awaiting_confirm') {
     const pl = p.job.payload || {};
     return `<div class="pn-confirm"><b>确认发布到${esc(pl.platform_label || p.label)}：${esc(pl.mode_label || '')}</b>
-        <dl><dt>标题</dt><dd>${esc(pl.title || '（无）')}</dd><dt>正文</dt><dd>${p.needs_article ? '研习室那篇文章全文（上面「点开看全文」）' : esc(pl.body || '（空）')}</dd><dt>话题</dt><dd>${esc((pl.tags || []).map((x) => '#' + x).join(' ') || '（无）')}</dd>${pl.video ? `<dt>视频</dt><dd>${esc(String(pl.video).split('/').pop())} · ${pl.video_mb} MB</dd>` : ''}</dl>
+        <dl><dt>标题</dt><dd>${esc(pl.title || '（无）')}</dd><dt>正文</dt><dd>${p.needs_article ? '打包里定稿的那篇文章（带插图）' : esc(pl.body || '（空）')}</dd><dt>话题</dt><dd>${esc((pl.tags || []).map((x) => '#' + x).join(' ') || '（无）')}</dd>${pl.video ? `<dt>视频</dt><dd>${esc(String(pl.video).split('/').pop())} · ${pl.video_mb} MB</dd>` : ''}</dl>
         <div class="acts"><button class="btn primary" type="button" data-pj-confirm="${p.job.id}">确认发布</button><button class="btn ghost" type="button" data-pj-cancel="${p.job.id}">取消</button></div></div>
       <p class="pdl-note">每次发布都要你看过上面的内容再点。发布后这张页会变成彩色。</p>`;
   }
@@ -514,7 +519,7 @@ function sideCore(p, d) {
       ${mark}${history}${fields}`;
   }
   if (p.treatment === 'scan' || p.treatment === 'auto') {
-    const ready = p.can_auto && (d.video || p.no_video) && (p.needs_article ? d.has_article : d.has_copy);
+    const ready = p.can_auto && (d.video || p.no_video) && (p.needs_article ? d.has_article : d.has_copy) && !packGaps(p, d).length;
     let block;
     if (p.state === 'blocked') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b>。通道留着，先按手动的方式发。</p>${manual}`;
@@ -522,13 +527,8 @@ function sideCore(p, d) {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>在电脑上运行下面这条重新扫码，回来这里就能机器发：</p><p class="pdl-note"><code>${esc(p.login_hint)}</code></p>${manual}`;
     } else if (p.state === 'setup') {
       block = `<p class="pdl-note"><b>${esc(p.note)}</b><br>${esc(p.login_hint)}</p>${manual}`;
-    } else if (p.needs_article && !d.has_article) {
-      block = '';
-    } else if (!p.needs_article && !d.has_copy) {
-      block = '<p class="pdl-note">先写好标题和简介，机器才知道发什么。</p>';
-    } else if (needsCover(p, d)) {
-      block = `<p class="pdl-note">${esc(p.label)}要封面${p.key === 'wechat_mp' ? '（2.35:1）' : ''}，这条还没有。封面从成片里取一帧、抠人像、排标题，一分钟左右。</p>
-        <div class="pdl-acts"><button class="btn primary" type="button" id="pdlCover">去打包里做封面</button></div>`;
+    } else if (packGaps(p, d).length || (p.needs_article && !d.has_article) || (!p.needs_article && !d.has_copy) || needsCover(p, d)) {
+      block = packGaps(p, d).length ? '' : '<p class="pdl-note pack-need">打包里还缺东西，回「打包」做完再来发。</p>';
     } else if (!d.video && !p.no_video) {
       block = '<p class="pdl-note">还没有成片：在「剪辑进度」关联视频项目并完成剪辑后，这里可以直接发。</p>';
     } else if (ready) {
@@ -542,7 +542,7 @@ function sideCore(p, d) {
   }
   return `<h4>${esc(p.treatment_label)}</h4>
     ${p.key === 'xiaohongshu'
-      ? `<p class="pdl-note">小红书发图文：研习室那篇文章一字不改排成图，按顺序传到小红书，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhs" class="xhs"></div>' : ''}`
+      ? `<p class="pdl-note">小红书发图文：按顺序传打包里定稿的那组图，标题和正文从下面复制。</p>${d.has_article ? '<div id="pdlXhsSend" class="xhs"></div>' : ''}`
       : `<p class="pdl-note">${esc(p.label)}没有自动通道：复制文案、到${esc(p.label)}传视频、粘贴，发完回来记一笔。</p>`}
     ${manual}${mark}${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}${fields}`;
 }
@@ -665,6 +665,17 @@ async function renderXhs(dlg, topicId) {
   if (st.running) setTimeout(() => { if (document.body.contains(box)) renderXhs(dlg, topicId); }, 2500);
 }
 
+/* 发布台的小红书：只给打包里定稿的那组图（缩略图 + 打包下载），不在这里出图、重出。 */
+async function renderXhsSend(dlg, topicId) {
+  const box = $('#pdlXhsSend', dlg);
+  if (!box) return;
+  let st;
+  try { st = await api(`/api/topics/${topicId}/xhs`); } catch (err) { box.innerHTML = `<p class="bad">${esc(err.message)}</p>`; return; }
+  if (!st.images.length || st.stale) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="xhs-h"><a class="btn" href="/api/topics/${topicId}/xhs.zip" download>打包下载 ${st.images.length} 张</a><small>01 是封面，文件名就是顺序</small></div>
+    <div class="xhs-grid">${st.urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener" title="第 ${i + 1} 张"><img src="${u}?t=${encodeURIComponent(st.generated_at || '')}" alt="第 ${i + 1} 张" loading="lazy"><small>${i + 1}</small></a>`).join('')}</div>`;
+}
+
 /* 抖音单独有一块：把发出去的那条视频和这个选题对上。对上之后点赞和播放才会自己回来，
    卡片也才算「已发出」。以前这块在「加工中 → 发布」页签里，那个页签已经去掉了。 */
 async function renderDouyinLink(dlg, topicId) {
@@ -688,10 +699,9 @@ async function renderDouyinLink(dlg, topicId) {
   };
   box.innerHTML = `<div class="pdl-mark"><h4>发到抖音了？对一下是哪条</h4>
     ${d.suggestions.length ? d.suggestions.map((v) => `<div class="hot-row"><span class="pill mid">${Math.round(v.score * 100)}%</span><div class="hot-main"><b class="clamp">${esc(cleanTitle(v.title))}</b><small>${day(v.published_at)} · ${fmt(v.likes)} 赞</small></div><div class="acts"><button class="btn small primary" type="button" data-dy="${esc(v.video_id)}">就是这条</button></div></div>`).join('')
-      : `<p class="pdl-note">没找到标题相近、在这个选题之后发出的视频。${d.stale_sync ? '数据有点旧了，' : ''}<button class="linklike" type="button" id="pdlSync">同步我的数据</button>，或者在下面手动选。</p>`}
-    ${d.recent.length ? `<div class="linkbox"><select id="pdlPick">${d.recent.map((v) => `<option value="${esc(v.video_id)}">${day(v.published_at)} · ${esc(cleanTitle(v.title).slice(0, 40))}</option>`).join('')}</select><button class="btn" type="button" id="pdlLink">对上</button></div>` : ''}</div>`;
+      : `<p class="pdl-note">还没找到标题相近的新视频。刚发的话，${d.stale_sync ? '数据有点旧，' : ''}<button class="linklike" type="button" id="pdlSync">同步一下我的数据</button>；也可以在下面直接点。</p>`}
+    ${d.recent.length ? `<h5 class="pdl-sub">最近发的</h5>${d.recent.slice(0, 5).map((v) => `<div class="hot-row"><span class="pill low">${day(v.published_at)}</span><div class="hot-main"><b class="clamp">${esc(cleanTitle(v.title))}</b><small>${fmt(v.likes)} 赞</small></div><div class="acts"><button class="btn small" type="button" data-dy="${esc(v.video_id)}">就是这条</button></div></div>`).join('')}` : ''}</div>`;
   $$('[data-dy]', box).forEach((b) => (b.onclick = () => link(b.dataset.dy)));
-  const pick = $('#pdlLink', box); if (pick) pick.onclick = () => link($('#pdlPick', box).value);
   const sync = $('#pdlSync', box);
   if (sync) sync.onclick = async () => {
     try { const r = await api('/api/sync', { method: 'POST' }); toast(r.message); } catch (err) { toast(err.message); }
@@ -741,7 +751,6 @@ function renderDialog() {
   const all = $('#pdlCopyAll', dlg); if (all) all.onclick = () => copyAll(p);
   const copyGo = $('#pdlCopyGo', dlg);
   if (copyGo) copyGo.onclick = () => { copyAll(p); if (p.admin) window.open(p.admin, '_blank', 'noopener'); };
-  const write = $('#pdlWrite', dlg); if (write) write.onclick = () => goPack(t.id);
   const mark = $('#pdlMark', dlg);
   if (mark) mark.onclick = async () => {
     const url = $('#pdlUrl', dlg).value.trim() || null;
@@ -749,26 +758,7 @@ function renderDialog() {
     try { await api(`/api/topics/${t.id}/platforms`, { method: 'PUT', body: { platform: p.key, published: true, url } }); toast(`${p.label} 记为已发`); await refresh(); goNext(); } catch (err) { toast(err.message); }
   };
   if (p.key === 'douyin') renderDouyinLink(dlg, t.id);
-  if (p.key === 'xiaohongshu') renderXhs(dlg, t.id);
-  const art = $('#pdlArticle', dlg);
-  if (art) art.onclick = async () => {
-    art.disabled = true;
-    try { toast((await api(`/api/topics/${t.id}/write`, { method: 'POST' })).message); await refresh(); } catch (err) { toast(err.message); art.disabled = false; }
-  };
-  $$('[data-pd-article]', dlg).forEach((b) => (b.onclick = () => goPack(t.id)));
-  if ($('#pdlWx', dlg)) renderWx(dlg, t.id);
-  if ($('#pdlFigs', dlg)) renderFigs(dlg, t.id);
-  const prev = $('#pdlArtPrev', dlg);
-  if (prev) prev.addEventListener('toggle', async () => {
-    const box = $('.pdl-art-body', prev);
-    if (!prev.open || box.dataset.loaded) return;
-    try {
-      const a = await api(`/api/topics/${t.id}/article`);
-      const md = a.markdown.replace(/\]\(illustrations\//g, `](/api/topics/${t.id}/article-file/illustrations/`);
-      box.innerHTML = `<small>${a.markdown.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\s/g, '').length} 字</small>${renderMarkdown(md)}`;
-      box.dataset.loaded = '1';
-    } catch (err) { box.innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
-  });
+  if (p.key === 'xiaohongshu') renderXhsSend(dlg, t.id);
   if (t.write_state === 'running') setTimeout(() => { if (dlg.open && PD.open === p.key) refresh(); }, 8000);
   // 这个平台正在发：弹窗自己隔几秒问一次，发完立刻变，不靠整页刷新
   clearTimeout(PD.dialogPoll);
@@ -787,7 +777,6 @@ function renderDialog() {
   const xhsOpen = $('[data-xhs-open]', dlg);
   if (xhsOpen) xhsOpen.addEventListener('click', () => { api(`/api/topics/${t.id}/xhs/reveal`, { method: 'POST' }).catch((err) => toast(err.message)); });
   const nextBtn = $('#pdlNext', dlg); if (nextBtn) nextBtn.onclick = () => goNext();
-  const coverBtn2 = $('#pdlCover', dlg); if (coverBtn2) coverBtn2.onclick = () => goPack(t.id);
   const skipBtn = $('#pdlSkip', dlg);
   if (skipBtn) skipBtn.onclick = async () => { try { await setSkip(t.id, p.key, true); toast(`这条不发${p.label}`); renderView(); goNext(); } catch (err) { toast(err.message); } };
   const unskip = $('#pdlUnskip', dlg);

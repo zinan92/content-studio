@@ -1677,3 +1677,6 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .pk-row.s-lock .pk-word{color:var(--accent)}
 .pk-row.s-ok .pk-dot{background:none;border-color:var(--accent);color:var(--accent)}
 .pk-row.s-ok .pk-word{color:var(--hot)}
+.pdl-ok{font-size:13px;color:var(--accent);background:var(--accent-soft);border-radius:8px;padding:8px 12px;margin:0 0 12px}
+.pdl-note.pack-need{background:var(--warn-soft);color:var(--ink);border-radius:8px;padding:8px 12px}
+.pdl-sub{font-size:12px;color:var(--ink-3);font-weight:500;margin:10px 0 4px}
