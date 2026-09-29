@@ -19,6 +19,8 @@ import subprocess
 from typing import Any
 
 SEGMENT = Path(__file__).parent / "native" / "segment_person.swift"
+FACE_QUALITY = Path(__file__).parent / "native" / "face_quality.swift"
+WORD_BREAKS = Path(__file__).parent / "native" / "word_breaks.swift"
 SKEW_DEG = 8
 SKEW = math.tan(math.radians(SKEW_DEG))
 CJK_FONT = "Hiragino Sans GB,Heiti SC,PingFang SC,sans-serif"
@@ -56,35 +58,75 @@ def units(text: str) -> float:
     return total
 
 
-def split_title(title: str, *, per_line: float = 6.2) -> list[str]:
+def split_title(title: str, *, per_line: float = 6.2, breaks: set[int] | None = None) -> list[str]:
     """没给换行时自动断：先在标点后断（「看懂加息，/看懂底层逻辑」，不拆成「看懂加息，看/懂底层逻辑」），
-    一段太长再按宽度断；一行不超过约 6 个汉字宽，拉丁单词不拆开。"""
-    phrases = [p for p in re.split(r"(?<=[，。！？、：；,!?:;])", title.strip()) if p.strip()]
-    if len(phrases) > 1:
-        lines: list[str] = []
-        for ph in phrases:
-            if lines and units(lines[-1] + ph) <= per_line:
-                lines[-1] += ph
-            elif units(ph) <= per_line * 1.35:
-                lines.append(ph.strip())
-            else:
-                lines.extend(_by_width(ph, per_line))
-        return lines
-    return _by_width(title, per_line)
+    一段太长再在词和词之间断，几行尽量一样长；一行约 6 个汉字宽，拉丁单词不拆开。
+    9/29 以前一段太长是按宽度硬切，「99%的自媒体人都在追求流量，」切成「99%的自媒体 / 人都在追求流 / 量，」——
+    词被劈开、标点单独一行。现在用本机分词找能断的地方（breaks：字符下标），再挑最匀的断法。"""
+    title = title.strip()
+    if breaks is None:
+        breaks = word_breaks(title)
+    lines: list[str] = []
+    start = 0
+    for ph in [p for p in re.split(r"(?<=[，。！？、：；,!?:;])", title) if p]:
+        offset, start = start, start + len(ph)
+        if not ph.strip():
+            continue
+        if lines and units(lines[-1] + ph) <= per_line:
+            lines[-1] += ph
+        elif units(ph) <= per_line * 1.35:
+            lines.append(ph.strip())
+        else:
+            lines.extend(_balanced(ph, {b - offset for b in breaks if offset < b < offset + len(ph)}, per_line))
+    return [l.strip() for l in lines if l.strip()]
+
+
+def word_breaks(text: str) -> set[int]:
+    """能断行的位置（字符下标）：词和词之间。拉丁串、数字串内部永远不算。分不了词就每个字之间都能断。"""
+    latin = {i for m in re.finditer(r"[A-Za-z0-9%]+", text) for i in range(m.start() + 1, m.end())}
+    every = set(range(1, len(text))) - latin
+    if not shutil.which("swift"):
+        return every
+    try:
+        out = _run(["swift", str(WORD_BREAKS), text], "分词", timeout=60)
+    except (CoverError, subprocess.TimeoutExpired):
+        return every
+    found: set[int] = set()
+    for line in out.splitlines():
+        try:
+            a, b = (int(v) for v in line.split("\t"))
+        except ValueError:
+            continue
+        found.update((a, b))
+    found = {i for i in found if 0 < i < len(text)} - latin
+    return found or every
+
+
+def _balanced(phrase: str, breaks: set[int], per_line: float) -> list[str]:
+    """在允许的断点里挑一种断法：每行不超过上限（放不下的单个词除外），行数最少，各行宽度最接近。
+    标点永远跟着前一行。"""
+    cuts = sorted(i for i in breaks if 0 < i < len(phrase) and not re.match(r"[，。！？、：；,!?:;）)」”]", phrase[i]))
+    points = [0, *cuts, len(phrase)]
+    n = len(points)
+    best: list[tuple[int, float, list[int]] | None] = [None] * n
+    best[0] = (0, 0.0, [0])
+    for j in range(1, n):
+        for i in range(j):
+            if best[i] is None:
+                continue
+            w = units(phrase[points[i]:points[j]].strip())
+            if w > per_line * 1.15 and j - i > 1:
+                continue
+            count, cost, path = best[i]
+            cand = (count + 1, cost + (per_line - w) ** 2, path + [j])
+            if best[j] is None or cand[:2] < best[j][:2]:
+                best[j] = cand
+    path = best[-1][2] if best[-1] else list(range(n))
+    return [phrase[points[a]:points[b]].strip() for a, b in zip(path, path[1:])]
 
 
 def _by_width(title: str, per_line: float) -> list[str]:
-    tokens = re.findall(r"[A-Za-z0-9]+|\s+|.", title.strip())
-    lines, cur = [], ""
-    for tok in tokens:
-        if cur and units(cur + tok) > per_line and not tok.isspace():
-            lines.append(cur.strip())
-            cur = tok.lstrip()
-        else:
-            cur += tok
-    if cur.strip():
-        lines.append(cur.strip())
-    return lines
+    return _balanced(title, word_breaks(title), per_line)
 
 
 def _clean(s: str) -> str:
@@ -209,6 +251,42 @@ def candidate_frames(video: Path, out_dir: Path, *, count: int = 6) -> list[dict
             _run(["ffmpeg", "-v", "error", "-y", "-ss", str(at), "-i", str(video), "-frames:v", "1", "-q:v", "3", str(path)], "取帧")
         frames.append({"at": at, "path": path})
     return frames
+
+
+def score_frames(paths: list[Path]) -> dict[Path, float]:
+    """每帧的人脸拍摄质量（macOS Vision）。一张脸才算数，没脸或好几张脸记 -1。打不了分就全是 -1。"""
+    if not paths or not shutil.which("swift"):
+        return {p: -1.0 for p in paths}
+    try:
+        out = _run(["swift", str(FACE_QUALITY), *map(str, paths)], "给帧打分", timeout=180)
+    except (CoverError, subprocess.TimeoutExpired):
+        return {p: -1.0 for p in paths}
+    scores = {p: -1.0 for p in paths}
+    for line in out.splitlines():
+        parts = line.rsplit("\t", 2)
+        if len(parts) == 3:
+            try:
+                faces, q = int(parts[1]), float(parts[2])
+            except ValueError:
+                continue
+            scores[Path(parts[0])] = q if faces == 1 else -1.0
+    return scores
+
+
+def pick_frames(video: Path, out_dir: Path, *, keep: int = 6, sample: int = 12) -> list[dict[str, Any]]:
+    """9/29 Park：「画面不用我自己选，你帮我选；6 选 1 也行。」多取几帧，按人脸拍摄质量留最好的几张
+    （按时间排），分最高的那张标 pick。打不了分就退回等距那几张、选中间。"""
+    frames = candidate_frames(video, out_dir, count=sample)
+    scores = score_frames([f["path"] for f in frames])
+    for f in frames:
+        f["score"] = round(scores.get(f["path"], -1.0), 3)
+    if all(f["score"] < 0 for f in frames):
+        kept = frames[:: max(1, sample // keep)][:keep]
+        best = kept[len(kept) // 2]
+    else:
+        kept = sorted(sorted(frames, key=lambda f: f["score"], reverse=True)[:keep], key=lambda f: f["at"])
+        best = max(kept, key=lambda f: f["score"])
+    return [{**f, "pick": f is best} for f in kept]
 
 
 def cutout(frame: Path, out: Path, *, rect: tuple[int, int, int, int] | None, scale: float = 2.2) -> float:

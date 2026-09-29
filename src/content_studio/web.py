@@ -2636,7 +2636,8 @@ def create_app(
 
     @app.get("/api/topics/{topic_id}/cover")
     def cover_options(topic_id: int) -> dict[str, Any]:
-        """做封面弹窗要的：默认标题（发布文案 > 平台文案 > 选题名）、自动换行、几帧候选。"""
+        """打包页做封面要的：封面上的字就是标题（打包里写的 > 成片包的发布文案 > 选题名），自动换行；
+        机器挑好的那一帧 + 另外几张候选；橙色那行机器定（最后一行，preset 的「强调短语」）。"""
         from urllib.parse import quote
 
         from . import copypack, cover, release
@@ -2644,15 +2645,17 @@ def create_app(
         topic, base, video = _cover_target(topic_id)
         rel = release.find_release(base).get("copy") or {}
         platforms = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms") or {}
-        title = rel.get("title") or (platforms.get("douyin") or {}).get("title") or topic["title"]
+        # 9/29 Park：「封面上的字直接就是这个视频的 title。」打包里先写标题，封面跟着它走。
+        saved = next((e.get("title") for e in (platforms.get(k) or {} for k in ("douyin", "channels", "xiaohongshu", "bilibili", "youtube")) if e.get("title")), "")
+        title = saved or rel.get("title") or topic["title"]
         lines = cover.split_title(title)
         try:
-            frames = cover.candidate_frames(video, base / "analysis" / "cover-frames")
+            frames = cover.pick_frames(video, base / "analysis" / "cover-frames")
         except cover.CoverError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         return {
-            "title": title, "lines": lines, "emphasis": lines[-1],
-            "frames": [{"at": f["at"], "url": _media_url(topic, str(f["path"].relative_to(base)))} for f in frames],
+            "title": title, "from_copy": bool(saved), "lines": lines, "emphasis": lines[-1],
+            "frames": [{"at": f["at"], "score": f["score"], "pick": f["pick"], "url": _media_url(topic, str(f["path"].relative_to(base)))} for f in frames],
         }
 
     @app.post("/api/topics/{topic_id}/cover")
