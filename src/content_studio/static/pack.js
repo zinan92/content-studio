@@ -72,7 +72,7 @@ function packItems(d, t, st) {
   });
   return [
     { key: 'copy', group: 'video', label: '标题 · 描述 · 简介 · 话题', state: d.has_copy ? 'ok' : 'no', note: d.has_copy ? (e.title || '已保存') : '先写这个：标题、描述、简介、话题。封面的字就用这个标题' },
-    { key: 'cover', group: 'video', label: '封面', state: covers.length ? 'ok' : 'no', note: covers.length ? `${covers.join(' · ')}都有了` : d.has_copy ? '用标题出，画面和橙字机器定' : '写好标题后自动出' },
+    { key: 'cover', group: 'video', label: '封面', state: covers.length ? 'ok' : 'no', note: covers.length ? `${covers.join(' · ')}都有了` : d.has_copy ? '用标题出，画面和橙色关键词机器定，5–10 分钟' : '写好标题后自动出' },
     { key: 'article', group: 'text', label: '研习室文章', state: art[0], note: art[1] },
     { key: 'figs', group: 'text', label: '插图', state: figs[0], note: figs[1] },
     { key: 'wx', group: 'text', label: '公众号排版', state: wx[0], note: wx[1] },
@@ -91,49 +91,57 @@ function row(it) {
 }
 
 /* ---------- 每一项展开后的内容 ---------- */
-/* 封面：9/29 Park——字就是标题，画面机器挑（6 选 1 也行），哪一行橙色机器定。
-   所以这里只有一件要做的事：点「出封面」；想换画面就点另一帧再出一次。 */
-async function makeCovers(topicId, o, at) {
-  return api(`/api/topics/${topicId}/cover`, { method: 'POST', body: { lines: o.lines, emphasis: o.emphasis, at } });
-}
-
+/* 封面：9/29 Park——字就是标题，画面机器挑（6 选 1 也行），橙色关键词机器定。
+   出图交给 Codex 的 image_gen（和他以前那些好封面一样），5–10 分钟，在后台跑；这里只选帧、点一下、等。 */
 async function renderCoverMaker(topicId, box, { auto = false } = {}) {
-  box.innerHTML = '<p class="pdl-note"><span class="spin"></span> 正在从成片里挑画面…</p>';
+  if (!box.dataset.polling) box.innerHTML = '<p class="pdl-note"><span class="spin"></span> 正在从视频里挑画面…</p>';
   let o;
   try { o = await api(`/api/topics/${topicId}/cover`); } catch (err) { box.innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
+  if (!document.body.contains(box)) return;
   if (!o.from_copy) {
     box.innerHTML = '<p class="pdl-note">封面上的字就是标题。先在上面「标题 · 描述 · 简介 · 话题」里写好标题并保存，保存完封面会自己出。</p>';
     return;
   }
   const pick = o.frames.find((f) => f.pick) || o.frames[Math.floor(o.frames.length / 2)] || {};
-  let at = pick.at || 0;
+  let at = box.dataset.at ? Number(box.dataset.at) : pick.at || 0;
   const rel = PK.data && PK.data.release;
-  const current = rel && rel.cover_urls ? [['landscape', '横版'], ['portrait', '竖版'], ['wechat', '公众号']].filter(([k]) => rel.cover_urls[k]) : [];
-  const shots = (urls, stamp) => urls.map(([k, url]) => `<a href="${url}${stamp ? `?t=${stamp}` : ''}" target="_blank" rel="noopener"><img class="cv-shot ${k}" src="${url}${stamp ? `?t=${stamp}` : ''}" alt="封面"></a>`).join('');
+  const current = rel && rel.cover_urls ? [['portrait', '竖版'], ['landscape', '横版']].filter(([k]) => rel.cover_urls[k]) : [];
+  const stamp = Date.now();
   box.innerHTML = `<div class="cv-auto">
-    <p class="cv-words">封面上的字：${o.lines.map((l) => `<span class="${l === o.emphasis ? 'em' : ''}">${esc(l)}</span>`).join('')}<small>就是标题；橙色那行机器定。想改字，改上面的标题再出一次。</small></p>
-    <div class="cv-l">画面<small>机器按人脸清晰、正对镜头挑了一张；想换就点另一张</small></div>
-    <div class="cv-frames six">${o.frames.map((f) => `<button type="button" class="cv-frame ${f.at === at ? 'on' : ''}" data-cv-at="${f.at}"><img src="${f.url}" alt="第 ${Math.round(f.at)} 秒"><small>${f.pick ? '机器挑的 · ' : ''}${Math.floor(f.at / 60)}:${String(Math.round(f.at % 60)).padStart(2, '0')}</small></button>`).join('')}</div>
-    <div class="cv-foot"><button class="btn primary" type="button" id="cvGo">${current.length ? '用这一帧重新出' : '出封面（横、竖、公众号）'}</button><span class="pdl-note" id="cvMsg">抠人像要十几秒。</span></div>
-    <div class="cv-out" id="cvOut">${shots(current.map(([k]) => [k, rel.cover_urls[k]]))}</div>
+    <p class="cv-words">封面上的字：<span>${esc(o.title)}</span><small>就是标题；橙色关键词机器挑。想改字，改上面的标题再出一次。</small></p>
+    <div class="cv-l">画面<small>从「${esc(o.source)}」里按人脸清晰、正对镜头挑了一张；想换就点另一张</small></div>
+    <div class="cv-frames six">${o.frames.map((f) => `<button type="button" class="cv-frame ${f.at === at ? 'on' : ''}" data-cv-at="${f.at}" ${o.running ? 'disabled' : ''}><img src="${f.url}" alt="第 ${Math.round(f.at)} 秒"><small>${f.pick ? '机器挑的 · ' : ''}${Math.floor(f.at / 60)}:${String(Math.round(f.at % 60)).padStart(2, '0')}</small></button>`).join('')}</div>
+    <div class="cv-foot">${o.running
+      ? '<span class="pdl-note"><span class="spin"></span> 正在用图像生成出竖版和横版，一般 5–10 分钟。可以先去做别的，出好这里会变。</span>'
+      : `<button class="btn primary" type="button" id="cvGo">${current.length ? '用这一帧重新出' : '出封面（竖 3:4、横 4:3）'}</button><span class="pdl-note">${o.error ? `<b class="bad">上次没出成：${esc(o.error)}</b>` : '图像生成，5–10 分钟'}</span>`}</div>
+    <div class="cv-out">${current.map(([k, l]) => `<a href="${rel.cover_urls[k]}" target="_blank" rel="noopener"><img class="cv-shot ${k}" src="${rel.cover_urls[k]}?t=${stamp}" alt="${l}封面"></a>`).join('')}</div>
   </div>`;
-  const go = async () => {
-    const btn = $('#cvGo', box);
-    btn.disabled = true; $('#cvMsg', box).innerHTML = '<span class="spin"></span> 正在抠人像、排字…';
-    try {
-      const r = await makeCovers(topicId, o, at);
-      $('#cvOut', box).innerHTML = shots(Object.entries(r.urls).map(([k, url]) => [k === '竖' ? 'portrait' : k === '公众号' ? 'wechat' : 'landscape', url]), Date.now());
-      $('#cvMsg', box).textContent = '好了，已经放进交付包。想换画面，点另一帧再出一次。';
-      btn.textContent = '用这一帧重新出';
-      if (window.invalidatePublish) window.invalidatePublish();
-      PK.data = null; // 上面那一行的状态下次刷新时变成「好了」；不重画这块，免得刚出的三张被冲掉
-      loadPack(true).then(paintHead).catch(() => {});
-    } catch (err) { $('#cvMsg', box).textContent = err.message; }
-    finally { btn.disabled = false; }
+  $$('[data-cv-at]', box).forEach((b) => (b.onclick = () => { at = Number(b.dataset.cvAt); box.dataset.at = String(at); $$('[data-cv-at]', box).forEach((x) => x.classList.toggle('on', x === b)); }));
+  const start = async () => {
+    try { await api(`/api/topics/${topicId}/cover`, { method: 'POST', body: { at } }); } catch (err) { toast(err.message); }
+    renderCoverMaker(topicId, box);
   };
-  $$('[data-cv-at]', box).forEach((b) => (b.onclick = () => { at = Number(b.dataset.cvAt); $$('[data-cv-at]', box).forEach((x) => x.classList.toggle('on', x === b)); }));
-  $('#cvGo', box).onclick = go;
-  if (auto && !current.length) go();
+  const go = $('#cvGo', box);
+  if (go) go.onclick = start;
+  clearTimeout(box._poll);
+  if (o.running) {
+    box.dataset.polling = '1';
+    box._poll = setTimeout(async () => {
+      if (!document.body.contains(box)) return;
+      const st = await api(`/api/topics/${topicId}/cover`).catch(() => null);
+      if (st && !st.running) {
+        // 出好了：刷新交付包（上面那行变「好了」、发布台认新封面），再画这一块
+        delete box.dataset.polling;
+        if (window.invalidatePublish) window.invalidatePublish();
+        PK.data = null;
+        try { await loadPack(true); paintHead(PK.data); } catch (_) { /* 下次刷新 */ }
+      }
+      renderCoverMaker(topicId, box);
+    }, 8000);
+  } else {
+    delete box.dataset.polling;
+    if (auto && !current.length && !o.error) start();
+  }
 }
 
 function renderRow(key, box) {

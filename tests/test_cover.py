@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -14,40 +13,47 @@ def test_split_title_keeps_latin_words_whole() -> None:
     assert all(cover.units(l) <= 8 for l in lines)
 
 
-def test_line_breaks_may_not_change_the_words() -> None:
-    cover.check_lines("自媒体的下半场", ["自媒体的", "下半场"], "下半场")
-    with pytest.raises(cover.CoverError, match="一字不差"):
-        cover.check_lines("自媒体的下半场", ["自媒体", "下半场！"], "下半场！")
-    with pytest.raises(cover.CoverError, match="一整行"):
-        cover.check_lines(None, ["自媒体的", "下半场"], "半场")
-    with pytest.raises(cover.CoverError, match="空"):
-        cover.check_lines(None, ["  "], "")
+def test_generate_hands_codex_the_frame_refs_and_title_and_files_the_two_covers(tmp_path: Path, monkeypatch) -> None:
+    """9/29：封面改由 Codex image_gen 出。这里给它一帧、两张风格参考、逐字标题；它交回两张，放进 final/covers/。"""
+    skill = tmp_path / "skill"
+    for rel in cover.STYLE_REFS.values():
+        (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+        (skill / rel).write_bytes(b"png")
+    monkeypatch.setenv("CONTENT_STUDIO_KOUBO_SKILL", str(skill))
+    base = tmp_path / "proj"
+    (base / "final" / "covers").mkdir(parents=True)
+    (base / "final" / "covers" / "旧-竖封面.jpg").write_bytes(b"old")
+    calls = []
+    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: calls.append(what) or (Path(args[-1]).write_bytes(b"jpg") if what == "取帧" else ""))
+    monkeypatch.setattr(cover, "_ratio_ok", lambda path, want: True)
+    monkeypatch.setattr(cover, "word_breaks", lambda text: set(range(1, len(text))))
+    seen = {}
+
+    def runner(text: str, cwd: Path) -> None:
+        seen["text"] = text
+        seen["files"] = sorted(p.name for p in cwd.iterdir())
+        (cwd / "out" / "cover-3x4.png").write_bytes(b"p")
+        (cwd / "out" / "cover-4x3.png").write_bytes(b"l")
+
+    made = cover.generate(base, tmp_path / "raw.mov", at=292.0, title="做自媒体没有大流量如何月入10个", runner=runner)
+    assert made == {"竖": "final/covers/做自媒体没有大流量如何月入10个-竖封面.png", "横": "final/covers/做自媒体没有大流量如何月入10个-横封面.png"}
+    assert seen["files"] == ["out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
+    assert "做自媒体没有大流量如何月入10个" in seen["text"] and "SOLE PERSON SOURCE" in seen["text"] and "STYLE REFERENCE ONLY" in seen["text"]
+    assert (base / "final" / "covers" / "_old" / "旧-竖封面.jpg").is_file()
 
 
-@pytest.mark.parametrize("fmt", ["横", "竖"])
-def test_layout_emphasis_is_bigger_and_left_edge_lines_up(fmt: str) -> None:
-    rows = cover.layout(["我终于理解了", "dontbesilent", "为什么开源", "dbskill！"], "dbskill！", fmt)
-    f = cover.FORMATS[fmt]
-    em = next(r for r in rows if r["emphasis"])
-    assert all(em["size"] >= r["size"] for r in rows)
-    # skewX 之后每行的左边落在同一条线上
-    assert {round(r["x"] - cover.SKEW * r["y"]) for r in rows} == {f["x0"]}
-    assert all(r["width"] <= f["maxw"] * 1.05 for r in rows)
-    assert rows[0]["y"] - rows[0]["size"] >= f["top"] - 1 and rows[-1]["y"] <= f["bottom"] + 1
-
-
-def test_svg_escapes_text_and_pins_person_to_the_bottom() -> None:
-    doc = cover.svg(["A&B<", "强调"], "强调", "横", "p.png", 0.8)
-    assert "A&amp;B&lt;" in doc and 'href="p.png"' in doc
-    p = cover.FORMATS["横"]["person"]
-    assert f'y="{1080 - p["h"]}"' in doc and f'height="{p["h"]}"' in doc
-
-
-def test_face_rect_comes_from_the_edit_plan(tmp_path: Path) -> None:
-    assert cover.face_rect(tmp_path) is None
-    (tmp_path / "part-b-body").mkdir()
-    (tmp_path / "part-b-body" / "edit.json").write_text(json.dumps({"measured_layout": {"face_rect": [10, 20, 30, 40]}}))
-    assert cover.face_rect(tmp_path) == (10, 20, 30, 40)
+def test_generate_says_so_when_a_cover_is_missing(tmp_path: Path, monkeypatch) -> None:
+    skill = tmp_path / "skill"
+    for rel in cover.STYLE_REFS.values():
+        (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+        (skill / rel).write_bytes(b"png")
+    monkeypatch.setenv("CONTENT_STUDIO_KOUBO_SKILL", str(skill))
+    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: "")
+    monkeypatch.setattr(cover, "word_breaks", lambda text: set(range(1, len(text))))
+    with pytest.raises(cover.CoverError, match="没出来"):
+        cover.generate(tmp_path / "p", tmp_path / "v.mp4", at=1, title="标题", runner=lambda text, cwd: None)
+    with pytest.raises(cover.CoverError, match="先写标题"):
+        cover.generate(tmp_path / "p", tmp_path / "v.mp4", at=1, title=" ", runner=lambda text, cwd: None)
 
 
 def test_pick_frames_keeps_the_best_faces_in_time_order(tmp_path: Path, monkeypatch) -> None:

@@ -2635,44 +2635,69 @@ def create_app(
             raise HTTPException(status_code=400, detail="这一条还没有成片，封面要从成片里取人像")
         return topic, _media_base(topic), video
 
-    @app.get("/api/topics/{topic_id}/cover")
-    def cover_options(topic_id: int) -> dict[str, Any]:
-        """打包页做封面要的：封面上的字就是标题（打包里写的 > 成片包的发布文案 > 选题名），自动换行；
-        机器挑好的那一帧 + 另外几张候选；橙色那行机器定（最后一行，preset 的「强调短语」）。"""
-        from urllib.parse import quote
+    cover_errors: dict[int, str] = {}
 
-        from . import copypack, cover, release
+    def _cover_title(topic: dict[str, Any], base: Path) -> tuple[str, bool]:
+        """封面上的字就是标题：打包里存的 > 成片包的发布文案 > 选题名。第二个值说是不是 Park 在打包里写的。"""
+        from . import copypack, release
 
-        topic, base, video = _cover_target(topic_id)
-        rel = release.find_release(base).get("copy") or {}
-        platforms = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms") or {}
+        platforms = (copypack.read_copy(drafts_root, topic["id"]) or {}).get("platforms") or {}
         # 9/29 Park：「封面上的字直接就是这个视频的 title。」打包里先写标题，封面跟着它走。
         saved = next((e.get("title") for e in (platforms.get(k) or {} for k in ("douyin", "channels", "xiaohongshu", "bilibili", "youtube")) if e.get("title")), "")
-        title = saved or rel.get("title") or topic["title"]
-        lines = cover.split_title(title)
+        rel = release.find_release(base).get("copy") or {}
+        return (saved or rel.get("title") or topic["title"]), bool(saved)
+
+    @app.get("/api/topics/{topic_id}/cover")
+    def cover_options(topic_id: int) -> dict[str, Any]:
+        """打包页做封面要的：标题（就是封面上的字）、取帧用的那份视频、机器挑好的一帧 + 另外几张候选、
+        正在不在出、上次出错没有。"""
+        import hashlib
+
+        from . import cover
+
+        topic, base, video = _cover_target(topic_id)
+        title, from_copy = _cover_title(topic, base)
+        source = cover.source_video(base, video)
+        tag = hashlib.sha1(str(source).encode()).hexdigest()[:8]
         try:
-            frames = cover.pick_frames(video, base / "analysis" / "cover-frames")
+            frames = cover.pick_frames(source, base / "analysis" / f"cover-frames-{tag}")
         except cover.CoverError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        with writing_lock:
+            running = 70_000 + topic_id in writing
         return {
-            "title": title, "from_copy": bool(saved), "lines": lines, "emphasis": lines[-1],
+            "title": title, "from_copy": from_copy, "lines": cover.split_title(title),
+            "source": source.name, "running": running, "error": cover_errors.get(topic_id),
             "frames": [{"at": f["at"], "score": f["score"], "pick": f["pick"], "url": _media_url(topic, str(f["path"].relative_to(base)))} for f in frames],
         }
 
     @app.post("/api/topics/{topic_id}/cover")
     def make_cover(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-        """出横竖两张封面到 final/covers/，发布台的交付包会自己认到。"""
+        """出竖、横两张封面（Codex image_gen，5–10 分钟），放进 final/covers/，发布台的交付包会自己认到。"""
         from . import cover
 
         topic, base, video = _cover_target(topic_id)
-        lines = [str(l) for l in payload.get("lines") or []]
-        try:
-            made = cover.make_covers(base, video, lines=lines, emphasis=str(payload.get("emphasis") or ""),
-                                     at=float(payload.get("at") or 0), name=None if topic.get("video_project") else topic["title"][:30])
-        except (cover.CoverError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from None
-        return {"project": topic.get("video_project"), "covers": made,
-                "urls": {k: _media_url(topic, v) for k, v in made.items()}}
+        title, _ = _cover_title(topic, base)
+        at = float(payload.get("at") or 0)
+        with writing_lock:
+            if 70_000 + topic_id in writing:
+                return {"started": False, "message": "正在出封面"}
+            writing.add(70_000 + topic_id)
+        cover_errors.pop(topic_id, None)
+
+        def run() -> None:
+            try:
+                made = cover.generate(base, cover.source_video(base, video), at=at, title=title)
+                store.log_event("copy", f"《{title[:24]}》封面出好了：{'、'.join(made)}", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 打包页显示
+                logger.warning("cover %s failed: %s", topic_id, exc)
+                cover_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+            finally:
+                with writing_lock:
+                    writing.discard(70_000 + topic_id)
+
+        threading.Thread(target=run, name=f"cover-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始出封面（图像生成），一般 5–10 分钟"}
 
     phone_errors: dict[int, str] = {}
 
