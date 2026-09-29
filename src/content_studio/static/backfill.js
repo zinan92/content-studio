@@ -77,13 +77,14 @@ window.VIEWS.backfill = {
     $$('[data-bfmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfmark, b.dataset.p, true)));
     $$('[data-bfunmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfunmark, b.dataset.p, false)));
     $$('[data-bfopen]', body).forEach((b) => (b.onclick = () => { S.publishId = Number(b.dataset.bfopen); go('publish'); }));
+    // 9/29 起发布台要打包定稿过才发（文字平台）：补发接上以后先进打包，定稿了再去发
     $$('[data-bftake]', body).forEach((b) => (b.onclick = async () => {
       const vid = b.dataset.bftake;
       BF.busy[vid] = true; renderView();
       try {
         const r = await api(`/api/backfill/${vid}/take`, { method: 'POST' });
-        toast(r.has_video ? '接上了，去发布台' : '接上了。还没有成片，先在这里点「从抖音下成片」');
-        if (r.has_video) { S.publishId = r.topic_id; if (window.resetDesk) window.resetDesk(); go('publish'); return; }
+        toast(r.has_video ? '接上了，先在打包里定稿' : '接上了。还没有成片，先在这里点「从抖音下成片」');
+        if (r.has_video) { S.packId = r.topic_id; if (window.invalidatePack) window.invalidatePack(); go('pack'); return; }
       } catch (err) { toast(err.message); }
       BF.busy[vid] = false; await loadBackfill(); renderView();
     }));
