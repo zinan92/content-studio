@@ -1735,5 +1735,14 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .ov-three p{margin:0;font-size:13px;line-height:1.7;color:var(--ink-2)}
 .rv-full{margin-top:12px;font-size:13px}
 .rv-full summary{cursor:pointer;color:var(--ink-3)}
-.chart-panel.small .chart-box{max-height:200px;overflow:hidden}
+/* 面板本身没有内边距（.panel），放进面板的内容各自留 18px，别贴边（9/29 修） */
+.ov-plats-panel .ov-plats{padding:14px 18px 4px}
+.ov-manage{margin:8px 18px 14px}
+.mx-wrap{padding:4px 10px 12px}
+.review .ov-three{padding:14px 18px 4px}
+.rv-full{margin:8px 18px 14px}
+.rv-full .rv-grid>div{padding:10px 0}
+.rv-full .rv-grid>div+div{padding-left:18px}
+/* 倍数图不再截掉下半截：整张缩到最多 240 高，比例不变 */
+.chart-panel.small .chart-svg{display:block;max-height:240px;width:100%}
 @media (max-width:1100px){.ov-kpi{grid-template-columns:repeat(2,minmax(0,1fr))}.ov-k.chart{grid-column:1/-1}.ov-plats{grid-template-columns:repeat(4,minmax(0,1fr))}.ov-three{grid-template-columns:1fr}}
