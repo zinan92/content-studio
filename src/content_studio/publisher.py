@@ -49,6 +49,8 @@ def _gzh_html(article: str) -> str:
     return str(page) if page else ""
 
 
+# 9/29 Park：「都推到草稿箱，我再确认几天再说。」每个通道只留存草稿（YouTube 是私享），
+# 直接发布 / 公开的模式先拿掉；最后一下他在平台后台自己点。
 PUBLISHERS: dict[str, dict[str, Any]] = {
     "douyin": {
         "label": "抖音",
@@ -79,7 +81,6 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "login_hint": f"python3 {CONTENT_OPS}/scripts/push_wechat_channels_draft.py --login-only",
         "modes": {
             "draft": {"label": "存为视频号草稿", "argv": ["python3", str(CONTENT_OPS / "scripts/push_wechat_channels_draft.py"), "--headless", "--video", "{video}", "--title", "{title}", "--description", "{body}"]},
-            "publish": {"label": "直接发表", "argv": ["python3", str(CONTENT_OPS / "scripts/push_wechat_channels_draft.py"), "--headless", "--publish", "--video", "{video}", "--title", "{title}", "--description", "{body}"]},
         },
     },
     "bilibili": {
@@ -110,7 +111,6 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "needs_article": True,
         "modes": {
             "article_draft": {"label": "存为 X 图文文章草稿", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}"]},
-            "article_publish": {"label": "直接发布图文文章", "argv": ["python3", "-m", "content_studio.x_article", "--article", "{article}", "--publish"]},
         },
     },
     "miniprogram": {
@@ -126,7 +126,6 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "needs_article": True,
         "modes": {
             "draft": {"label": "存成研习室草稿", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--html", "{gzh_html}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}"]},
-            "publish": {"label": "直接发布到研习室", "argv": ["node", str(XINGQIU / "scripts/workbench-submit.mjs"), "--md", "{article}", "--html", "{gzh_html}", "--env", "{yanxishi_env}", "--brief-id", "{brief_id}", "--publish"]},
         },
     },
     "wechat_mp": {
@@ -153,7 +152,6 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "login_hint": f"python3 {CONTENT_OPS}/scripts/youtube_channel.py auth",
         "modes": {
             "private": {"label": "上传为私享（自己先看）", "argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "upload-private", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
-            "public": {"label": "公开发布", "argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "upload", "--privacy-status", "public", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
         },
     },
 }

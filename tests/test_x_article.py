@@ -109,10 +109,12 @@ def test_x_publishes_the_article_not_the_copy(tmp_path: Path) -> None:
     article.write_text("# 标题在这\n\n正文", encoding="utf-8")
     cover = tmp_path / "c.jpg"
     cover.write_bytes(b"1")
-    payload = publisher.build_payload("x", "article_publish", video=None, copy=None, article=article, cover=cover)
+    with pytest.raises(publisher.PublishError, match="发布方式无效"):  # 9/29 Park：先都存草稿，他自己确认
+        publisher.build_payload("x", "article_publish", video=None, copy=None, article=article, cover=cover)
+    payload = publisher.build_payload("x", "article_draft", video=None, copy=None, article=article, cover=cover)
     assert payload["title"] == "标题在这"
     argv = publisher.command_for(payload)
-    assert argv[-3:] == ["--article", str(article), "--publish"] and "--cover" not in argv  # X 自己按标题出纯文字封面
+    assert argv[-2:] == ["--article", str(article)] and "--cover" not in argv  # X 自己按标题出纯文字封面
 
 
 def test_channels_run_with_a_python_that_has_their_libraries(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -110,11 +110,13 @@ def test_yanxishi_key_travels_by_env_not_argv(tmp_path: Path, monkeypatch: pytes
     folder.mkdir()
     article = folder / "article.md"
     article.write_text(ARTICLE, encoding="utf-8")
-    payload = publisher.build_payload("miniprogram", "publish", video=None, copy=None, article=article)
+    with pytest.raises(publisher.PublishError, match="发布方式无效"):  # 9/29 Park：先都存草稿，他自己确认
+        publisher.build_payload("miniprogram", "publish", video=None, copy=None, article=article)
+    payload = publisher.build_payload("miniprogram", "draft", video=None, copy=None, article=article)
     argv = publisher.command_for(payload)
     assert argv[0] == "node" and argv[1].endswith("wechat-xingqiu-shell/scripts/workbench-submit.mjs")
     assert argv[argv.index("--env") + 1] == "cloudbase-test" and argv[argv.index("--brief-id") + 1] == "content-studio-topic-21"
-    assert argv[-1] == "--publish" and not any("K" * 96 in a for a in argv)
+    assert "--publish" not in argv and not any("K" * 96 in a for a in argv)
 
     seen = {}
 
