@@ -171,7 +171,8 @@ def test_auto_enqueue_only_big_breakouts_and_caps_per_day(store: StudioStore) ->
         account["id"],
         [normalize_post(_post(str(i), likes)) for i, likes in enumerate([100, 100, 100, 300, 1100, 1200], start=1)],
     )
-    # 300 likes is 3× — above the display threshold but below the auto-teardown bar of 5×.
+    store.update_settings({"auto_enqueue_threshold": 5.0})
+    # 300 likes is 3× — above the display threshold but below an auto-teardown bar of 5×.
     first = auto_enqueue_outliers(store)
     assert [job["video_id"] for job in first] == ["6"]
     store.update_job(first[0]["id"], stage="done")
@@ -260,32 +261,25 @@ def test_kind_migration_backfills_an_account_table_that_predates_kinds(tmp_path:
     store.close()
 
 
-def test_announcements_are_never_queued_so_they_are_never_downloaded(tmp_path: Path) -> None:
-    """Park: 看一下 title，一看就没什么意义就不要下载了——省一次抓取，也不在库里留一份。"""
-    from datetime import datetime, timedelta, timezone
-
-    from content_studio.accounts import auto_enqueue_new_posts
+def test_auto_teardown_only_this_weeks_2x_breakouts_never_announcements(tmp_path: Path) -> None:
+    """9/29 Park：自动拆解关掉，只有数据非常好（点赞到中位数 2 倍）的才自动拆；老视频和预告不拆。"""
     from content_studio.store import StudioStore
 
     store = StudioStore(tmp_path / "queue.sqlite3")
     account = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/a", external_id="a", status="ok")
-    now = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
     base = dict(platform="抖音", duration_seconds=300, is_top=0, is_image_post=0, comments=0, shares=0, collects=0, views=None, likes=100)
+    day = lambda n: (now - timedelta(days=n)).isoformat()  # noqa: E731
     store.upsert_videos(account["id"], [
-        dict(base, video_id="good", title="高客单获客，必须做认知型深度内容", published_at=(now - timedelta(days=1)).isoformat()),
-        dict(base, video_id="tease", title="凡尔赛一下，今晚8点见", published_at=(now - timedelta(days=1)).isoformat()),
-        dict(base, video_id="live", title="明天8点直播，别错过", published_at=(now - timedelta(days=2)).isoformat()),
-        dict(base, video_id="old", title="一条正经内容", published_at=(now - timedelta(days=40)).isoformat()),
+        *[dict(base, video_id=f"n{i}", title="普通一条", published_at=day(i + 1)) for i in range(5)],
+        dict(base, video_id="hot", title="高客单获客，必须做认知型深度内容", likes=210, published_at=day(1)),
+        dict(base, video_id="meh", title="一条还行的", likes=190, published_at=day(1)),
+        dict(base, video_id="tease", title="明天8点直播，别错过", likes=900, published_at=day(1)),
+        dict(base, video_id="old", title="一条老爆款", likes=5000, published_at=day(20)),
     ])
-    queued = auto_enqueue_new_posts(store, now=now)
-    assert [j["video_id"] for j in queued] == ["good"]
-
-    # The queue window must match the window notes are accepted in, or videos fresh enough to
-    # read never get fetched. "old" is 40 days back: outside both.
-    from content_studio import transcripts
-
-    assert auto_enqueue_new_posts.__defaults__[1] is None  # days resolves to transcripts.FRESH_DAYS
-    assert transcripts.FRESH_DAYS == 30
+    assert store.settings()["auto_enqueue_threshold"] == 2.0
+    queued = auto_enqueue_outliers(store, now=now)
+    assert [j["video_id"] for j in queued] == ["hot"]
     store.close()
 
 

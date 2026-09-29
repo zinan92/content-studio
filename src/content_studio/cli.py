@@ -23,7 +23,6 @@ from .accounts import (
     ContentDownloaderClient,
     PLATFORM_DOUYIN,
     add_account,
-    auto_enqueue_new_posts,
     auto_enqueue_outliers,
     sync_account,
 )
@@ -178,15 +177,14 @@ def sync_benchmarks(
     has_report=lambda _video_id: False,
     factory=None,
 ) -> dict:
-    """对标账号：每个号读资料 + 最新一页作品，新发的排进拆解。撞上风控整趟停下。"""
+    """对标账号：每个号读资料 + 最新一页作品；这一周点赞到 2× 中位数的排进拆解。撞上风控整趟停下。"""
     factory = factory or _cookie_client_factory(cookie_path)
     summary: dict = {"accounts": [], "enqueued": 0}
     if _sync_douyin(store, store.followed_accounts(), factory, summary, pages=BENCHMARK_PAGES):
         return summary
     if enqueue:
-        # Every recent post from a followed account, so its transcript lands in 进项; the
-        # outlier pass on top of it still catches older breakouts outside that window.
-        queued = auto_enqueue_new_posts(store, has_report=has_report) + auto_enqueue_outliers(store, has_report=has_report)
+        # 9/29 起不再把对标新发的全排进拆解，只排数据非常好的（见 auto_enqueue_outliers）
+        queued = auto_enqueue_outliers(store, has_report=has_report)
         summary["enqueued"] = len(queued)
     return summary
 

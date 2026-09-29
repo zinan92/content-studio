@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Awaitable, Callable, Protocol
 from urllib.parse import urlparse
@@ -326,51 +326,7 @@ def _has_works(profile: dict[str, Any]) -> bool:
 
 
 AUTO_SOURCE_PREFIX = "对标爆款"
-
-
-def auto_enqueue_new_posts(
-    store: StudioStore,
-    has_report: Callable[[str], bool] = lambda _video_id: False,
-    days: int | None = None,
-    limit: int = 40,
-    now: datetime | None = None,
-) -> list[dict[str, Any]]:
-    """Queue every recent post from the accounts Park follows, so its transcript lands in 进项.
-
-    Windowed on published_at (the same window notes are accepted in) and capped per run:
-    adding a new account pulls its whole back catalogue in one sync, and queueing hundreds of
-    downloads at once is not what "follow them" means.
-    """
-    from .transcripts import FRESH_DAYS, looks_like_announcement
-
-    # Same window as the note gate: queueing 7 days while notes accept 30 leaves three weeks
-    # of videos that are fresh enough to read but were never fetched.
-    days = FRESH_DAYS if days is None else days
-    created: list[dict[str, Any]] = []
-    seen = 0
-    for video in store.followed_posts(days, now):
-        if len(created) >= limit:
-            break
-        if video["is_image_post"] or has_report(video["video_id"]):
-            continue
-        # 标题就能看出是预告/开播的，连下都不下：省一次抓取，也不在库里留一份没用的视频。
-        if looks_like_announcement(video.get("title") or ""):
-            continue
-        job, is_new = store.enqueue(
-            url=f"https://www.douyin.com/video/{video['video_id']}",
-            video_id=video["video_id"],
-            source=f"{AUTO_SOURCE_PREFIX} · {video.get('account_nickname') or '对标'}",
-        )
-        seen += 1
-        if is_new:
-            created.append(job)
-    # Who queued what, and why: without this a batch appearing in the queue cannot be traced
-    # back to the sync that caused it, and "where did these 15 jobs come from" has no answer.
-    logger.info(
-        "auto_enqueue_new_posts: window=%sd considered=%s queued=%s (%s)",
-        days, seen, len(created), ", ".join(j["video_id"] for j in created) or "none",
-    )
-    return created
+AUTO_WINDOW_DAYS = 7
 
 
 def auto_enqueue_outliers(
@@ -378,17 +334,29 @@ def auto_enqueue_outliers(
     has_report: Callable[[str], bool] = lambda _video_id: False,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Queue only big breakouts (≥ auto_enqueue_threshold), at most auto_enqueue_limit new auto jobs per local day."""
+    """对标自动拆解只剩这一条：这一周发的、点赞到自己中位数 auto_enqueue_threshold 倍（默认 2×），
+    每天最多 auto_enqueue_limit 条。
+
+    9/29 Park：「自动拆解要关掉」——以前每条对标新发的都下载转写（用他的抖音登录），现在只有
+    他说要拆、或者数据非常好的才拆。只看这一周：对标每天只读最新一页，老视频的点赞不再更新，
+    而且 2× 以上的老视频有一百多条，不限时间会每天两条慢慢把它们全下载一遍。
+    """
+    from .transcripts import looks_like_announcement
+
     settings = store.settings()
     limit = int(settings["auto_enqueue_limit"])
     local_now = (now or datetime.now(timezone.utc)).astimezone()
+    since = (local_now - timedelta(days=AUTO_WINDOW_DAYS)).astimezone(timezone.utc).isoformat()
     day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
     today_count = sum(1 for job in store.jobs(1000) if job["source"].startswith(AUTO_SOURCE_PREFIX) and job["created_at"] >= day_start)
     created = []
     for video in store.outliers(float(settings["auto_enqueue_threshold"])):
         if today_count + len(created) >= limit:
             break
-        if has_report(video["video_id"]):
+        if (video["published_at"] or "") < since or has_report(video["video_id"]):
+            continue
+        # 标题一看就是预告/开播的，连下都不下（Park：一看就没什么意义就不要下载了）
+        if looks_like_announcement(video.get("title") or ""):
             continue
         job, is_new = store.enqueue(
             url=f"https://www.douyin.com/video/{video['video_id']}",
