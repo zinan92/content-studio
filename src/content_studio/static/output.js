@@ -130,10 +130,7 @@ function reachBlock(r, posts7) {
   // 上周有没同步的日子（算成 0）就不比：比出来的百分比是假的
   const prevGaps = r.days.slice(0, 7).filter((d) => !d.total).length;
   const dWeek = prevGaps ? null : vs(week, prev);
-  // 只列设置里开着的平台，按发布顺序（抖音 → 视频号 → B 站 → YouTube → X → 小红书 → 公众号）
-  const ORDER = ['douyin', 'channels', 'bilibili', 'youtube', 'x', 'xiaohongshu', 'wechat_mp', 'miniprogram', 'xiaoyuzhou'];
-  const on = r.platforms.filter((p) => p.on && (meta[p.key] || {}).on !== false)
-    .sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+  const on = reachPlatforms(r);
   const sumToday = on.reduce((a, p) => a + (p.today || 0), 0);
   const tile = (p) => {
     const m = meta[p.key] || {};
@@ -192,6 +189,25 @@ function bindReach(root, body) {
   $$('[data-rp-handle]', root).forEach((i) => (i.onchange = saveAccounts));
 }
 
+/* 只列设置里开着的平台，按发布顺序（抖音 → 视频号 → B 站 → YouTube → X → 小红书 → 公众号） */
+const REACH_ORDER = ['douyin', 'channels', 'bilibili', 'youtube', 'x', 'xiaohongshu', 'wechat_mp', 'miniprogram', 'xiaoyuzhou'];
+function reachPlatforms(r) {
+  const meta = Object.fromEntries((S.platforms || []).map((x) => [x.key, x]));
+  return r.platforms.filter((p) => p.on && (meta[p.key] || {}).on !== false)
+    .sort((a, b) => REACH_ORDER.indexOf(a.key) - REACH_ORDER.indexOf(b.key));
+}
+
+/* 按钮旁边写清楚：哪些平台自动同步（点按钮也会立刻同步），哪些只能手填。平台开关跟设置走。 */
+function syncNote(r) {
+  const box = $('#ovSyncNote');
+  if (!box || !r || !r.platforms) return;
+  const on = reachPlatforms(r);
+  const names = (list) => list.map((p) => (p.key === 'douyin' ? '抖音（你的号）' : p.label)).join(' · ');
+  const auto = on.filter((p) => p.auto), manual = on.filter((p) => !p.auto);
+  box.innerHTML = `<b>自动</b> ${esc(names(auto))}<br>每天早上读一次，点按钮马上再读${auto.some((p) => p.key === 'xiaohongshu') ? '（小红书一分钟后到）' : ''}`
+    + (manual.length ? `<br><b>要手填</b> ${esc(names(manual))}：在下面格子里填` : '');
+}
+
 window.VIEWS.output = {
   async render() {
     const body = $('#outputBody');
@@ -202,6 +218,7 @@ window.VIEWS.output = {
     }
     let review, board, reach, matrix;
     try { [review, board, reach, matrix] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null, loadReach(false), api('/api/outbox/matrix').catch(() => null)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    syncNote(reach);
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
     const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, RE.at, matrix && matrix.rows.map((r) => r.total)]);
     if (body.dataset.sig === sig) return;

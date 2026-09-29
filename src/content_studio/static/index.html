@@ -29,7 +29,6 @@
     <button type="button" class="rail-set" data-view="settings">设置与 Skills</button>
     <div class="rail-foot">
       <div class="plat-strip" id="platStrip" aria-label="平台连接状态"></div>
-      <button class="btn small" id="syncAllBtn" type="button">同步全部账号</button>
       <div class="sync" id="syncState"><span class="dot"></span><span>—</span></div>
       <button class="theme-btn" id="themeBtn" type="button">切换深浅色</button>
     </div>
@@ -90,7 +89,7 @@
     <section class="view" id="v-output" data-stage="out">
       <header class="page-h">
         <div><div class="stage-eyebrow">05 · 已发出 · 概览</div><h1>这一周怎么样</h1><p>触达是第一个数。每个数字旁边的「?」说明它怎么算的。</p></div>
-        <div class="topbar-actions"><button class="btn small" type="button" data-sync-all>同步抖音</button></div>
+        <div class="topbar-actions sync-box"><button class="btn small" type="button" data-sync-all>同步全部账号</button><span class="sync-note" id="ovSyncNote"></span></div>
       </header>
       <nav class="subnav" data-subnav aria-label="已发出"></nav>
       <div id="outputBody"></div>
@@ -109,7 +108,7 @@
     <section class="view" id="v-radar" data-stage="out">
       <header class="page-h">
         <div><div class="stage-eyebrow">05 · 已发出 · 对标雷达</div><h1>对标雷达</h1><p>每个账号用自己的点赞中位数做基准。默认只看这一周；更早的在「全部」里。下面的门槛管这页显示哪些；自动拆解另有 5× 的门槛，每天最多 2 条。</p></div>
-        <div class="topbar-actions"><button class="btn small" type="button" data-sync-all>同步全部账号</button></div>
+        <div class="topbar-actions sync-box"><button class="btn small" type="button" data-sync-bench>同步对标账号</button><span class="sync-note">每天 9:30 自动查一次 · 每个号只看最新一页<br>对标不跟着「同步全部账号」走，省抖音额度</span></div>
       </header>
       <nav class="subnav" data-subnav aria-label="已发出"></nav>
       <div class="controls">
