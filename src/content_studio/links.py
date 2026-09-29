@@ -38,3 +38,18 @@ def issue(platform: str, url: str | None) -> str | None:
     if not url.startswith("http"):
         return "不像一个网址"
     return None
+
+
+_POST_ID = {
+    "bilibili": re.compile(r"/video/(BV[\w]+)"),
+    "youtube": re.compile(r"[?&]v=([\w-]{6,})"),
+    "x": re.compile(r"/status/(\d+)"),
+    "xiaohongshu": re.compile(r"/explore/([0-9a-f]{16,})"),
+    "douyin": re.compile(r"/video/(\d{8,})"),
+}
+
+
+def post_id(platform: str, url: str | None) -> str | None:
+    """从公开链接里拿出平台自己的帖子编号（和 post_snapshots.post_id 对得上）。"""
+    m = _POST_ID.get(platform).search(url or "") if platform in _POST_ID else None
+    return m.group(1) if m else None

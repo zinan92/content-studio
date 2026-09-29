@@ -3353,6 +3353,47 @@ def create_app(
             "order": "按发布时间从新到旧",
         }
 
+    @app.get("/api/outbox/matrix")
+    def outbox_matrix(limit: int = 8) -> dict[str, Any]:
+        """已发出 · 概览：最近几条内容在每个平台的累计触达（9/29 改版）。
+        抖音用同步到的播放；B 站、YouTube、X、小红书用每天读到的累计数，靠全平台追踪里存的链接对上帖子；
+        视频号、公众号没有接口，只能说发没发。"""
+        from . import links
+
+        from . import backfill
+
+        sheet = get_backfill()
+        views = store.latest_post_views()
+        xhs_titles: list[tuple[str, int]] | None = None
+        vids = {v["video_id"]: v for v in (store.videos(store.self_account()["id"]) if store.self_account() else [])}
+        rows = []
+        for r in sheet["videos"][: max(1, min(limit, 30))]:
+            cells = {}
+            for p in sheet["platforms"]:
+                key = p["key"]
+                url = (r.get("links") or {}).get(key)
+                if key == "douyin":
+                    n = (vids.get(r["video_id"]) or {}).get("views")
+                    cells[key] = {"state": "views", "views": n} if n is not None else {"state": "sent"}
+                    continue
+                if not r["done"].get(key):
+                    cells[key] = {"state": "none"}
+                    continue
+                pid = links.post_id(key, url)
+                n = views.get((key, pid)) if pid else None
+                if n is None and key == "xiaohongshu":
+                    # 小红书的数是截图读的，存的是「时间|标题前几个字」，没有帖子编号：按标题最像的那条对
+                    titles = xhs_titles if xhs_titles is not None else store.latest_post_titles("xiaohongshu")
+                    xhs_titles = titles
+                    scored = [(backfill.similarity(t.rstrip("…. "), r["headline"] or r["title"]), v) for t, v in titles]
+                    best = max(scored, default=(0, None))
+                    n = best[1] if best[0] >= 0.6 else None
+                cells[key] = {"state": "views", "views": n} if n is not None else {"state": "sent", "no_api": key in ("channels", "wechat_mp")}
+            total = sum(c["views"] for c in cells.values() if c.get("state") == "views" and c.get("views"))
+            rows.append({"video_id": r["video_id"], "title": r["headline"] or r["title"][:30], "published_at": r["published_at"],
+                         "multiple": r["multiple"], "cells": cells, "total": total})
+        return {"platforms": sheet["platforms"], "rows": rows}
+
     @app.post("/api/backfill/{video_id}/mark")
     def mark_backfill(video_id: str, body: BackfillMarkBody) -> dict[str, Any]:
         """Park 在工作台之外已经发过这个平台：记一笔，不建选题。"""
