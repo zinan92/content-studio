@@ -103,7 +103,7 @@ async function renderCopyForm(topic, el, { release, onSaved } = {}) {
           <span class="tt-out" id="tt-${k}"></span></div>`).join('')}
       </div>
       <div class="dy-foot">
-        <button class="btn primary" type="button" id="cbSave">保存</button>
+        <button class="btn primary" type="button" id="cbSave">保存并定稿</button>
         <button class="btn ghost" type="button" id="cbCopy">复制抖音用的标题 + 描述 + 话题</button>
         <span class="cf-saved" id="cbSaved"></span>
       </div>

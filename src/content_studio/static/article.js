@@ -62,7 +62,6 @@ window.VIDEO_TABS.push({
             ${AR.mode === 'edit' ? '<button class="btn primary" type="button" id="artSave">保存</button>' : ''}
             <button class="btn" type="button" id="artRewriteOpen">重写…</button>
             <span class="spacer"></span>
-            ${window.packNextStep ? `<button class="btn primary" type="button" id="artNext">下一步：${window.packNextStep().label} →</button>` : ''}
           </div>
           <div class="art-rewrite" id="artRewrite" hidden>
             <label for="artInstr">这次要怎么改？<small>只改你说的地方，其余保持这一版。这一版会另存一份（article.prev.md）。</small></label>
@@ -96,7 +95,5 @@ window.VIDEO_TABS.push({
       if (AR.dirty) { toast('先保存你的修改'); return; }
       startWrite(topic.id, instruction);
     };
-    const next = $('#artNext', body);
-    if (next) next.onclick = () => window.packNext(window.packNextStep().key);
   },
 });
