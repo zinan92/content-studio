@@ -1137,6 +1137,28 @@ def create_app(
             "platforms": rows,
         }
 
+    @app.get("/api/links")
+    def link_book() -> dict[str, Any]:
+        """已发出 → 链接：每条内容在每个平台上的链接，一处存（publish_records）、一处看。"""
+        from . import copypack, links, publish_desk
+
+        by_topic: dict[int, dict[str, Any]] = {}
+        for r in store.all_publish_records():
+            by_topic.setdefault(r["topic_id"], {})[r["platform"]] = {
+                "url": r["url"], "published_at": r["published_at"], "issue": links.issue(r["platform"], r["url"])}
+        rows = []
+        for topic_id, recs in by_topic.items():
+            try:
+                t = store.topic(topic_id)
+            except StoreError:
+                continue
+            if t.get("published_url") and "douyin" in recs and not recs["douyin"]["url"]:
+                recs["douyin"] = {**recs["douyin"], "url": t["published_url"], "issue": None}
+            rows.append({"id": topic_id, "title": t["title"], "first": min(v["published_at"] for v in recs.values()), "links": recs})
+        rows.sort(key=lambda r: r["first"], reverse=True)
+        platforms = [{"key": k, "label": (copypack.PLATFORMS.get(k) or {}).get("label", k)} for k in publish_desk.SEQUENCE]
+        return {"platforms": platforms, "rows": rows}
+
     @app.get("/api/reach")
     def get_reach(days: int = 14) -> dict[str, Any]:
         from . import reach
@@ -3520,6 +3542,10 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.store = store
+    try:
+        store.normalize_publish_links()
+    except Exception:  # noqa: BLE001 - 换不了就下次再换，不挡启动
+        logger.warning("normalize publish links failed", exc_info=True)
     app.state.worker = worker
     app.state.ops = ops
     return app

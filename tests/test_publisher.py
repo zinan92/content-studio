@@ -99,3 +99,13 @@ def test_youtube_sets_the_cover_after_upload_and_a_failure_is_only_a_note(tmp_pa
         return sp.CompletedProcess(argv, 1, stdout='{"ok": false, "message": "YouTube 不让这个频道用自定义封面"}\n', stderr="")
 
     assert pub.youtube_cover("vid123", cover, runner=refused)["thumbnail"] == "failed"
+
+
+def test_youtube_private_upload_is_a_draft_with_its_public_link_ready(monkeypatch, tmp_path: Path) -> None:
+    """9/29：私享 = 草稿（Park 自己去后台公开）；公开以后的链接现在就知道，先带着。"""
+    import subprocess as sp
+
+    monkeypatch.setattr(pub.subprocess, "run", lambda argv, **kw: sp.CompletedProcess(argv, 0, stdout='{"ok": true, "video_id": "vid9", "privacy_status": "private"}\n', stderr=""))
+    payload = {"platform": "youtube", "mode": "private", "video": str(tmp_path / "v.mp4"), "title": "t", "body": "b", "tags": [], "cover": ""}
+    result = pub.run(payload)
+    assert result["published"] is False and result["public_url"] == "https://www.youtube.com/watch?v=vid9"

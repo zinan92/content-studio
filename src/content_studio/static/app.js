@@ -98,8 +98,8 @@ function bindTeardownButtons(root) {
 /* ================= state & routing ================= */
 window.VIEWS = window.VIEWS || {};
 const CORE_VIEWS = ['mine', 'radar', 'report', 'settings'];
-const OUTPUT_FAMILY = ['output', 'mine', 'radar', 'report'];
-const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷达'], ['report', '拆解报告']];
+const OUTPUT_FAMILY = ['output', 'mine', 'links', 'radar', 'report'];
+const SUBNAV = [['output', '概览'], ['mine', '总览'], ['links', '链接'], ['radar', '对标雷达'], ['report', '拆解报告']];
 const S = {
   view: 'positioning',
   workId: null,

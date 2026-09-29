@@ -498,6 +498,16 @@ function sideCore(p, d) {
       ${p.key === 'douyin' ? '<div id="pdlDouyin"></div>' : ''}${history}`;
   }
   if (p.treatment === 'semi') return semiCore(p, d, { manual, mark, history, fields });
+  // 存完草稿：工作台不知道他后来在后台发没发。请他发完回来点一下、贴链接（9/29 Park）
+  if (p.job && p.job.draft) {
+    return `<div class="pdl-draft"><b>✓ 草稿已存进${esc(p.label)}</b><small>${day(p.job.created_at)}</small>
+        <p>去${esc(p.label)}后台看一眼、点发布。发出去以后回来点「发出去了」，把链接贴在这里——它会存进「已发出 → 链接」。</p>
+        <input id="pdlUrl" value="${esc(p.job.draft_link || '')}" placeholder="${esc(p.label)}的链接（发出去以后的那个）" autocomplete="off">
+        <div class="pdl-acts">${p.admin ? `<a class="btn" href="${esc(p.admin)}" target="_blank" rel="noopener" style="text-align:center">打开${esc(p.label)}后台 ↗</a>` : ''}<button class="btn primary" type="button" id="pdlMark">发出去了</button></div>
+        ${p.job.draft_link ? '<small>链接已经按视频编号填好了，公开以后就能打开。</small>' : ''}
+      </div>
+      ${Object.keys(p.modes).length ? `<p class="pdl-note"><button class="linklike" type="button" data-pj-prepare="${Object.keys(p.modes)[0]}">草稿被删了？重新存一次</button></p>` : ''}`;
+  }
   if (p.job && p.job.state === 'awaiting_confirm') {
     const pl = p.job.payload || {};
     return `<div class="pn-confirm"><b>确认发布到${esc(pl.platform_label || p.label)}：${esc(pl.mode_label || '')}</b>

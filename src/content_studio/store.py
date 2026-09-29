@@ -510,10 +510,29 @@ class StudioStore:
             )
         return self.review(week)
 
+    def normalize_publish_links(self) -> int:
+        """已经存下的后台链接一次换成公开链接（9/29 以前 YouTube 存的是 Studio 编辑页、抖音存的是创作者中心）。"""
+        from .links import public_url
+
+        changed = 0
+        with self.tx() as conn:
+            for r in conn.execute("SELECT topic_id, platform, url FROM publish_records WHERE url IS NOT NULL").fetchall():
+                fixed = public_url(r["platform"], r["url"])
+                if fixed != r["url"]:
+                    conn.execute("UPDATE publish_records SET url = ? WHERE topic_id = ? AND platform = ?", (fixed, r["topic_id"], r["platform"]))
+                    changed += 1
+        return changed
+
+    def all_publish_records(self) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM publish_records ORDER BY published_at DESC")
+
     def publish_records(self, topic_id: int) -> dict[str, dict[str, Any]]:
         return {r["platform"]: r for r in self._rows("SELECT * FROM publish_records WHERE topic_id = ?", (topic_id,))}
 
     def set_publish_record(self, topic_id: int, platform: str, *, published: bool, url: str | None = None) -> dict[str, dict[str, Any]]:
+        from .links import public_url
+
+        url = public_url(platform, url)  # 后台页换成别人点得开的公开链接（links.py）
         with self.tx() as conn:
             if published:
                 conn.execute(

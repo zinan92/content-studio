@@ -1680,3 +1680,21 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .pdl-ok{font-size:13px;color:var(--accent);background:var(--accent-soft);border-radius:8px;padding:8px 12px;margin:0 0 12px}
 .pdl-note.pack-need{background:var(--warn-soft);color:var(--ink);border-radius:8px;padding:8px 12px}
 .pdl-sub{font-size:12px;color:var(--ink-3);font-weight:500;margin:10px 0 4px}
+/* 已发出 · 链接 */
+.lb-note{font-size:13px;color:var(--ink-2);margin:0 0 10px}
+.lb-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.lb{border-collapse:collapse;width:100%;font-size:13px}
+.lb th,.lb td{padding:9px 10px;border-bottom:1px solid var(--line-soft);text-align:left;white-space:nowrap}
+.lb thead th{font-size:12px;color:var(--ink-3);font-weight:500;background:var(--sunk)}
+.lb tbody th{font-weight:500;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.lb tbody th .linklike{max-width:260px;overflow:hidden;text-overflow:ellipsis;display:block;text-align:left}
+.lb td a{color:var(--accent);text-decoration:none}
+.lb td.lb-none{color:var(--ink-3)}
+.lb td.lb-warn{background:var(--warn-soft)}
+.lb-edit{border:0;background:none;color:var(--ink-3);cursor:pointer;padding:0 0 0 6px;font:inherit}
+.lb-edit:hover{color:var(--accent)}
+.pdl-draft{border:1px solid var(--accent);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.pdl-draft b{color:var(--accent)}
+.pdl-draft p{margin:0;font-size:13px;color:var(--ink-2)}
+.pdl-draft small{color:var(--ink-3);font-size:12px}
+.pdl-draft input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;background:var(--surface);color:var(--ink)}

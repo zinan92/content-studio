@@ -78,6 +78,9 @@ def _job_view(job: dict[str, Any]) -> dict[str, Any]:
         "id": job["id"], "state": job["state"], "message": job.get("message"), "created_at": job.get("created_at"),
         "mode_label": payload.get("mode_label", ""),
         "payload": {k: payload.get(k) for k in ("platform_label", "mode_label", "title", "body", "tags", "video", "video_mb")},
+        # 存草稿成功（脚本说 published=false）：发布台要请 Park 去后台发、回来贴链接
+        "draft": job["state"] == "done" and (job.get("result") or {}).get("published") is False,
+        "draft_link": (job.get("result") or {}).get("public_url") or "",
     }
 
 
