@@ -191,6 +191,10 @@ class SettingsBody(BaseModel):
     traffic_tags: dict[str, list[str]] | None = None
 
 
+class WriteBody(BaseModel):
+    instruction: str | None = None
+
+
 class ReachBody(BaseModel):
     day: str
     platform: str
@@ -1239,7 +1243,7 @@ def create_app(
 
     # -- article line ------------------------------------------------------
 
-    def _write_topic(topic_id: int) -> None:
+    def _write_topic(topic_id: int, instruction: str = "") -> None:
         try:
             topic = store.topic(topic_id)
             result = writer.write_article(
@@ -1247,6 +1251,7 @@ def create_app(
                 vault_raw=vault_path(),
                 drafts_dir=drafts_root,
                 transcript=_transcript_for_article(topic),
+                instruction=instruction,
                 **({"write_fn": write_fn} if write_fn else {}),
             )
             current = store.topic(topic_id)
@@ -1271,8 +1276,12 @@ def create_app(
                 writing.discard(topic_id)
 
     @app.post("/api/topics/{topic_id}/write")
-    def start_write(topic_id: int) -> dict[str, Any]:
+    def start_write(topic_id: int, body: WriteBody | None = None) -> dict[str, Any]:
         topic = store.topic(topic_id)
+        instruction = (body.instruction if body else "") or ""
+        if topic.get("article_path") and not instruction.strip():
+            # 9/29 Park：重写要知道会怎么不一样——已经写过的，重写必须说这次要怎么改
+            raise HTTPException(status_code=400, detail="重写要先说这次要怎么改")
         if topic["formats"] == "video":
             # 视频拍完了，文字版也能发（研习室、X）。点了写文章就是要写，不再挡他。
             store.update_topic(topic_id, formats="both")
@@ -1282,7 +1291,7 @@ def create_app(
                 return {"started": False, "message": "这篇正在写"}
             writing.add(topic_id)
         store.update_topic(topic_id, write_state="running", write_error=None)
-        threading.Thread(target=_write_topic, args=(topic_id,), name=f"write-{topic_id}", daemon=True).start()
+        threading.Thread(target=_write_topic, args=(topic_id, instruction), name=f"write-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始写了，一般 1–5 分钟"}
 
     def _outline_topic(topic_id: int) -> None:

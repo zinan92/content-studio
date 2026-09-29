@@ -99,3 +99,22 @@ def test_prompt_forbids_crosspost_intro_and_hides_backfill_memo() -> None:
     prompt = writer.build_prompt(topic, [])
     assert "补发：抖音发过的旧视频" not in prompt and "重点讲加息的逻辑" in prompt
     assert "不要写「之前在抖音发过」" in prompt
+
+
+def test_rewrite_carries_the_instruction_and_the_previous_version(tmp_path: Path) -> None:
+    """9/29 Park：「重写就完全不一样了，我要知道它怎么会不一样。」重写带上他这次的要求和上一版，只改他说的；上一版另存。"""
+    folder = tmp_path / "topic-7"
+    folder.mkdir()
+    (folder / "article.md").write_text("# 上一版\n\n旧的正文。", encoding="utf-8")
+    seen = {}
+
+    def fake(prompt: str) -> str:
+        seen["prompt"] = prompt
+        return "<<<ARTICLE>>>\n# 新一版\n\n" + "新的正文。" * 80 + "\n<<<END>>>"
+
+    result = writer.write_article({"id": 7, "title": "t", "note_paths": [], "memo": ""}, vault_raw=str(tmp_path),
+                                  drafts_dir=tmp_path, write_fn=fake, instruction="开头直接给结论")
+    assert "开头直接给结论" in seen["prompt"] and "旧的正文。" in seen["prompt"] and "只按这句话改" in seen["prompt"]
+    assert (folder / "article.prev.md").read_text(encoding="utf-8").startswith("# 上一版")
+    assert result["instruction"] == "开头直接给结论"
+    assert "这次是重写" not in writer.build_prompt({"id": 1, "title": "t", "memo": ""}, [])

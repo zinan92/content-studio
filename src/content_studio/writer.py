@@ -80,7 +80,22 @@ def _memo_for_writer(memo: str | None) -> str:
     return "\n".join(l for l in (memo or "").splitlines() if not l.strip().startswith("补发")).strip()
 
 
-def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None) -> str:
+def _rewrite_part(instruction: str, previous: str) -> str:
+    """9/29 Park：「重写就完全不一样了，我要知道它怎么会不一样。」重写一定带一句要求和上一版，只改他说的。"""
+    if not instruction.strip():
+        return ""
+    return f"""
+
+## 这次是重写
+Park 看了上一版，要这样改：{instruction.strip()}
+只按这句话改；他没提到的地方（观点、例子、结构、措辞）保持上一版不动。素材规则照旧。
+
+### 上一版全文
+{previous.strip()}"""
+
+
+def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: str | None = None,
+                 instruction: str = "", previous: str = "") -> str:
     from_video = any(s["title"] == TRANSCRIPT_TITLE for s in sources)
     material = "\n\n".join(
         f"### 素材 {i + 1}：{s['title']}\n来源：{s['url'] or s['path']}\n\n{s['body']}" for i, s in enumerate(sources)
@@ -104,6 +119,8 @@ def build_prompt(topic: dict[str, Any], sources: list[dict[str, Any]], error: st
 
 ## 素材
 {material}
+
+{_rewrite_part(instruction, previous)}
 
 ## 输出
 只输出文章本身，Markdown 格式，第一行是「# 标题」。把整篇文章放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间，前后不要有其他说明。{retry}"""
@@ -146,15 +163,19 @@ def write_article(
     attempts: int = 2,
     now: datetime | None = None,
     transcript: str = "",
+    instruction: str = "",
 ) -> dict[str, Any]:
     sources = topic_sources(vault_raw, topic, drafts_dir)
+    folder = drafts_dir.expanduser() / f"topic-{topic['id']}"
+    old = folder / "article.md"
+    previous = old.read_text(encoding="utf-8") if old.is_file() else ""
     if transcript.strip():
         # 视频拍完了：原话排第一，不占笔记的字数额度。
         sources = [{"path": "视频项目", "title": TRANSCRIPT_TITLE, "url": None, "body": transcript.strip()[:MAX_SOURCE_CHARS]}, *sources]
     error: str | None = None
     for _ in range(attempts):
         try:
-            article = extract_article(write_fn(build_prompt(topic, sources, error)))
+            article = extract_article(write_fn(build_prompt(topic, sources, error, instruction, previous)))
             break
         except JudgeLoginError:
             raise
@@ -162,15 +183,17 @@ def write_article(
             error = str(exc)
     else:
         raise WriterError(f"连续 {attempts} 次没写成：{error}")
-    folder = drafts_dir.expanduser() / f"topic-{topic['id']}"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "article.md"
+    if previous:
+        (folder / "article.prev.md").write_text(previous, encoding="utf-8")  # 上一版留一份，重写不满意还能找回
     path.write_text(article, encoding="utf-8")
     meta = {
         "topic_id": topic["id"],
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"),
         "skill": "khazix-writer",
         "sources": [{k: s[k] for k in ("path", "title", "url")} for s in sources],
+        **({"instruction": instruction.strip()} if instruction.strip() else {}),
     }
     (folder / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"article_path": str(path), **meta}

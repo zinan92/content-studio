@@ -1634,8 +1634,6 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .pk-body:empty{display:none}
 .pk-body .cv-body{padding:0}
 .cv-shot.landscape{height:120px}.cv-shot.portrait{height:160px}.cv-shot.wechat{height:80px}
-/* 公众号排版在自己那一行；文章编辑器里那块排版就不再重复出现 */
-#v-pack #artLayout,#v-pack #artLayoutBox{display:none}
 .cf{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:22px}
 .cf-form{display:flex;flex-direction:column;gap:14px;min-width:0}
 .cf-tools{display:flex;gap:8px;flex-wrap:wrap}
@@ -1660,3 +1658,9 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .tt-row input{border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;padding:6px 8px;width:100%}
 .tt-out{font-size:11px;color:var(--ink-3);font-family:var(--mono);white-space:nowrap}
 @media (max-width:900px){.tt-row{grid-template-columns:56px minmax(0,1fr)}.tt-out{grid-column:2}}
+.art-rewrite{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding:12px 14px;border:1px dashed var(--line);border-radius:8px}
+.art-rewrite[hidden]{display:none}
+.art-rewrite label{font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:2px}
+.art-rewrite label small{font-weight:400;color:var(--ink-3);font-size:12px}
+.art-rewrite textarea{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);resize:vertical}
+.art-rewrite .acts{display:flex;gap:8px}

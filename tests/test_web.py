@@ -397,6 +397,17 @@ def test_article_for_a_finished_video_is_written_from_its_srt_not_the_notes(clie
     assert client.get(f"/api/topics/{topic['id']}/article").json()["sources"][0]["title"] == "视频原话（转写）"
 
 
+def test_rewriting_an_existing_article_needs_an_instruction(client: TestClient) -> None:
+    topic = client.post("/api/topics", json={"title": "用了 AI 更累", "formats": "article"}).json()
+    client.post(f"/api/topics/{topic['id']}/write")
+    assert _wait_topic(client, topic["id"])["article_path"]
+    refused = client.post(f"/api/topics/{topic['id']}/write", json={})
+    assert refused.status_code == 400 and "怎么改" in refused.json()["detail"]
+    assert client.post(f"/api/topics/{topic['id']}/write", json={"instruction": "短一点"}).json()["started"] is True
+    _wait_topic(client, topic["id"])
+    assert client.get(f"/api/topics/{topic['id']}/article").json().get("instruction") == "短一点"
+
+
 def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
     root = tmp_path / "vault3"
     (root / "003_park原始输出").mkdir(parents=True)
