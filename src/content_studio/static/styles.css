@@ -1757,3 +1757,5 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .pub-idle-next{margin:0;color:var(--ink-2);font-size:14px}
 .pub-idle .pdl-acts{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px}
 .pub-idle .pdl-acts .btn{width:auto;flex:0 0 auto}
+.ov-look{font-size:11px;color:var(--accent);text-decoration:none}
+.ov-look:hover{text-decoration:underline}

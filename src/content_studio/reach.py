@@ -27,6 +27,11 @@ PLATFORMS: tuple[tuple[str, str, bool], ...] = (
     ("xiaoyuzhou", "小宇宙", False),
 )
 PLATFORM_KEYS = tuple(k for k, _, _ in PLATFORMS)
+# 手填的平台去哪看今天的数（9/29：视频号没有开放接口、公众号没认证，只能 Park 每天看一眼填一个数）
+STATS_URLS = {
+    "channels": "https://channels.weixin.qq.com/platform/statistic/post",
+    "wechat_mp": "https://mp.weixin.qq.com/",
+}
 AUTO_KEYS = tuple(k for k, _, auto in PLATFORMS if auto)
 PLATFORM_STYLE: dict[str, dict[str, str]] = {
     "douyin": {"mark": "抖", "hue": "#FE2C55"},
