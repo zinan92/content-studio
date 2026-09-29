@@ -47,7 +47,7 @@ function packItems(d, t, st) {
   const covers = [['landscape', '横版'], ['portrait', '竖版'], ['wechat', '公众号']].filter(([k]) => c[k]).map(([, l]) => l);
   const e = d.entry || { title: '', body: '', tags: [] };
   const art = !d.has_article
-    ? (t && t.write_state === 'running' ? ['wip', '正在转写成片、照原话写，一般 3–8 分钟'] : t && t.write_state === 'failed' ? ['bad', t.write_error || '上次写失败了'] : ['no', '用这条视频的原话写成文字版'])
+    ? (t && t.write_state === 'running' ? ['wip', '正在照视频字幕写，一般 1–5 分钟'] : t && t.write_state === 'failed' ? ['bad', t.write_error || '上次写失败了'] : ['no', '照这条视频的字幕（剪映导出的 SRT）写成文字版'])
     : ['ok', d.article && d.article.title ? `《${d.article.title}》` : '写好了'];
   const needArt = (fn) => (d.has_article ? fn() : ['no', '先写研习室文章']);
   const figs = needArt(() => {
