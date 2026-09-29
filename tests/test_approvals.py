@@ -57,3 +57,13 @@ def test_xhs_is_a_step_only_when_asked_for(tmp_path: Path) -> None:
                                   figs=[tmp_path / "01.png"], wx={"has_layout": True, "generated_at": "t"},
                                   xhs={"images": ["01.png"], "generated_at": "t"})
     assert fps2["xhs"] and "xhs" in approvals.status(folder, fps2)
+
+
+def test_machine_lock_in_is_marked(tmp_path: Path) -> None:
+    """补发提前打包时机器替 Park 定稿：记下 by=machine，页面上和他自己点的分开。"""
+    folder = tmp_path / "topic-7"
+    fps = _fps(tmp_path)
+    st = approvals.set_approval(folder, "copy", True, fps, by="machine")
+    assert st["copy"]["approved"] and st["copy"]["by"] == "machine"
+    st = approvals.set_approval(folder, "copy", True, fps)
+    assert st["copy"]["by"] == "park"

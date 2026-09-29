@@ -6,7 +6,7 @@
  * 拍什么他定：「接下来要拍的」收在 A 里面；只有他点「我今天不知道拍什么」才建议。 */
 window.VIEWS = window.VIEWS || {};
 
-const TD = { data: null, poll: null, skipOpen: false };
+const TD = { data: null, poll: null, skipOpen: false, bfOpen: null, prev: null, bfAll: false };
 
 async function loadToday() { TD.data = await api('/api/today'); return TD.data; }
 window.refreshTodayBadge = async () => { try { await loadToday(); } catch (_) { /* ignore */ } paintTodayBadge(); };
@@ -102,6 +102,68 @@ function xrRow(d) {
   </section>`;
 }
 
+/* D 补发：提前打好的包，今天挑一条发到剩下的平台。数据还是记在全平台追踪。
+ * 看 → 就地展开（封面、文案、文章开头、插图、完整排版另开一页）；改 → 去打包页；发 → 一声令下。 */
+const PF = { channels: '视频号', xiaohongshu: '小红书', bilibili: 'B 站', youtube: 'YouTube', x: 'X', wechat_mp: '公众号' };
+const AUTO = ['bilibili', 'youtube', 'x'];
+const STEP_LABEL = { copy: '文案', cover: '封面', article: '文章', figs: '插图', wx: '排版' };
+
+function packRow(p) {
+  const open = TD.bfOpen === p.topic_id;
+  const steps = Object.entries(p.steps).map(([k, v]) => `<span class="td-step ${v}">${STEP_LABEL[k]}</span>`).join('');
+  return `<div class="td-pack ${open ? 'open' : ''}">
+    <button type="button" class="td-pack-h" data-bf-open="${p.topic_id}">
+      ${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : '<span class="td-nocover"></span>'}
+      <span class="t"><b>${esc(p.title)}</b><small>${p.multiple != null ? `${p.multiple}× · ` : ''}${esc((p.published_at || '').slice(0, 10))} · 差 ${p.missing_labels.join('、')}</small>
+        <span class="td-steps">${steps}${p.machine ? '<i>机器定稿，你没看过</i>' : ''}</span></span>
+      <span class="chev">${open ? '收起' : '看一眼'}</span>
+    </button>
+    ${open ? `<div class="td-preview" id="tdPrev">${TD.prev && TD.prev.topic_id === p.topic_id ? previewHtml(TD.prev, p) : '<p class="td-note"><span class="spin"></span> 读包里的东西…</p>'}</div>` : ''}
+  </div>`;
+}
+
+function previewHtml(v, p) {
+  const auto = p.missing.filter((k) => AUTO.includes(k)).map((k) => PF[k]);
+  const hand = p.missing.filter((k) => !AUTO.includes(k)).map((k) => PF[k]);
+  return `<div class="td-pv-covers">${['portrait', 'landscape', 'wide'].filter((k) => v.covers[k]).map((k) => `<a href="${esc(v.covers[k])}" target="_blank" rel="noopener"><img class="${k}" src="${esc(v.covers[k])}" alt=""></a>`).join('')}</div>
+    <div class="td-pv-copy"><b>${esc(v.title)}</b>${v.body ? `<p>${esc(v.body)}</p>` : ''}${v.tags.length ? `<small>${v.tags.map((t) => '#' + esc(t)).join(' ')}</small>` : ''}</div>
+    ${v.article_title ? `<div class="td-pv-art"><h4>${esc(v.article_title)}</h4>${v.article_head.map((x) => `<p>${esc(x)}</p>`).join('')}
+      ${v.figs.length ? `<div class="td-pv-figs">${v.figs.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
+      ${v.layout_url ? `<a class="btn" href="${esc(v.layout_url)}" target="_blank" rel="noopener">看完整公众号排版 ↗</a>` : ''}</div>` : ''}
+    <div class="td-pv-go">
+      <p class="td-note">点「发这条」就是你的确认：${auto.length ? `<b>${auto.join('、')}</b> 自己发出去` : ''}${auto.length && hand.length ? '；' : ''}${hand.length ? `<b>${hand.join('、')}</b> 备好，你来点（公众号群发、视频号和小红书扫码上传）` : ''}。</p>
+      <div class="btns"><button class="btn go" type="button" data-bf-go="${p.topic_id}">发这条</button><button class="btn" type="button" data-td-go="pack/${p.topic_id}">去改 →</button></div>
+    </div>`;
+}
+
+function todayPack(t) {
+  const JOB = { running: '发送中…', done: '已发出', failed: '失败了', awaiting_confirm: '等确认' };
+  const cells = t.missing.concat(Object.keys(PF).filter((k) => !t.missing.includes(k) && k in PF)).filter((k, i, a) => a.indexOf(k) === i);
+  const cell = (k) => {
+    const shipped = !t.missing.includes(k);
+    const j = (t.jobs || {})[k];
+    const state = shipped ? '✓ 发了' : j ? (j.draft ? '草稿好了，去点发布' : JOB[j.state] || j.state) : AUTO.includes(k) ? '—' : '等你';
+    return `<span class="td-plat ${shipped ? 'on' : j && j.state === 'failed' ? 'bad' : ''}" title="${esc((j && j.message) || '')}">${PF[k]} · ${state}</span>`;
+  };
+  return `<div class="td-next"><b>今天补发《${esc(t.title)}》：${t.done_count}/${t.total}</b>
+      <div class="td-plats">${cells.map(cell).join('')}</div>
+      <small>剩下的去发布台：公众号群发，视频号、小红书的上传文件夹里视频、封面、文案都齐了。</small>
+      <div class="btns"><button class="btn go" type="button" data-td-go="publish/${t.topic_id}">去发布台 →</button><button class="btn quiet" type="button" data-bf-unpick>换一条</button></div></div>`;
+}
+
+function backfillRow(d) {
+  const b = d.backfill;
+  const done = b.today && b.today.missing.length === 0;
+  const list = b.ready.slice(0, TD.bfAll ? 50 : 3).map(packRow).join('');
+  return `<section class="td-row ${done ? 'done' : ''}">
+    <div class="td-h"><span class="td-letter">D</span><h2>补发</h2><span class="td-state ${done ? 'ok' : ''}">${done ? '✓ 今天补完了' : b.today ? '今天在补' : `包打好 ${b.ready_count} 条${b.waiting_count ? ` · 还在打 ${b.waiting_count} 条` : ''}`}</span></div>
+    <p class="td-why">没拍新视频的日子，挑一条旧的发到剩下的平台。B 站、YouTube、X 自己发出去；公众号、视频号、小红书你来点，十几分钟。</p>
+    ${b.today ? todayPack(b.today) : ''}
+    ${!b.today || done ? `<div class="td-packs">${list || '<p class="td-note">还没有打好的包。</p>'}</div>
+      ${b.ready.length > 3 ? `<button class="btn quiet" type="button" data-bf-all>${TD.bfAll ? '只看前三条' : `看全部 ${b.ready.length} 条`}</button>` : ''}` : ''}
+  </section>`;
+}
+
 function wrapBlock(d) {
   const rows = d.wrap.map((it) => `<div class="td-next small"><b>${esc(it.text)}</b>${actionButtons(it)}</div>`).join('');
   const skipped = d.skipped.map((s) => `<div class="td-q skip"><span class="n">跳</span><b>${esc(s.key)}</b><small>${esc(s.reason || '')}</small></div>`).join('');
@@ -127,10 +189,10 @@ window.VIEWS.today = {
     $('#todayDay').textContent = `今天 · ${dayTitle(d.day)}`;
     $('#todayScore').innerHTML = d.demerits ? `本周减 <b>${d.demerits}</b> 分` : '本周没减分';
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
-    const sig = JSON.stringify([d, TD.skipOpen]);
+    const sig = JSON.stringify([d, TD.skipOpen, TD.bfOpen, TD.prev && TD.prev.topic_id, TD.bfAll]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
-    body.innerHTML = `${firstBlock(d.first)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${wrapBlock(d)}
+    body.innerHTML = `${firstBlock(d.first)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${backfillRow(d)}${wrapBlock(d)}
       <p class="td-note td-foot">触达是结果，不算你的分，在「已发出」里看：7 天平均 ${fmt(d.reach.avg7 || 0)} / 目标 ${fmt(d.reach.target)}（${esc(d.reach.by.slice(5).replace('-', '/'))} 前）。</p>`;
 
     $$('[data-td-go]', body).forEach((b) => (b.onclick = () => goHash(b.dataset.tdGo)));
@@ -154,12 +216,34 @@ window.VIEWS.today = {
     $$('[data-note-up]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteUp}`, { method: 'PATCH', body: { move: -1 } }))));
     $$('[data-note-down]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteDown}`, { method: 'PATCH', body: { move: 1 } }))));
     $$('[data-note-del]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteDel}`, { method: 'DELETE' }))));
+    $$('[data-bf-open]', body).forEach((b) => (b.onclick = async () => {
+      const id = Number(b.dataset.bfOpen);
+      TD.bfOpen = TD.bfOpen === id ? null : id;
+      body.dataset.sig = '';
+      this.render();
+      if (TD.bfOpen && !(TD.prev && TD.prev.topic_id === id)) {
+        try { TD.prev = await api(`/api/today/backfill/${id}/preview`); } catch (err) { toast(err.message); }
+        body.dataset.sig = '';
+        this.render();
+      }
+    }));
+    $$('[data-bf-go]', body).forEach((b) => (b.onclick = () => tdAct(async () => {
+      b.disabled = true;
+      const r = await api(`/api/today/backfill/${b.dataset.bfGo}/go`, { method: 'POST' });
+      TD.bfOpen = null;
+      toast(r.errors.length ? `有 ${r.errors.length} 个没起来：${r.errors[0]}` : '发出去了的在发，剩下的备好了');
+    })));
+    const unpick = $('[data-bf-unpick]', body);
+    if (unpick) unpick.onclick = () => tdAct(() => api('/api/today/backfill', { method: 'DELETE' }));
+    const all = $('[data-bf-all]', body);
+    if (all) all.onclick = () => { TD.bfAll = !TD.bfAll; body.dataset.sig = ''; this.render(); };
     const sugBtn = $('#tdSuggest');
     if (sugBtn) sugBtn.onclick = () => tdAct(() => api('/api/today/suggest', { method: 'POST' }));
     const take = $('#tdTake');
     if (take) take.onclick = () => tdAct(() => api('/api/today/suggest/take', { method: 'POST' }));
 
     clearTimeout(TD.poll);
-    if (d.ship.suggest && d.ship.suggest.running) TD.poll = setTimeout(() => { if (S.view === 'today') this.render(); }, 3000);
+    const sending = d.backfill.today && Object.values(d.backfill.today.jobs || {}).some((j) => j.state === 'running');
+    if ((d.ship.suggest && d.ship.suggest.running) || sending) TD.poll = setTimeout(() => { if (S.view === 'today') this.render(); }, sending ? 8000 : 3000);
   },
 };

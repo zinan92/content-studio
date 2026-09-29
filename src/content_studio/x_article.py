@@ -202,7 +202,12 @@ def publish_article(article: Path, *, cover: Path | None = None, publish: bool =
     result: dict[str, Any] = {"id": str(article_id), "title": title, "images": len(media), "cover": str(cover), "published": False,
                               "url": "https://x.com/compose/articles"}
     if publish:
-        done = _post_json(f"{API}/articles/{article_id}/publish", None, creds, send).get("data") or {}
+        try:
+            done = _post_json(f"{API}/articles/{article_id}/publish", None, creds, send).get("data") or {}
+        except XError as exc:
+            # 发布被拒（9/24 就是 403 要 Premium）：草稿已经建好了，退回草稿，Park 去 X 点一下
+            result["message"] = f"X 没让直接发，已存草稿：{exc}"[:300]
+            return result
         result["published"] = True
         post_id = done.get("post_id") or done.get("id")
         result["url"] = f"https://x.com/i/web/status/{post_id}" if post_id else None

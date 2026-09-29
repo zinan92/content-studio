@@ -68,11 +68,14 @@ def status(folder: Path, fps: dict[str, str | None]) -> dict[str, dict[str, Any]
     for key in (*KEYS, *(k for k in OPTIONAL if k in fps)):
         rec = saved.get(key) or {}
         out[key] = {"made": fps.get(key) is not None, "approved": bool(rec),
-                    "valid": bool(rec) and rec.get("fp") == fps.get(key), "at": rec.get("at")}
+                    "valid": bool(rec) and rec.get("fp") == fps.get(key), "at": rec.get("at"),
+                    # 机器替 Park 定的稿（补发提前打包，9/29 Park 预先授权）：页面上标出来，和他自己点的分开
+                    "by": rec.get("by") or "park"}
     return out
 
 
-def set_approval(folder: Path, key: str, approved: bool, fps: dict[str, str | None], *, now: datetime | None = None) -> dict[str, dict[str, Any]]:
+def set_approval(folder: Path, key: str, approved: bool, fps: dict[str, str | None], *, now: datetime | None = None,
+                 by: str = "park") -> dict[str, dict[str, Any]]:
     if key not in KEYS and not (key in OPTIONAL and key in fps):
         raise ApprovalError("没有这一步")
     saved = load(folder)
@@ -84,7 +87,8 @@ def set_approval(folder: Path, key: str, approved: bool, fps: dict[str, str | No
             st = status(folder, fps)[dep]
             if not (st["approved"] and st["valid"]):
                 raise ApprovalError("上一步还没定稿")
-        saved[key] = {"fp": fps[key], "at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}
+        saved[key] = {"fp": fps[key], "at": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds"),
+                      **({"by": by} if by != "park" else {})}
     else:
         saved.pop(key, None)
     folder.mkdir(parents=True, exist_ok=True)

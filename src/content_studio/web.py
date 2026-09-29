@@ -131,6 +131,7 @@ class VideoLinkBody(BaseModel):
 class PublishJobBody(BaseModel):
     platform: str
     mode: str
+    auto: bool = False  # D 补发里一声令下起的：发完不在浏览器里弹页面
 
 
 class ApproveBody(BaseModel):
@@ -194,6 +195,7 @@ class SettingsBody(BaseModel):
 class StepApproveBody(BaseModel):
     key: str
     approved: bool = True
+    by: str = "park"  # "machine"：补发提前打包时机器替他定的稿
 
 
 class WriteBody(BaseModel):
@@ -2784,7 +2786,8 @@ def create_app(
         topic = store.topic(topic_id)
         st = _approval_state(topic)
         try:
-            return {"approvals": approvals.set_approval(st["folder"], body.key, body.approved, st["fps"])}
+            by = "machine" if body.by == "machine" else "park"
+            return {"approvals": approvals.set_approval(st["folder"], body.key, body.approved, st["fps"], by=by)}
         except approvals.ApprovalError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
 
@@ -3021,7 +3024,7 @@ def create_app(
             tags = " ".join(f"#{t}" for t in own.get("tags") or [])
             (folder / "文案.txt").write_text(f"{own.get('title') or ''}\n\n{own.get('body') or ''}\n\n{tags}\n", encoding="utf-8")
             placed.append("文案.txt")
-        if not os.environ.get("CONTENT_STUDIO_NO_OPEN") and sys.platform == "darwin":
+        if body.get("open", True) and not os.environ.get("CONTENT_STUDIO_NO_OPEN") and sys.platform == "darwin":
             subprocess.Popen(["open", str(folder)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"folder": str(folder), "files": placed, "missing": missing}
 
@@ -3048,6 +3051,8 @@ def create_app(
         portrait = _media_base(topic) / covers["portrait"] if covers.get("portrait") else None
         payload = publisher.build_payload(body.platform, body.mode, video=video, copy=copy, publishers=publisher_specs(),
                                           article=article, cover=cover, cover_portrait=portrait)
+        if body.auto:
+            payload["auto"] = True
         return {"job": store.create_publish_job(topic_id, payload)}
 
     def _open_in_browser(url: str | None) -> None:
@@ -3075,7 +3080,7 @@ def create_app(
             store.update_publish_job(job_id, state="cancelled", result=result, message=publisher.explain(result), finished_at=now_iso())
             return
         store.update_publish_job(job_id, state="done" if ok else "failed", result=result, message=None if ok else publisher.explain(result), finished_at=now_iso())
-        if ok:
+        if ok and not (job.get("payload") or {}).get("auto"):
             _open_in_browser(publisher.confirm_url(job["platform"], result))
         # 存草稿不算发出去：X / 公众号 / 研习室的脚本在草稿时返回 published=false。
         # 9/24 X 只存了草稿，发布台就标「已发到 X」，按钮也跟着没了。
@@ -3476,8 +3481,122 @@ def create_app(
             "xr": {"count": xr.get(tkey), "target": int(kpi["x_replies_daily"])},
             "reach": {"avg7": reach.get("avg7"), "target": kpi["reach_daily"], "by": kpi["reach_by"]},
             "wrap": driver.order(wrap, skipped=skipped, done=done_keys),
+            "backfill": backfill_state(tkey),
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
         }
+
+    # -- D 补发：提前打好的包，一声令下发一条（9/29 Park） -------------------------
+    # 自己发出去的：B 站（投稿，审核后公开）、YouTube（直接公开）、X（直接发，被拒就存草稿）。
+    # 要 Park 点的：公众号（草稿，他群发才推送）、视频号、小红书（上传文件夹备好，他扫码传）。
+    BACKFILL_AUTO = {"bilibili": "upload", "youtube": "public", "x": "article_publish"}
+    BACKFILL_DRAFT = {"wechat_mp": "draft"}
+    BACKFILL_FOLDER = ("channels", "xiaohongshu")
+    PACK_KEYS = ("copy", "cover", "article", "figs", "wx")
+
+    def _pack_view(row: dict[str, Any]) -> dict[str, Any]:
+        from . import approvals
+
+        topic = store.topic(row["topic_id"])
+        rel = _release_for(topic) or {}
+        st = _approval_state(topic, rel)
+        ap = approvals.status(st["folder"], st["fps"])
+        need = ("copy", "cover") if set(row["missing"]) <= {"xiaohongshu"} else PACK_KEYS
+        steps = {k: ("lock" if ap[k]["approved"] and ap[k]["valid"] else "made" if ap[k]["made"] else "no") for k in need}
+        return {"topic_id": row["topic_id"], "video_id": row["video_id"], "title": row["headline"] or row["title"][:40],
+                "multiple": row["multiple"], "published_at": row["published_at"], "missing": row["missing"],
+                "ready": all(v == "lock" for v in steps.values()), "steps": steps,
+                "machine": any(ap[k].get("by") == "machine" for k in need if ap[k]["approved"]),
+                "cover": (rel.get("cover_urls") or {}).get("portrait")}
+
+    def backfill_state(today_key: str) -> dict[str, Any]:
+        sheet = get_backfill()
+        labels = {p["key"]: p["label"] for p in sheet["platforms"]}
+        picks = [r for r in store.driver_log(today_key, "pick") if r["day"] == today_key]
+        pick_id = int(picks[-1]["key"].split(":")[1]) if picks else None
+        rows = [r for r in sheet["videos"] if r["topic_id"] and (r["missing"] or r["topic_id"] == pick_id)]
+        packs = [_pack_view(r) for r in rows]
+        for pk in packs:
+            pk["missing_labels"] = [labels.get(k, k) for k in pk["missing"]]
+        ready = sorted([p for p in packs if p["ready"] and p["topic_id"] != pick_id], key=lambda p: -(p["multiple"] or 0))
+        today = next((p for p in packs if p["topic_id"] == pick_id), None)
+        if today:
+            total = len([k for k in sheet["platforms"] if k["key"] != "douyin"])
+            today["done_count"] = total - len(today["missing"])
+            today["total"] = total
+            today["jobs"] = {j["platform"]: {"state": j["state"], "message": j.get("message"), "draft": bool((j.get("result") or {}).get("published") is False and j["state"] == "done")}
+                             for j in reversed(store.publish_jobs(pick_id)) if (j.get("payload") or {}).get("auto")}
+        waiting = len([p for p in packs if not p["ready"]])
+        return {"today": today, "ready": ready, "ready_count": len(ready), "waiting_count": waiting}
+
+    @app.get("/api/today/backfill/{topic_id}/preview")
+    def backfill_preview(topic_id: int) -> dict[str, Any]:
+        """在「今天」里就地看一眼：三张封面、标题描述话题、文章开头、插图，完整排版另开一页。"""
+        from urllib.parse import quote
+
+        from . import copypack, illustrate as il, publish_desk
+
+        topic = store.topic(topic_id)
+        rel = _release_for(topic) or {}
+        entry = publish_desk.shared_entry(copypack.read_copy(drafts_root, topic_id))
+        art = writer.read_draft(topic)
+        paras = []
+        art_title = None
+        if art:
+            head = re.search(r"^#\s+(.+)$", art["markdown"], re.M)
+            art_title = head.group(1).strip() if head else entry["title"]
+            for block in re.split(r"\n\s*\n", art["markdown"]):
+                b = block.strip()
+                if not b or b.startswith("![") or b.startswith("# "):
+                    continue
+                paras.append(re.sub(r"[*#>`]", "", b))
+                if len(paras) >= 4:
+                    break
+        figs = il.state(_article_path(topic))["images"] if art else []
+        return {
+            "topic_id": topic_id, "title": entry["title"], "body": entry["body"], "tags": entry["tags"],
+            "covers": {k: v for k, v in (rel.get("cover_urls") or {}).items() if v},
+            "article_title": art_title, "article_head": paras,
+            "figs": [f"/api/topics/{topic_id}/article-file/{il.FOLDER}/{quote(f['file'])}" for f in figs],
+            "layout_url": f"/api/topics/{topic_id}/wechat-preview.html" if art else None,
+        }
+
+    @app.post("/api/today/backfill/{topic_id}/go")
+    def backfill_go(topic_id: int) -> dict[str, Any]:
+        """Park 说「发这条」。这一下就是他的确认：B 站、YouTube、X 直接发；公众号存草稿；视频号、小红书备好文件夹。"""
+        from . import publisher
+
+        today_key = date.today().isoformat()
+        row = next((r for r in get_backfill()["videos"] if r["topic_id"] == topic_id), None)
+        if row is None:
+            raise ValueError("这条不在全平台追踪里")
+        store.driver_mark(today_key, f"backfill:{topic_id}", "pick")
+        store.log_event("publish", f"今天补发《{row['headline'][:24]}》", topic_id)
+        started, folders, errors = [], [], []
+        for platform, mode in {**BACKFILL_AUTO, **BACKFILL_DRAFT}.items():
+            if platform not in row["missing"]:
+                continue
+            try:
+                job = prepare_publish(topic_id, PublishJobBody(platform=platform, mode=mode, auto=True))["job"]
+                confirm_publish(job["id"])
+                started.append(platform)
+            except (publisher.PublishError, ValueError, StoreError) as exc:
+                errors.append(f"{platform}：{exc}")
+        for platform in BACKFILL_FOLDER:
+            if platform in row["missing"]:
+                try:
+                    upload_folder(topic_id, {"platform": platform, "open": False})
+                    folders.append(platform)
+                except HTTPException as exc:
+                    errors.append(f"{platform}：{exc.detail}")
+        return {"started": started, "folders": folders, "errors": errors}
+
+    @app.delete("/api/today/backfill")
+    def backfill_unpick() -> dict[str, Any]:
+        """今天不补这条了（已经发出去的不会撤回）。"""
+        today_key = date.today().isoformat()
+        with store.tx() as conn:
+            conn.execute("DELETE FROM driver_log WHERE day = ? AND kind = 'pick'", (today_key,))
+        return {"ok": True}
 
     @app.put("/api/today/x-replies")
     def put_x_replies(body: CountBody) -> dict[str, Any]:
