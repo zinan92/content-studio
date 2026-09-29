@@ -971,9 +971,9 @@ def test_a_followed_posts_transcript_becomes_a_note_park_can_read_and_take(
     client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
     client.app.state.worker.drain()
 
-    # With the window opened up the sync queues the whole catalogue, so every post lands.
+    # 9/29 起同步不再把对标新发的全排进拆解：只有 Park 点了要拆的（和 2× 爆款）才变成笔记。
     notes = {p.name: p.read_text(encoding="utf-8") for p in (root / "002_对标内容").glob("*.md")}
-    assert len(notes) == 5
+    assert len(notes) == 1
     body = next(b for b in notes.values() if "video/5" in b)
     assert "source: https://www.douyin.com/video/5" in body and "## 全文" in body and "author: 对标号" in body
 
@@ -1006,9 +1006,10 @@ def test_a_video_older_than_the_fresh_window_never_becomes_a_note(client: TestCl
         note.unlink()
 
     client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
+    client.post("/api/jobs", json={"video_id": "4", "source": "对标"})
     client.app.state.worker.drain()
-    # The report is still there to read in 拆解报告; it just does not clutter 进项. Its recent
-    # siblings do become notes, which is what makes the absence of this one meaningful.
+    # The report is still there to read in 拆解报告; it just does not clutter 进项. A recent
+    # sibling does become a note, which is what makes the absence of this one meaningful.
     assert "5" in [r["video_id"] for r in client.get("/api/reports").json()]
     notes = [p.read_text(encoding="utf-8") for p in (root / "002_对标内容").glob("*.md")]
     assert notes and not any("douyin.com/video/5" in n for n in notes)

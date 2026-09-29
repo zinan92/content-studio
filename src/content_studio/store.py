@@ -22,7 +22,7 @@ TOPIC_FORMATS = ("article", "video", "both")
 DEFAULT_SETTINGS: dict[str, Any] = {
     "threshold": 5.0,
     "auto_enqueue_limit": 2,
-    "auto_enqueue_threshold": 5.0,
+    "auto_enqueue_threshold": 2.0,  # 9/29 Park：点赞到自己中位数 2 倍才自动拆
     "sync_pages": 3,
     "sync_delay_seconds": 1.5,
     "obsidian_vault": "",

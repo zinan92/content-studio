@@ -25,7 +25,6 @@ from .accounts import (
     AccountError,
     ContentDownloaderClient,
     add_account,
-    auto_enqueue_new_posts,
     auto_enqueue_outliers,
     sync_account,
 )
@@ -673,7 +672,6 @@ def create_app(
                 result["creator_metrics"] = creator_sync_fn()
         else:
             has_report = lambda vid: report_file(vid) is not None  # noqa: E731
-            auto_enqueue_new_posts(store, has_report=has_report)
             auto_enqueue_outliers(store, has_report=has_report)
             worker.notify()
         return result
