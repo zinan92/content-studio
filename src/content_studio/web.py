@@ -1180,10 +1180,16 @@ def create_app(
         synced = store.post_synced_at()
         # YouTube 在 Park 授权「查看」之后才开始有读数；有了就按自动算。
         pulled = [k for k in reach.PLATFORM_KEYS if k != "douyin" and (k in reach.AUTO_KEYS or k in synced)]
+        read_state: dict[str, str] = {}
         for key in pulled:
-            for day_key, views in reach.daily_views(store.post_snapshots(key, since), days, today).items():
-                if views and day_key in totals:
+            rows = store.post_snapshots(key, since)
+            seen = {str(r["fetched_at"])[:10] for r in rows}
+            for day_key, views in reach.daily_views(rows, days, today).items():
+                # 那天读过就记下（哪怕涨了 0）；没读过才空着。9/29 以前涨 0 也显示「—」，看着像没读到。
+                if day_key in totals and (views or day_key in seen):
                     totals[day_key][key] = views
+            first = min(seen) if seen else None
+            read_state[key] = ("baseline" if first == today.isoformat() else "read") if today.isoformat() in seen else "not_read"
         for row in store.reach_entries(since):
             # 自动的平台以读到的为准；以前手填的旧数只在还没开始自动读的日子里算。
             if row["day"] in totals and row["platform"] not in totals[row["day"]]:
@@ -1194,7 +1200,9 @@ def create_app(
             **reach.summary(totals, today),
             "platforms": [
                 {"key": key, "label": label, "auto": auto_flag or key in pulled, "on": bool((accounts.get(key) or {}).get("on")) or auto_flag or key in pulled,
-                 "handle": (accounts.get(key) or {}).get("handle") or "", "today": totals[today_key].get(key)}
+                 "handle": (accounts.get(key) or {}).get("handle") or "", "today": totals[today_key].get(key),
+                 # 自动的平台今天读了没有：baseline = 今天第一次读，只能当基准，明天起才算得出涨了多少
+                 "read": read_state.get(key), "stats_url": reach.STATS_URLS.get(key)}
                 for key, label, auto_flag in reach.PLATFORMS
             ],
             "douyin_synced_at": me["last_synced_at"] if me else None,

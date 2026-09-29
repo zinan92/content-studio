@@ -138,10 +138,11 @@ function reachBlock(r, posts7) {
   const tile = (p) => {
     const m = meta[p.key] || {};
     const share = sumToday && p.today ? `${Math.round((p.today / sumToday) * 100)}%` : '';
-    const how = p.auto ? ((r.synced_at || {})[p.key] ? '自动' : '明早 9:30 第一次读') : '手填';
+    const READ = { baseline: '今天第一次读，明天起有数', not_read: p.key === 'xiaohongshu' ? '今天还没读（每天 9:25）' : '今天还没读（每天 9:30）', read: '自动' };
+    const how = p.auto ? (READ[p.read] || ((r.synced_at || {})[p.key] ? '自动' : '明早第一次读')) : '手填';
     const value = p.auto
       ? `<b class="num">${p.today === null || p.today === undefined ? '—' : fmt(p.today)}</b>`
-      : `<input class="ov-in num" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="待填">`;
+      : `<input class="ov-in num" type="number" min="0" inputmode="numeric" data-rp-views="${p.key}" value="${p.today ?? ''}" placeholder="待填">${p.stats_url ? `<a class="ov-look" href="${esc(p.stats_url)}" target="_blank" rel="noopener">去后台看今天的数 ↗</a>` : ''}`;
     return `<div class="ov-plat"><small>${m.mark ? `<i class="plat s-${m.state}"${m.state === 'manual' ? '' : ` style="--plat:${esc(m.hue)}"`}>${esc(m.mark)}</i>` : ''}${esc(p.label)}</small>${value}<i>${[share, how].filter(Boolean).join(' · ')}</i></div>`;
   };
   const rows = r.platforms.filter((p) => (meta[p.key] || {}).on !== false || !p.auto).map((p) => `<div class="rp-row ${p.on ? '' : 'off'}">

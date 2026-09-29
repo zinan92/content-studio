@@ -845,7 +845,7 @@ def test_reach_counts_bilibili_x_and_yanxishi_from_daily_reads(client: TestClien
     store.add_post_snapshots("x", [{"post_id": "1", "title": "新", "published_at": f"{today}T08:00:00+00:00", "views": 986}], f"{today}T09:30:00+00:00")
     r = client.get("/api/reach").json()
     assert r["days"][-1]["by_platform"] == {"bilibili": 65, "x": 986}  # 老视频第一次只当基线；新发的全算
-    assert r["days"][-2]["by_platform"] == {}
+    assert r["days"][-2]["by_platform"] == {"bilibili": 0}  # 9/29：那天读过（第一次，当基线）就记 0，不再空着
     assert set(r["synced_at"]) >= {"bilibili", "x"}
     assert {p["key"]: p["auto"] for p in r["platforms"]}["miniprogram"] is True
     assert client.put("/api/reach", json={"day": today.isoformat(), "platform": "youtube", "views": 3}).status_code == 200  # 还没授权：手填
