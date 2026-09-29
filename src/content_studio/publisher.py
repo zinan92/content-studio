@@ -408,6 +408,11 @@ def run(payload: dict[str, Any], *, publishers: dict[str, dict[str, Any]] = PUBL
     if not result:
         result = {"ok": False, "status": "no_result", "message": (completed.stderr or completed.stdout).strip()[-400:]}
     result.setdefault("ok", completed.returncode == 0)
+    if result.get("ok") and payload["platform"] == "youtube" and result.get("privacy_status") == "private":
+        # 私享 = 草稿：9/29 Park 先都存草稿、自己在后台公开。公开后的链接现在就知道，先带着，他点「发出去了」时填好。
+        result["published"] = False
+        if result.get("video_id"):
+            result["public_url"] = f"https://www.youtube.com/watch?v={result['video_id']}"
     if result.get("ok") and payload["platform"] == "youtube" and result.get("video_id") and payload.get("cover"):
         result.update(youtube_cover(str(result["video_id"]), Path(payload["cover"]), publishers=publishers))
         if result["thumbnail"] == "failed":
