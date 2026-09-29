@@ -67,6 +67,10 @@ def find_srt(base: Path) -> Path | None:
     if fixed.is_file():
         return fixed
     loose = sorted(p for p in base.iterdir() if p.is_file() and p.suffix.lower() == ".srt")
+    final = base / "final"
+    if not loose and final.is_dir():
+        # 剪映导出成片时勾上「字幕 SRT」，它就和成片一起落在 final/ 里
+        loose = sorted(p for p in final.iterdir() if p.is_file() and p.suffix.lower() == ".srt")
     return loose[0] if loose else None
 
 

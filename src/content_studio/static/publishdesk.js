@@ -5,7 +5,8 @@
    抖音半自动：机器开 Chrome 填好，停在「发布」前，最后一下 Park 点。 */
 window.VIEWS = window.VIEWS || {};
 
-const PD = { data: null, at: 0, topicId: null, open: null, ro: null };
+// pagePoll / dialogPoll：发布中时各只留一个定时刷新。9/29 以前每次重画都再挂一个，越叠越多，弹窗一秒闪好几下。
+const PD = { data: null, at: 0, topicId: null, open: null, ro: null, pagePoll: null, dialogPoll: null };
 const PD_STATE = { linked: ['通道已连', 'ok'], ready: ['凭据就绪', 'ok'], stale: ['要重新登录', 'warn'], blocked: ['平台限制了', 'warn'], setup: ['差一步配置', 'warn'], manual: ['手动', ''] };
 const PJ_TEXT = { awaiting_confirm: '等你确认', running: '发布中', done: '已完成', failed: '失败', cancelled: '已取消', unknown: '结果不确定' };
 const CANVAS_W = 720;
@@ -400,7 +401,8 @@ window.VIEWS.publish = {
     $$('[data-pd-open]', body).forEach((b) => (b.onclick = () => openPlatform(b.dataset.pdOpen)));
     $$('[data-pd-skip]', body).forEach((b) => (b.onclick = async () => { try { await setSkip(d.topic.id, b.dataset.pdSkip, true); renderView(); } catch (err) { toast(err.message); } }));
     $$('[data-pd-pack]').forEach((b) => (b.onclick = () => goPack(d.topic.id)));
-    if (d.platforms.some((p) => p.job && p.job.state === 'running')) setTimeout(() => { if (S.view === 'publish') { PD.data = null; renderView(); } }, 8000);
+    clearTimeout(PD.pagePoll);
+    if (d.platforms.some((p) => p.job && p.job.state === 'running')) PD.pagePoll = setTimeout(() => { if (S.view === 'publish') { PD.data = null; renderView(); } }, 8000);
     if (PD.open) renderDialog();
   },
 };
@@ -709,11 +711,17 @@ function renderDialog() {
   const [stLabel, stCls] = stateOf(p);
   const typed = $('#pdlUrl', dlg);
   const keep = typed ? { value: typed.value, focus: document.activeElement === typed } : null;
+  // 刷新时沿用上一次的缩放和右栏滚动位置：不然每刷一次，左边预览先按原尺寸画出来再缩回去、右栏跳回顶上
+  const prevWrap = $('.rc-wrap', dlg);
+  const prevScale = prevWrap ? prevWrap.style.getPropertyValue('--s') : '';
+  const prevScroll = ($('.pdl-side', dlg) || {}).scrollTop || 0;
   dlg.innerHTML = `<div class="pdl-h"><i class="plat s-${p.state}"${p.state === 'manual' || p.state === 'blocked' ? '' : ` style="--plat:${esc(p.hue)}"`}>${esc(p.mark)}</i><b>${esc(p.label)}</b><small>${esc(p.handle || '')}</small><span class="ps ${stCls}">${stLabel}</span><span class="ps">${esc(p.treatment_label)}</span><span class="spacer"></span><small>${d.topic ? esc(d.topic.title) : ''}</small><button class="pdl-x" type="button" id="pdlClose" aria-label="关闭">×</button></div>
     <div class="pdl-body">
       <div class="pdl-shot"><div class="rc-wrap ${p.shipped || (p.job && ['running', 'awaiting_confirm'].includes(p.job.state)) ? '' : 'dim'} ${p.job && p.job.state === 'running' ? 'live' : ''}">${replica(p, d)}</div></div>
       <div class="pdl-side">${d.topic ? sideFor(p, d) : '<p class="pdl-note">还没有能发的内容。</p>'}</div>
     </div>`;
+  if (prevScale) $('.rc-wrap', dlg).style.setProperty('--s', prevScale);
+  $('.pdl-side', dlg).scrollTop = prevScroll;
   fitReplicas(dlg);
   requestAnimationFrame(() => fitReplicas(dlg));
   const url = $('#pdlUrl', dlg);
@@ -756,9 +764,10 @@ function renderDialog() {
   });
   if (t.write_state === 'running') setTimeout(() => { if (dlg.open && PD.open === p.key) refresh(); }, 8000);
   // 这个平台正在发：弹窗自己隔几秒问一次，发完立刻变，不靠整页刷新
+  clearTimeout(PD.dialogPoll);
   if (p.job && p.job.state === 'running') {
     const jobId = p.job.id;
-    setTimeout(async () => {
+    PD.dialogPoll = setTimeout(async () => {
       if (!dlg.open || PD.open !== p.key) return;
       try {
         await loadDesk(true);
