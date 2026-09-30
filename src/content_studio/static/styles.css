@@ -1940,3 +1940,24 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .playbook-md h3{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-size:18px}
 .playbook-md li{margin:4px 0}
 .fd-opened{font-style:normal;font-size:11px;font-weight:400;color:var(--ink-3);margin-left:6px}
+
+/* ===== 定位页 · 各平台主页（profiles.js） ===== */
+#profilesBody{max-width:1180px;margin:0 auto}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.pf-card{background:var(--surface);border:1px solid var(--line-soft);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
+.pf-card.rest{opacity:.7}
+.pf-card.rest:focus-within,.pf-card.rest:hover{opacity:1}
+.pf-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pf-top b{font-size:16px}
+.pf-card label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-3)}
+.pf-lab{display:flex;justify-content:space-between;align-items:baseline}
+.pf-card label i{font-style:normal;font-family:var(--mono)}
+.pf-card label i b{font-weight:400}
+.pf-card label i.over{color:var(--warn)}
+.pf-card input,.pf-card textarea{font:inherit;font-size:14px;line-height:1.55;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);resize:vertical}
+.pf-hint{font-size:12px;color:var(--ink-3)}
+.pf-acts{display:flex;gap:8px;flex-wrap:wrap}
+.pf-acts a.btn{text-decoration:none;color:inherit}
+.pf-live{background:var(--sunk);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.pf-live small{font-size:11px;color:var(--ink-3)}
+.pf-live span{color:var(--ink-2)}

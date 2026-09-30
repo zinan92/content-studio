@@ -150,6 +150,7 @@ window.VIEWS.positioning = {
       body.innerHTML = `<div class="panel empty"><b>还没有定位文件。</b><span>在编辑器里新建 <code>${esc(d.path)}</code>，写下三问：我是谁、怎么找到客户、卖什么。</span></div>`;
       return;
     }
+    if (window.renderProfiles) window.renderProfiles();
     $('#posAsk').onclick = () => { if (window.openAnna) window.openAnna('先帮我看这一页：我的三问里，哪一问答得最不像细分定位？只追问一个问题。'); };
     $('#posReload').onclick = () => window.reloadPositioning();
     $$('[data-pos-drop]', body).forEach((b) => (b.onclick = async () => {
