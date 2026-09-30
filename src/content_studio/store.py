@@ -218,6 +218,13 @@ CREATE TABLE IF NOT EXISTS plan_items (
     created_at TEXT NOT NULL,
     done_at TEXT
 );
+CREATE TABLE IF NOT EXISTS wendy_thread (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    who TEXT NOT NULL,
+    source TEXT NOT NULL,
+    text TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS dm_entries (
     day TEXT PRIMARY KEY,
     received INTEGER NOT NULL,
@@ -1028,6 +1035,33 @@ class StudioStore:
     def delete_shoot_item(self, item_id: int) -> None:
         with self.tx() as conn:
             conn.execute("DELETE FROM shoot_list WHERE id = ?", (item_id,))
+
+    # -- Wendy 卡片里的对话（不放进 anna_chats：那张表启动时会把别的线程并进 Anna 的）------
+
+    def wendy_thread(self, limit: int = 40) -> list[dict[str, Any]]:
+        rows = self._rows("SELECT * FROM wendy_thread ORDER BY id DESC LIMIT ?", (limit,))
+        return list(reversed(rows))
+
+    def add_wendy(self, who: str, text: str, *, source: str = "desk") -> dict[str, Any]:
+        with self.tx() as conn:
+            cur = conn.execute("INSERT INTO wendy_thread(at, who, source, text) VALUES (?, ?, ?, ?)", (now_iso(), who, source, text[:4000]))
+        return self._row("SELECT * FROM wendy_thread WHERE id = ?", (cur.lastrowid,))
+
+    def last_touch(self, day: str) -> str | None:
+        """他这一天在工作台里最后一次动静是几点：勾了日报、填了私信或 X 的数、写了跳过理由或做完了、
+        勾了周历上的事、在卡片里回了 Wendy。都没有就是 None。（Wendy 催不催看这个。）"""
+        row = self._row(
+            """SELECT MAX(t) AS t FROM (
+                 SELECT MAX(checked_at) AS t FROM daily_checks WHERE day = :day
+                 UNION ALL SELECT MAX(updated_at) FROM dm_entries WHERE day = :day
+                 UNION ALL SELECT MAX(updated_at) FROM kpi_counts WHERE day = :day
+                 UNION ALL SELECT MAX(at) FROM driver_log WHERE day = :day AND kind != 'nudge'
+                 UNION ALL SELECT MAX(done_at) FROM plan_items WHERE substr(done_at, 1, 10) >= :prev
+                 UNION ALL SELECT MAX(at) FROM wendy_thread WHERE who = 'park' AND substr(at, 1, 10) >= :prev
+               )""",
+            {"day": day, "prev": (datetime.fromisoformat(day) - timedelta(days=1)).date().isoformat()},
+        )
+        return row["t"] if row else None
 
     # -- 周历上不算分的事（「约两个博主诊断」这种）：哪天、做什么、做完没有 --------------
 

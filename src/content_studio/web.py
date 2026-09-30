@@ -209,6 +209,10 @@ class ShootBody(BaseModel):
     planned_day: str | None = None  # 周历：排在哪天拍（YYYY-MM-DD）；传空字符串 = 不排了
 
 
+class WendyBody(BaseModel):
+    message: str = ""
+
+
 class PlanBody(BaseModel):
     day: str | None = None
     text: str | None = None
@@ -364,6 +368,14 @@ def _apply_profile(store: StudioStore, data: dict[str, Any] | None) -> None:
     if roots_cfg and current.get("local_video_roots") != roots_cfg:
         patch["local_video_roots"] = roots_cfg
     # Anna 的角色文件和提纲框架：profile 指到哪就读哪；环境变量已设的不动（那是显式覆盖）。
+    wendy_cfg = data.get("wendy") or {}
+    if isinstance(wendy_cfg, dict):
+        from . import wendy as wendy_mod
+
+        for key, env_name in (("role", wendy_mod.ROLE_ENV), ("hermes", wendy_mod.HERMES_ENV)):
+            value = str(wendy_cfg.get(key) or "").strip()
+            if value and not os.environ.get(env_name):
+                os.environ[env_name] = value
     anna_cfg = data.get("anna") or {}
     if isinstance(anna_cfg, dict):
         for key, env_name in (("role", anna_mod.ANNA_ROLE_ENV), ("workflows", outline_mod.WORKFLOWS_ENV)):
@@ -431,6 +443,7 @@ def create_app(
     opening_fn: Callable[[str], dict] | None = None,
     qa_fn: Callable[[str], dict] | None = None,
     anna_fn: Callable[[str, str, str | None], dict] | None = None,
+    wendy_fn: Callable[[str, str, str | None], dict] | None = None,
     runs_dir: Path | None = None,
     runner_command: str | None = None,
     publishers: dict[str, dict[str, Any]] | None = None,
@@ -3662,6 +3675,112 @@ def create_app(
 
         today = date.today()
         return {**_week(driver.week_start(parse_day(start)), today), "streak": driver.ship_streak(today, posted_days())}
+
+    # -- Wendy：「今天」页最上面那张卡片（wendy.py）-------------------------------------
+    wendy_state: dict[str, Any] = {"busy": False, "error": None}
+    wendy_lock = threading.Lock()
+
+    def _local(raw: str | None) -> datetime | None:
+        """库里的时间（UTC 或带时区）→ 本机时间，好和「现在几点」比。"""
+        if not raw:
+            return None
+        try:
+            value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return (value if value.tzinfo else value.astimezone()).astimezone().replace(tzinfo=None)
+
+    def _wendy_brief() -> tuple[dict[str, Any], str]:
+        from . import driver, wendy
+
+        today = get_today()
+        return today, wendy.brief(today, get_reach(14), driver.now_item(today))
+
+    def _wendy_said() -> list[dict[str, Any]]:
+        """她说过的话：微信那边定时发的（从 Hermes 的输出里读）和卡片里的对话，按时间排。"""
+        from . import wendy
+
+        desk = [{"who": m["who"], "source": m["source"], "label": "", "text": m["text"],
+                 "at": _local(m["at"]).astimezone().isoformat(timespec="seconds")} for m in store.wendy_thread(40)]
+        return sorted([*wendy.hermes_messages(), *desk], key=lambda m: m["at"])
+
+    def _nudges(day: str) -> list[dict[str, Any]]:
+        return [r for r in store.driver_log(day, "nudge") if r["day"] == day]
+
+    @app.get("/api/wendy")
+    def get_wendy() -> dict[str, Any]:
+        from . import driver
+
+        today = get_today()
+        said = _wendy_said()
+        with wendy_lock:
+            state = dict(wendy_state)
+        return {"now": driver.now_item(today), "messages": said[-12:], "busy": state["busy"], "error": state["error"],
+                "nudges": [{"at": r["at"]} for r in _nudges(today["day"])]}
+
+    def _wendy_turn(message: str) -> None:
+        from . import wendy
+
+        try:
+            _, brief_text = _wendy_brief()
+            text = wendy.run_turn(brief_text, _wendy_said()[:-1] if message else _wendy_said(), message, turn_fn=wendy_fn)
+            store.add_wendy("wendy", text)
+        except Exception as exc:  # noqa: BLE001 - 卡片里显示
+            logger.warning("wendy turn failed: %s", exc)
+            with wendy_lock:
+                wendy_state["error"] = str(exc)[:300] or type(exc).__name__
+        finally:
+            with wendy_lock:
+                wendy_state["busy"] = False
+
+    @app.post("/api/wendy")
+    def post_wendy(body: WendyBody) -> dict[str, Any]:
+        """他在卡片里回她（空着发 = 让她看一眼现在）。工作台自己跑一轮，模型所有工具都关着。"""
+        message = body.message.strip()
+        if len(message) > 2000:
+            raise ValueError("一次最多 2000 字")
+        with wendy_lock:
+            if wendy_state["busy"]:
+                return {"started": False, "message": "Wendy 还在想上一条"}
+            wendy_state.update(busy=True, error=None)
+        if message:
+            store.add_wendy("park", message)
+        threading.Thread(target=_wendy_turn, args=(message,), name="wendy", daemon=True).start()
+        return {"started": True}
+
+    @app.get("/api/wendy/brief")
+    def wendy_brief(review: bool = False) -> dict[str, Any]:
+        """此刻的账，一段文字。卡片里的她和微信那边的她读的是同一段，两边说的数对得上。"""
+        from . import wendy
+
+        _, text = _wendy_brief()
+        parts = [text, wendy.thread_brief(_wendy_said()[-12:])]
+        if review:
+            parts.append(wendy.review_brief(get_review()))
+        return {"text": "\n\n".join(parts)}
+
+    @app.get("/api/wendy/nudge")
+    def wendy_nudge(wechat_at: str | None = None) -> dict[str, Any]:
+        """要不要去微信催他。微信那边每半小时来问一次；wechat_at 是他最后一次在微信里说话的时间（那边才知道）。"""
+        from . import wendy
+
+        today = get_today()
+        cell = today["days"][-1]
+        pending = [name for key, name in wendy.KPI if cell.get(key) == "pending"]
+        nudges = _nudges(today["day"])
+        activity = [t for t in (_local(store.last_touch(today["day"])), _local(wechat_at)) if t]
+        said = [m for m in _wendy_said() if m["who"] == "wendy"]
+        contact = [t for t in (_local(said[-1]["at"]) if said else None, _local(nudges[-1]["at"]) if nudges else None) if t]
+        verdict = wendy.nudge_due(datetime.now(), pending=pending, last_activity=max(activity) if activity else None,
+                                  last_contact=max(contact) if contact else None, nudges_today=len(nudges))
+        return {**verdict, "pending": pending, "nudges_today": len(nudges)}
+
+    @app.post("/api/wendy/nudge")
+    def wendy_nudged() -> dict[str, Any]:
+        """微信那边真去催了：记一笔（一天的次数和两次之间的间隔都靠它）。这是她自己的记录，不是 Park 的数据。"""
+        now = datetime.now()
+        store.driver_mark(now.date().isoformat(), f"nudge:{now:%H:%M}", "nudge")
+        return {"ok": True, "nudges_today": len(_nudges(now.date().isoformat()))}
 
     @app.post("/api/today/plan")
     def add_plan(body: PlanBody) -> dict[str, Any]:
