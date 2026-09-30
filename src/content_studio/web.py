@@ -206,6 +206,13 @@ class ShootBody(BaseModel):
     text: str | None = None
     top: bool = False
     move: int | None = None  # -1 上移 / +1 下移
+    planned_day: str | None = None  # 周历：排在哪天拍（YYYY-MM-DD）；传空字符串 = 不排了
+
+
+class PlanBody(BaseModel):
+    day: str | None = None
+    text: str | None = None
+    done: bool | None = None
 
 
 class DmBody(BaseModel):
@@ -3411,6 +3418,54 @@ def create_app(
 
     READ_DAILIES = (("ai_daily", "AI 日报", "ai_daily"), ("kline_daily", "K 线日报", "kline"))  # (key, 名字, 进项里的 tab)
 
+    def posted_titles() -> dict[str, list[str]]:
+        """哪天在抖音发了哪几条（周历上过去的日子写的就是这个）。"""
+        out: dict[str, list[str]] = {}
+        for account in store.my_accounts():
+            if account["platform"] != PLATFORM_DOUYIN:
+                continue
+            for v in store.videos(account["id"]):
+                day = today_plan._day(v["published_at"])
+                if day and not v["is_image_post"]:
+                    out.setdefault(day, []).append(" ".join((v.get("title") or "").split())[:40] or "（没有标题）")
+        return out
+
+    def _week(start: date, today: date) -> dict[str, Any]:
+        """周历的一周（周一到周日）：过去每天四项做没做到、减几分、发了哪条；今天和以后排了拍哪条、别的事。
+        分数的规则和「今天」是同一套（driver.kpi_range）；排哪天拍哪条只读他自己排的，不自动排。"""
+        from . import driver
+
+        end = start + timedelta(days=6)
+        since, until, tkey = start.isoformat(), end.isoformat(), today.isoformat()
+        kpi = kpi_config()
+        titles = posted_titles()
+        reads: dict[str, bool] = {}
+        for i in range(7):
+            d = start + timedelta(days=i)
+            if d <= today and d.isoformat() >= kpi["read_started"]:
+                ok = read_state(d)[1]
+                if ok is not None:
+                    reads[d.isoformat()] = ok
+        days = driver.kpi_range(start, end, today, posted=set(titles), dms=store.dm_entries(since), started=kpi["started"],
+                                x_replies=store.kpi_counts(since, "x_replies"), x_target=int(kpi["x_replies_daily"]),
+                                reads=reads, read_started=kpi["read_started"], ship_started=min(titles) if titles else "9999")
+        notes = [n for n in store.shoot_list(include_done=True) if since <= (n.get("planned_day") or "") <= until]
+        items = store.plan_items(since, until)
+        skips = [r for r in store.driver_log(since, "skip") if r["day"] <= until]
+        for d in days:
+            key = d["day"]
+            d["state"] = "today" if key == tkey else "past" if key < tkey else "future"
+            d["demerits"] = driver.demerits([d])
+            d["shipped"] = titles.get(key, [])
+            d["planned"] = [{"id": n["id"], "text": n["text"], "topic_id": n["topic_id"], "done": bool(n["done_at"])} for n in notes if n["planned_day"] == key]
+            d["items"] = [{"id": it["id"], "text": it["text"], "done": bool(it["done_at"])} for it in items if it["day"] == key]
+            d["skips"] = [{"what": r["key"], "reason": r["reason"]} for r in skips if r["day"] == key]
+        counted = [d for d in days if d["ship"] in ("ok", "miss")]
+        return {"start": since, "end": until, "prev": (start - timedelta(days=7)).isoformat(), "next": (start + timedelta(days=7)).isoformat(),
+                "current": start == driver.week_start(today), "days": days,
+                "shipped": sum(d["ship"] == "ok" for d in days), "ship_days": len(counted), "demerits": driver.demerits(days),
+                "x_target": int(kpi["x_replies_daily"])}
+
     def read_state(day: date) -> tuple[list[dict[str, Any]], bool | None]:
         """那天要读的日报：出了的才要读。返回每份的状态，和是不是都读完了（一份都没出 → None）。"""
         from . import kline_board
@@ -3456,11 +3511,13 @@ def create_app(
             return driver.item(rung, f"card:{c['id']}", f"{prefix}{c['next']['text']}：《{c['title'][:24]}》", why="离发出最近的这条先做完。", go=f"work/{c['id']}")
         for note in notes:
             card = by_id.get(note.get("topic_id"))
+            target = (date.today() + timedelta(days=1 if rung == "tomorrow" else 0)).isoformat()
+            lead = f"你排在{'明天' if rung == 'tomorrow' else '今天'}的这一条。" if note.get("planned_day") == target else "你清单里的第一条。"
             if card is not None:
                 return driver.item(rung, f"card:{card['id']}", f"{prefix}{card['next']['text']}：《{card['title'][:24]}》",
-                                   why="你清单里的第一条。", go=f"work/{card['id']}")
+                                   why=lead, go=f"work/{card['id']}")
             if note.get("topic_id") is None:
-                return driver.item(rung, f"note:{note['id']}", f"{prefix}拍「{note['text']}」", why="你清单里的第一条。点「开始做」建成选题，接着写提纲。",
+                return driver.item(rung, f"note:{note['id']}", f"{prefix}拍「{note['text']}」", why=f"{lead}点「开始做」建成选题，接着写提纲。",
                                    button="开始做", inputs="start_note")
         focus = next((c for c in cards if c["focus"] and c["next"]["mine"]), None)
         if focus:
@@ -3567,7 +3624,9 @@ def create_app(
                                          why=f"{c['day']} 的咨询，纪要已经出来了。发没发工作台看不到，发完点「发了」。",
                                          url=c["pdf"], button="打开 PDF", manual=True))
 
-        ship = _ship_state(tkey, posted, desk, cards, notes)
+        # 排在今天的那条先提；今天已经发了，就看排在明天的。没排日子的还是照清单顺序。
+        target = (today + timedelta(days=1)).isoformat() if tkey in posted else tkey
+        ship = _ship_state(tkey, posted, desk, cards, driver.plan_order(notes, target))
         if ship["next"] and ship["next"]["key"] in skipped:
             ship["next"] = None
 
@@ -3591,7 +3650,33 @@ def create_app(
             "wrap": driver.order(wrap, skipped=skipped, done=done_keys),
             "backfill": backfill_state(tkey),
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
+            # 周历：这一周（周一到周日）和他现在连着几天出摊 / 没出摊。上面的 days、demerits 还是最近 7 天，含义不变。
+            "week": _week(driver.week_start(today), today),
+            "streak": driver.ship_streak(today, posted),
         }
+
+    @app.get("/api/today/week")
+    def get_week(start: str | None = None) -> dict[str, Any]:
+        """周历翻到别的周：start 是那一周里的任意一天。"""
+        from . import driver
+
+        today = date.today()
+        return {**_week(driver.week_start(parse_day(start)), today), "streak": driver.ship_streak(today, posted_days())}
+
+    @app.post("/api/today/plan")
+    def add_plan(body: PlanBody) -> dict[str, Any]:
+        """周历上加一件不算分的事（「约两个博主诊断」）。"""
+        return {"item": store.add_plan_item(parse_day(body.day).isoformat(), body.text or "")}
+
+    @app.patch("/api/today/plan/{item_id}")
+    def patch_plan(item_id: int, body: PlanBody) -> dict[str, Any]:
+        store.set_plan_item_done(item_id, bool(body.done))
+        return {"ok": True}
+
+    @app.delete("/api/today/plan/{item_id}")
+    def delete_plan(item_id: int) -> dict[str, Any]:
+        store.delete_plan_item(item_id)
+        return {"ok": True}
 
     # -- 流量视频：看到就想复刻的单条视频，先存下来（swipe.py，9/30 Park） -----------
 
@@ -3859,7 +3944,7 @@ def create_app(
 
     @app.post("/api/today/notes")
     def add_note(body: ShootBody) -> dict[str, Any]:
-        store.add_shoot_item(body.text or "", top=body.top)
+        store.add_shoot_item(body.text or "", top=body.top, planned_day=parse_day(body.planned_day).isoformat() if body.planned_day else None)
         return {"notes": store.shoot_list()}
 
     @app.patch("/api/today/notes/{item_id}")
@@ -3868,6 +3953,8 @@ def create_app(
             return {"notes": store.move_shoot_item(item_id, 1 if body.move > 0 else -1)}
         if body.text is not None:
             store.update_shoot_item(item_id, text=body.text.strip()[:200] or store.shoot_item(item_id)["text"])
+        if body.planned_day is not None:  # 周历：排到某一天；空字符串 = 不排了
+            store.update_shoot_item(item_id, planned_day=parse_day(body.planned_day).isoformat() if body.planned_day else None)
         return {"notes": store.shoot_list()}
 
     @app.delete("/api/today/notes/{item_id}")

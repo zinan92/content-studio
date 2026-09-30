@@ -183,3 +183,96 @@ def test_today_lists_both_dailies_and_marks_them_read(client: TestClient, tmp_pa
     assert {i["key"]: i["exists"] for i in d["rd"]["items"]}["kline_daily"] and d["days"][-1]["rd"] == "pending"
     assert client.put("/api/today/checks", json={"day": today.isoformat(), "key": "kline_daily", "checked": True}).status_code == 200
     assert _today(client)["days"][-1]["rd"] == "ok"
+
+
+# -- 周历（#334）：能排一整周，能看每天做没做到、减了几分 ---------------------------------
+
+def test_a_week_is_scored_with_the_same_rules_and_never_before_he_started() -> None:
+    today = date(2026, 9, 30)  # 周三
+    days = driver.kpi_range(driver.week_start(today), date(2026, 10, 4), today, posted={"2026-09-29"}, started="2026-09-29",
+                            dms={"2026-09-30": {"received": 0, "replied": 0}}, x_replies={"2026-09-30": 10}, x_target=10,
+                            reads={"2026-09-30": True}, read_started="2026-09-30", ship_started="2026-09-29")
+    assert [d["day"][-2:] for d in days] == ["28", "29", "30", "01", "02", "03", "04"]  # 周一到周日
+    by = {d["day"][-2:]: d for d in days}
+    assert by["28"]["ship"] == "n/a" and by["28"]["dm"] == "n/a"  # 开始算之前：不倒扣
+    assert (by["29"]["ship"], by["29"]["dm"], by["29"]["xr"], by["29"]["rd"]) == ("ok", "miss", "miss", "n/a")
+    assert (by["30"]["ship"], by["30"]["dm"], by["30"]["xr"], by["30"]["rd"]) == ("pending", "ok", "ok", "ok")  # 今天没发不算减分
+    assert all(by[k][f] == "future" for k in ("01", "04") for f in ("rd", "ship", "dm", "xr"))
+    assert driver.demerits(days) == 2
+
+
+def test_streak_says_which_line_he_is_on() -> None:
+    posted = {"2026-09-24", "2026-09-29"}
+    assert driver.ship_streak(date(2026, 9, 30), posted) == {"kind": "ok", "days": 1}  # 今天还没发不算断
+    assert driver.ship_streak(date(2026, 9, 29), posted) == {"kind": "ok", "days": 1}
+    assert driver.ship_streak(date(2026, 9, 29), {"2026-09-24"}) == {"kind": "miss", "days": 4}  # 25–28 四天没发
+    assert driver.ship_streak(date(2026, 9, 30), {"2026-09-27", "2026-09-28", "2026-09-29", "2026-09-30"}) == {"kind": "ok", "days": 4}
+    assert driver.ship_streak(date(2026, 9, 30), set()) == {"kind": "none", "days": 0}
+
+
+def test_what_he_planned_for_the_day_comes_before_the_top_of_the_list() -> None:
+    notes = [{"id": 1, "planned_day": None}, {"id": 2, "planned_day": "2026-10-03"}, {"id": 3, "planned_day": "2026-10-01"},
+             {"id": 4, "planned_day": "2026-09-29"}, {"id": 5, "planned_day": None}]
+    assert [n["id"] for n in driver.plan_order(notes, "2026-10-01")] == [3, 4, 1, 5, 2]  # 今天的 → 过期的 → 没排的 → 以后的
+    assert [n["id"] for n in driver.plan_order(notes[:1] + notes[4:], "2026-10-01")] == [1, 5]  # 都没排：照清单顺序
+
+
+def test_week_calendar_holds_the_plan_and_the_score(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import timedelta
+
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    today = date.today()
+    tomorrow = (today + timedelta(days=1)).isoformat()
+    client.post("/api/today/notes", json={"text": "清单第一条"})
+    client.post("/api/today/notes", json={"text": "排在今天的这条", "planned_day": today.isoformat()})
+    d = _today(client)
+    week = d["week"]
+    assert week["current"] and len(week["days"]) == 7 and date.fromisoformat(week["start"]).weekday() == 0
+    assert set(d) >= {"days", "demerits", "week", "streak"}  # 原来的字段还在，含义没变
+    cell = next(c for c in week["days"] if c["state"] == "today")
+    assert [p["text"] for p in cell["planned"]] == ["排在今天的这条"]
+    assert d["ship"]["next"]["text"] == "拍「排在今天的这条」" and "排在今天" in d["ship"]["next"]["why"]
+    assert [n["text"] for n in d["ship"]["notes"]] == ["清单第一条", "排在今天的这条"]  # 清单自己的顺序不动
+
+    # 把清单第一条排到明天；再加一件不算分的事，做完勾掉
+    first = d["ship"]["notes"][0]["id"]
+    client.patch(f"/api/today/notes/{first}", json={"planned_day": tomorrow})
+    item = client.post("/api/today/plan", json={"day": tomorrow, "text": "约两个博主诊断"}).json()["item"]
+    wk = client.get("/api/today/week", params={"start": tomorrow}).json()
+    cell = next(c for c in wk["days"] if c["day"] == tomorrow)
+    assert [p["text"] for p in cell["planned"]] == ["清单第一条"] and cell["items"] == [{"id": item["id"], "text": "约两个博主诊断", "done": False}]
+    if cell["state"] == "future":
+        assert cell["ship"] == "future" and cell["demerits"] == 0
+    client.patch(f"/api/today/plan/{item['id']}", json={"done": True})
+    client.patch(f"/api/today/notes/{first}", json={"planned_day": ""})  # 不排了
+    cell = next(c for c in client.get("/api/today/week", params={"start": tomorrow}).json()["days"] if c["day"] == tomorrow)
+    assert cell["planned"] == [] and cell["items"][0]["done"] is True
+    client.delete(f"/api/today/plan/{item['id']}")
+    assert all(c["items"] == [] for c in client.get("/api/today/week", params={"start": tomorrow}).json()["days"])
+
+    # 翻到上一周、下一周：都是周一开头的七天；没发过视频的时候，过去的日子不倒扣
+    prev = client.get("/api/today/week", params={"start": week["prev"]}).json()
+    nxt = client.get("/api/today/week", params={"start": week["next"]}).json()
+    assert prev["next"] == week["start"] and nxt["prev"] == week["start"] and not prev["current"]
+    assert all(c["state"] == "past" and c["ship"] == "n/a" and c["demerits"] == 0 for c in prev["days"])
+    assert all(c["state"] == "future" for c in nxt["days"])
+    assert client.patch(f"/api/today/notes/{first}", json={"planned_day": "下周三"}).status_code == 400
+
+
+def test_past_days_show_what_went_out_and_the_demerits(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import timedelta
+
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    store = client.app.state.store
+    today = date.today()
+    two_ago, yesterday = today - timedelta(days=2), today - timedelta(days=1)
+    me = store.add_account(platform="抖音", profile_url="https://www.douyin.com/user/me", external_id="me", status="ok", is_self=True)
+    store.upsert_videos(me["id"], [{"platform": "抖音", "video_id": "v1", "title": "接了一单咨询\n把这件事拍出来", "published_at": f"{two_ago.isoformat()}T10:00:00+08:00",
+                                    "duration_seconds": 600, "is_top": 0, "is_image_post": 0, "likes": 1, "comments": 0, "shares": 0, "collects": 0, "views": 10}])
+    d = _today(client)
+    cells = {c["day"]: c for wk in (d["week"], client.get("/api/today/week", params={"start": two_ago.isoformat()}).json()) for c in wk["days"]}
+    assert cells[two_ago.isoformat()]["ship"] == "ok" and cells[two_ago.isoformat()]["shipped"] == ["接了一单咨询 把这件事拍出来"]
+    assert cells[yesterday.isoformat()]["ship"] == "miss" and cells[yesterday.isoformat()]["demerits"] >= 1  # 昨天没发：减分
+    assert d["streak"] == {"kind": "miss", "days": 1}
+    week = client.get("/api/today/week", params={"start": yesterday.isoformat()}).json()
+    assert week["demerits"] == sum(c["demerits"] for c in week["days"]) and week["ship_days"] >= 1
