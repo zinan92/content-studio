@@ -149,7 +149,7 @@ def kpi_block(kpi: dict[str, Any] | None) -> str:
     skips = "\n".join(f"- {s['day']}｜跳过 {s['what']}｜理由：{s['reason']}" for s in kpi["skips"]) or "（没有跳过）"
     return f"""
 ## 执行分（Park 自己能控制的，这 7 天）
-出摊（抖音发出）{kpi['posted']}/7 天；私信没回完 {kpi['dm_missed']} 天；一共减 {kpi['demerits']} 分。
+日报没读完 {kpi.get('read_missed', 0)} 天；出摊（抖音发出）{kpi['posted']}/7 天；私信没回完 {kpi['dm_missed']} 天；X 回复没到数 {kpi.get('x_missed', 0)} 天；一共减 {kpi['demerits']} 分。
 跳过时写的理由：
 {skips}
 problems 里必须有一条直说执行分：减了几分、哪个借口重复出现了几次（没有重复就说没有）；这一条的 video_ids 给 []。

@@ -1875,3 +1875,10 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .td-pv-figs img{height:72px;border-radius:6px;display:block}
 .td-pv-go{display:flex;flex-direction:column;gap:8px}
 .td-plat.bad{border-color:var(--warn);color:var(--warn)}
+.td-reads{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.td-read{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--sunk);border-radius:10px;padding:10px 14px}
+.td-read b{flex:1;min-width:80px;font-size:15px}
+.td-read small{font-size:12px;color:var(--ink-3)}
+.td-read.on small{color:var(--out)}
+.td-read .btn{font-size:13px;padding:6px 12px;border-radius:9px}
+@media (max-width:700px){.td-reads{grid-template-columns:1fr}}

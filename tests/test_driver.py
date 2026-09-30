@@ -147,3 +147,39 @@ def test_backfill_preview_shows_what_would_go_out(client: TestClient, tmp_path) 
     assert v["article_title"] == "文章标题"
     assert v["article_head"] == ["第一段。", "第二段加粗。"]
     assert v["layout_url"].endswith("/wechat-preview.html")
+
+
+def test_reading_the_dailies_is_scored_from_the_start_day_and_only_when_one_came_out() -> None:
+    days = driver.kpi_days(date(2026, 10, 2), posted=set(), dms={}, started="2099-01-01",
+                           reads={"2026-09-30": True, "2026-10-01": False, "2026-10-02": False}, read_started="2026-09-30")
+    by = {d["day"]: d["rd"] for d in days}
+    assert by["2026-09-29"] == "n/a"  # 开始之前不倒扣
+    assert by["2026-09-30"] == "ok" and by["2026-10-01"] == "miss" and by["2026-10-02"] == "pending"
+    # 那天一份日报都没出（reads 里没有这天）：不算
+    days = driver.kpi_days(date(2026, 10, 2), posted=set(), dms={}, started="2099-01-01", reads={}, read_started="2026-09-30")
+    assert all(d["rd"] == "n/a" for d in days)
+
+
+def test_today_lists_both_dailies_and_marks_them_read(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from content_studio import kline_board
+
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    monkeypatch.setattr(kline_board, "KLINE_DIR", tmp_path / "kline")
+    root = tmp_path / "vault-default"
+    today = date.today()
+    (root / "006_ai daily newsletter").mkdir(parents=True, exist_ok=True)
+    (root / "006_ai daily newsletter" / f"{today:%y-%m-%d}.md").write_text("# AI 日报", encoding="utf-8")
+    client.app.state.store.update_settings({"kpi": {"read_started": "2000-01-01"}})
+    d = _today(client)
+    items = {i["key"]: i for i in d["rd"]["items"]}
+    assert items["ai_daily"]["exists"] and not items["kline_daily"]["exists"]  # K 线日报今天没出，不要求
+    assert d["days"][-1]["rd"] == "pending"
+    client.put("/api/today/checks", json={"day": today.isoformat(), "key": "ai_daily", "checked": True})
+    assert _today(client)["days"][-1]["rd"] == "ok"
+    # K 线日报出了（它自己的文件夹），就也要读
+    (tmp_path / "kline").mkdir()
+    (tmp_path / "kline" / f"{today:%Y-%m-%d}-kline-daily-newsletter.md").write_text("# K", encoding="utf-8")
+    d = _today(client)
+    assert {i["key"]: i["exists"] for i in d["rd"]["items"]}["kline_daily"] and d["days"][-1]["rd"] == "pending"
+    assert client.put("/api/today/checks", json={"day": today.isoformat(), "key": "kline_daily", "checked": True}).status_code == 200
+    assert _today(client)["days"][-1]["rd"] == "ok"

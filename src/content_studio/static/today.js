@@ -1,6 +1,6 @@
 'use strict';
 /* 今天：ABC 三件事，就这三件（逻辑在 driver.py）。
- * A 出摊：抖音、视频号、小红书发视频，X、公众号发文字；B 回私信；C X 互动，回 20 条。
+ * A 读日报（9/30）；B 出摊：抖音、视频号、小红书发视频，X、公众号发文字；C 回私信；D X 互动，回 20 条；E 补发。
  * 没做到当天各减 1 分，左边栏一直显示。触达是结果，不在这一页看（在「已发出」）。
  * 9/29 Park：「你只需要告诉我，我今天要做的 ABC 三件事就好了……感觉今天这个页面太散了。」
  * 拍什么他定：「接下来要拍的」收在 A 里面；只有他点「我今天不知道拍什么」才建议。 */
@@ -68,7 +68,7 @@ function shipRow(d) {
   else if (sg && sg.error) sug = `<span class="td-note warn">${esc(sg.error)}</span> <button class="btn small" type="button" id="tdSuggest">再挑一次</button>`;
   else if (sg && sg.topic_id) sug = `<div class="td-sug"><b>建议拍：${esc(sg.title)}</b><span>${esc(sg.why)}</span><div class="btns"><button class="btn go" type="button" id="tdTake">就拍这条</button><button class="btn quiet" type="button" id="tdSuggest">换一条</button></div></div>`;
   return `<section class="td-row ${s.done ? 'done' : ''}">
-    <div class="td-h"><span class="td-letter">A</span><h2>出摊</h2>${rowState(d.days, 'ship', s.done)}${dots(d.days, 'ship')}</div>
+    <div class="td-h"><span class="td-letter">B</span><h2>出摊</h2>${rowState(d.days, 'ship', s.done)}${dots(d.days, 'ship')}</div>
     <div class="td-plats">${s.topic ? `<span class="td-topic">《${esc(s.topic.title)}》</span>` : ''}${groups.map(([f, ps]) => `<span class="td-form">${FORM[f]}</span>${ps.map(plat).join('')}`).join('')}</div>
     ${nextLine(s.next)}
     <details class="td-notes" ${s.notes.length ? '' : 'open'}><summary>接下来要拍的 · 你定${s.notes.length ? ` <span class="num">${s.notes.length}</span>` : ''}</summary>
@@ -78,11 +78,30 @@ function shipRow(d) {
   </section>`;
 }
 
+/* A 读日报（9/30 Park：「每天最重要的事就是我要去读每日的日报，要不然日报存在的意义就没了」）。
+   出了的才要读；打开 → 进项里那一份；读完点一下。 */
+function readRow(d) {
+  const items = d.rd.items;
+  const due = items.filter((i) => i.exists);
+  const done = due.length > 0 && due.every((i) => i.read_at);
+  const row = (i) => `<div class="td-read ${i.read_at ? 'on' : ''}">
+      <b>${esc(i.label)}</b>
+      ${!i.exists ? '<small>今天的还没出</small>'
+        : i.read_at ? `<small>✓ ${new Date(i.read_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} 读完</small><button class="btn quiet" type="button" data-rd-undo="${i.key}">撤回</button>`
+        : `<button class="btn" type="button" data-rd-open="${i.tab}">打开 →</button><button class="btn go" type="button" data-rd-done="${i.key}">读完了</button>`}
+    </div>`;
+  return `<section class="td-row ${done ? 'done' : ''}">
+    <div class="td-h"><span class="td-letter">A</span><h2>读日报</h2>${rowState(d.days, 'rd', done)}${dots(d.days, 'rd')}</div>
+    <p class="td-why">每天第一件事。日报不读，就白出了。</p>
+    <div class="td-reads">${items.map(row).join('')}</div>
+  </section>`;
+}
+
 function dmRow(d) {
   const e = d.dm.entry || {};
   const done = d.dm.entry && e.replied >= e.received;
   return `<section class="td-row ${done ? 'done' : ''}">
-    <div class="td-h"><span class="td-letter">B</span><h2>回私信</h2>${rowState(d.days, 'dm', done)}${dots(d.days, 'dm')}</div>
+    <div class="td-h"><span class="td-letter">C</span><h2>回私信</h2>${rowState(d.days, 'dm', done)}${dots(d.days, 'dm')}</div>
     <p class="td-why">当天收到的当天回完，每条都往「动手」引。${d.dm.target ? `目标每天收到 ${d.dm.target} 条。` : `收到多少先记到 ${esc(d.dm.baseline_until.slice(5).replace('-', '/'))} 摸底，再定目标。`}</p>
     <form class="td-dm" id="tdDm"><label>收到 <input id="tdDmRecv" type="number" min="0" inputmode="numeric" value="${e.received ?? ''}"></label>
       <label>回了 <input id="tdDmRep" type="number" min="0" inputmode="numeric" value="${e.replied ?? ''}"></label>
@@ -94,7 +113,7 @@ function xrRow(d) {
   const n = d.xr.count, t = d.xr.target;
   const done = n != null && n >= t;
   return `<section class="td-row ${done ? 'done' : ''}">
-    <div class="td-h"><span class="td-letter">C</span><h2>X 互动 · 回 ${t} 条</h2>${rowState(d.days, 'xr', done)}${dots(d.days, 'xr')}</div>
+    <div class="td-h"><span class="td-letter">D</span><h2>X 互动 · 回 ${t} 条</h2>${rowState(d.days, 'xr', done)}${dots(d.days, 'xr')}</div>
     <p class="td-why">在你这个领域的中文大号帖子下面回一句有立场的话，不带链接。你在 X 上被看到过的，全是回复。</p>
     <form class="td-dm" id="tdXr"><a class="btn" href="https://x.com/home" target="_blank" rel="noopener">打开 X ↗</a>
       <label>今天回了 <input id="tdXrN" type="number" min="0" inputmode="numeric" value="${n ?? ''}"> / ${t}</label>
@@ -156,7 +175,7 @@ function backfillRow(d) {
   const done = b.today && b.today.missing.length === 0;
   const list = b.ready.slice(0, TD.bfAll ? 50 : 3).map(packRow).join('');
   return `<section class="td-row ${done ? 'done' : ''}">
-    <div class="td-h"><span class="td-letter">D</span><h2>补发</h2><span class="td-state ${done ? 'ok' : ''}">${done ? '✓ 今天补完了' : b.today ? '今天在补' : `包打好 ${b.ready_count} 条${b.waiting_count ? ` · 还在打 ${b.waiting_count} 条` : ''}`}</span></div>
+    <div class="td-h"><span class="td-letter">E</span><h2>补发</h2><span class="td-state ${done ? 'ok' : ''}">${done ? '✓ 今天补完了' : b.today ? '今天在补' : `包打好 ${b.ready_count} 条${b.waiting_count ? ` · 还在打 ${b.waiting_count} 条` : ''}`}</span></div>
     <p class="td-why">没拍新视频的日子，挑一条旧的发到剩下的平台。B 站、YouTube、X 自己发出去；公众号、视频号、小红书你来点，十几分钟。</p>
     ${b.today ? todayPack(b.today) : ''}
     ${!b.today || done ? `<div class="td-packs">${list || '<p class="td-note">还没有打好的包。</p>'}</div>
@@ -192,7 +211,7 @@ window.VIEWS.today = {
     const sig = JSON.stringify([d, TD.skipOpen, TD.bfOpen, TD.prev && TD.prev.topic_id, TD.bfAll]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
-    body.innerHTML = `${firstBlock(d.first)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${backfillRow(d)}${wrapBlock(d)}
+    body.innerHTML = `${firstBlock(d.first)}${readRow(d)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${backfillRow(d)}${wrapBlock(d)}
       <p class="td-note td-foot">触达是结果，不算你的分，在「已发出」里看：7 天平均 ${fmt(d.reach.avg7 || 0)} / 目标 ${fmt(d.reach.target)}（${esc(d.reach.by.slice(5).replace('-', '/'))} 前）。</p>`;
 
     $$('[data-td-go]', body).forEach((b) => (b.onclick = () => goHash(b.dataset.tdGo)));
@@ -216,6 +235,10 @@ window.VIEWS.today = {
     $$('[data-note-up]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteUp}`, { method: 'PATCH', body: { move: -1 } }))));
     $$('[data-note-down]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteDown}`, { method: 'PATCH', body: { move: 1 } }))));
     $$('[data-note-del]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/notes/${b.dataset.noteDel}`, { method: 'DELETE' }))));
+    $$('[data-rd-open]', body).forEach((b) => (b.onclick = () => { if (window.openInputTab) window.openInputTab(b.dataset.rdOpen); else go('input'); }));
+    const check = (key, checked) => api('/api/today/checks', { method: 'PUT', body: { day: d.day, key, checked } });
+    $$('[data-rd-done]', body).forEach((b) => (b.onclick = () => tdAct(() => check(b.dataset.rdDone, true))));
+    $$('[data-rd-undo]', body).forEach((b) => (b.onclick = () => tdAct(() => check(b.dataset.rdUndo, false))));
     $$('[data-bf-open]', body).forEach((b) => (b.onclick = async () => {
       const id = Number(b.dataset.bfOpen);
       TD.bfOpen = TD.bfOpen === id ? null : id;

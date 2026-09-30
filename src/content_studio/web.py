@@ -870,7 +870,7 @@ def create_app(
     @app.put("/api/today/checks")
     def put_check(body: CheckBody) -> dict[str, Any]:
         parse_day(body.day)
-        if body.key not in {s.key for s in vault.DAILY_SOURCES} | {"video_shot"}:
+        if body.key not in {s.key for s in vault.DAILY_SOURCES} | {k for k, _, _ in READ_DAILIES} | {"video_shot"}:
             raise ValueError("未知的勾选项")
         return {"day": body.day, "checks": store.set_daily_check(body.day, body.key, body.checked)}
 
@@ -1094,8 +1094,19 @@ def create_app(
         from . import driver
 
         since = (today - timedelta(days=driver.WINDOW)).isoformat()
-        days = driver.kpi_days(today, posted=posted_days(), dms=store.dm_entries(since), started=kpi_config()["started"])
+        cfg = kpi_config()
+        reads = {}
+        for i in range(driver.WINDOW):
+            d = today - timedelta(days=i)
+            ok = read_state(d)[1] if d.isoformat() >= cfg["read_started"] else None
+            if ok is not None:
+                reads[d.isoformat()] = ok
+        days = driver.kpi_days(today, posted=posted_days(), dms=store.dm_entries(since), started=cfg["started"],
+                               x_replies=store.kpi_counts(since, "x_replies"), x_target=int(cfg["x_replies_daily"]),
+                               reads=reads, read_started=cfg["read_started"])
         return {
+            "read_missed": sum(d["rd"] == "miss" for d in days),
+            "x_missed": sum(d["xr"] == "miss" for d in days),
             "posted": sum(d["ship"] == "ok" for d in days),
             "dm_missed": sum(d["dm"] == "miss" for d in days),
             "demerits": driver.demerits(days),
@@ -3331,6 +3342,27 @@ def create_app(
                 days.update(d for d in (today_plan._day(v["published_at"]) for v in store.videos(account["id"]) if not v["is_image_post"]) if d)
         return days
 
+    READ_DAILIES = (("ai_daily", "AI 日报", "ai_daily"), ("kline_daily", "K 线日报", "kline"))  # (key, 名字, 进项里的 tab)
+
+    def read_state(day: date) -> tuple[list[dict[str, Any]], bool | None]:
+        """那天要读的日报：出了的才要读。返回每份的状态，和是不是都读完了（一份都没出 → None）。"""
+        from . import kline_board
+
+        checks = store.daily_checks(day.isoformat())
+        try:
+            found = {d["key"]: d["path"] for d in vault.dailies(vault_path(), day)}
+        except vault.VaultError:
+            found = {}
+        # K 线日报有自己的 tab（kline_board），profile 里不一定把它列成日报来源：直接看那天的文件在不在
+        if not found.get("kline_daily") and kline_board.KLINE_DIR.is_dir():
+            tokens = vault.date_tokens(day)
+            found["kline_daily"] = next((str(f) for f in sorted(kline_board.KLINE_DIR.iterdir())
+                                         if f.suffix == ".md" and "kline-daily-newsletter" in f.name and any(t in f.name for t in tokens)), None)
+        items = [{"key": k, "label": label, "tab": tab, "exists": bool(found.get(k)), "read_at": checks.get(k)}
+                 for k, label, tab in READ_DAILIES]
+        due = [i for i in items if i["exists"]]
+        return items, (all(i["read_at"] for i in due) if due else None)
+
     def kpi_config() -> dict[str, Any]:
         from .store import DEFAULT_SETTINGS
 
@@ -3419,7 +3451,15 @@ def create_app(
         since = (today - timedelta(days=driver.WINDOW)).isoformat()
         dms = store.dm_entries(since)
         xr = store.kpi_counts(since, "x_replies")
-        days = driver.kpi_days(today, posted=posted, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]))
+        reads = {}
+        for i in range(driver.WINDOW):
+            d = today - timedelta(days=i)
+            if d.isoformat() >= kpi["read_started"]:
+                ok = read_state(d)[1]
+                if ok is not None:
+                    reads[d.isoformat()] = ok
+        days = driver.kpi_days(today, posted=posted, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]),
+                               reads=reads, read_started=kpi["read_started"])
         reach = get_reach(14)
         # 清单里那条的选题发出去了，这条就划掉
         for note in store.shoot_list():
@@ -3477,6 +3517,7 @@ def create_app(
             "days": days,
             "first": driver.order(first, skipped=skipped, done=done_keys),
             "ship": {**ship, "notes": notes, "suggest": suggest_state()},
+            "rd": {"items": read_state(today)[0]},
             "dm": {"entry": entry, "target": kpi["dm_daily"], "baseline_until": kpi["dm_baseline_until"]},
             "xr": {"count": xr.get(tkey), "target": int(kpi["x_replies_daily"])},
             "reach": {"avg7": reach.get("avg7"), "target": kpi["reach_daily"], "by": kpi["reach_by"]},
