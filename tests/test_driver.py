@@ -58,7 +58,7 @@ def test_today_is_three_things_and_the_top_note_is_what_he_shoots_next(client: T
     assert set(d) >= {"first", "ship", "dm", "xr", "days", "demerits"}
     assert d["ship"]["next"]["key"] == "notes:empty"  # 清单空：让他写，不替他挑
     assert [p["form"] for p in d["ship"]["platforms"] if p["key"] in ("douyin", "x")] == ["video", "text"]
-    assert d["xr"] == {"count": None, "target": 20}
+    assert d["xr"] == {"count": None, "target": 10}
     client.post("/api/today/notes", json={"text": "内容工作台做完整了，拍出来"})
     client.post("/api/today/notes", json={"text": "接了一单咨询，拍出来", "top": True})
     d = _today(client)

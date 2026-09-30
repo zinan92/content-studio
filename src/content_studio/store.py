@@ -39,12 +39,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "traffic_tags": {},
     # 抖音上设成私密（比如被判违规藏起来）但别的平台还要发的视频：全平台追踪照样列出来（9/29 Park）。
     "tracker_keep": [],
+    # 各平台主页的名字、简介、链接（profiles.py）：{platform: {name, bio, link, applied: {name, bio, link, at}}}
+    "profiles": {},
     # 9/29 Park：KPI 由 Claude 定，Park 照做。出摊和回私信算他的分；触达和收到私信是结果。
     # reach_daily 是 7 天平均的目标，reach_by 之前要到；dm_daily 在 dm_baseline_until 摸底完再定（0 = 还没定）。
     "kpi": {"started": "2026-09-29", "reach_daily": 10000, "reach_by": "2026-10-31", "reach_next": 20000,
             "dm_daily": 0, "dm_baseline_until": "2026-10-06",
-            # X 互动：每天在别人的帖子下面回这么多条（9/29 Park：先定 20）
-            "x_replies_daily": 20,
+            # X 互动：每天在别人的帖子下面回这么多条（9/29 Park 先定 20；9/30 降到 10）
+            "x_replies_daily": 10,
             # 读日报从这天起算分（9/30 Park）
             "read_started": "2026-09-30"},
 }
