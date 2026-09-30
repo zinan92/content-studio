@@ -325,7 +325,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"publish_records": {"form": "TEXT"}, "accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
+        wanted = {"feed_marks": {"opened_at": "TEXT"}, "publish_records": {"form": "TEXT"}, "accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -1038,16 +1038,17 @@ class StudioStore:
     def feed_marks(self) -> dict[str, dict[str, Any]]:
         return {r["video_id"]: r for r in self._rows("SELECT * FROM feed_marks")}
 
-    def set_feed_mark(self, video_id: str, *, seen: bool | None = None, note: str | None = None) -> None:
+    def set_feed_mark(self, video_id: str, *, seen: bool | None = None, note: str | None = None, opened: bool | None = None) -> None:
+        """只有他点「看过了」才算看过。点「去看」只记成点开过（9/30 Park：看完觉得好，接下来要复刻或拆解，
+        这一条不能自己消失；觉得没用他再点看过了）。记一句也不算看过。"""
         with self.tx() as conn:
             conn.execute("INSERT OR IGNORE INTO feed_marks(video_id) VALUES (?)", (video_id,))
+            if opened:
+                conn.execute("UPDATE feed_marks SET opened_at = ? WHERE video_id = ?", (now_iso(), video_id))
             if seen is not None:
                 conn.execute("UPDATE feed_marks SET seen_at = ? WHERE video_id = ?", (now_iso() if seen else None, video_id))
             if note is not None:
-                note = note.strip()[:300]
-                # 写了一句，就算看过了
-                conn.execute("UPDATE feed_marks SET note = ?, seen_at = COALESCE(seen_at, ?) WHERE video_id = ?",
-                             (note or None, now_iso() if note else None, video_id))
+                conn.execute("UPDATE feed_marks SET note = ? WHERE video_id = ?", (note.strip()[:300] or None, video_id))
 
     # -- 流量视频（swipe.py） -------------------------------------------------
 

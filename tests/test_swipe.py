@@ -130,10 +130,14 @@ def test_feed_lists_new_posts_by_teacher_and_benchmark_and_marks_seen(client: Te
     assert feed["benchmark"] == [] and len(feed["teacher"]) >= 1 and feed["accounts"]["teacher"] == ["对标号"]
 
     vid = feed["teacher"][0]["video_id"]
-    client.put(f"/api/feed/{vid}", json={"seen": True})
-    assert next(r for r in client.get("/api/feed").json()["teacher"] if r["video_id"] == vid)["seen_at"]
-    client.put(f"/api/feed/{vid}", json={"seen": False})
+    row = lambda: next(r for r in client.get("/api/feed").json()["teacher"] if r["video_id"] == vid)  # noqa: E731
+    # 点「去看」只记成点开过，不算看过：看完要复刻、要拆解，这一行得还在
+    client.put(f"/api/feed/{vid}", json={"opened": True})
+    assert row()["opened_at"] and row()["seen_at"] is None
     client.put(f"/api/feed/{vid}", json={"note": "先给结论再讲为什么"})
-    r = next(r for r in client.get("/api/feed").json()["teacher"] if r["video_id"] == vid)
-    assert r["note"] == "先给结论再讲为什么" and r["seen_at"]  # 写了一句就算看过了
+    assert row()["note"] == "先给结论再讲为什么" and row()["seen_at"] is None  # 记一句也不算看过
+    client.put(f"/api/feed/{vid}", json={"seen": True})
+    assert row()["seen_at"]  # 只有他点「看过了」才算
+    client.put(f"/api/feed/{vid}", json={"seen": False})
+    assert row()["seen_at"] is None
     assert client.put("/api/feed/nope", json={"seen": True}).status_code == 400

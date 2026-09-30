@@ -1939,3 +1939,4 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .playbook-md{overflow-y:auto;max-width:none;padding:6px 28px 32px;font-size:16px}
 .playbook-md h3{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-size:18px}
 .playbook-md li{margin:4px 0}
+.fd-opened{font-style:normal;font-size:11px;font-weight:400;color:var(--ink-3);margin-left:6px}

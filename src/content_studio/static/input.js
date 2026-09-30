@@ -477,7 +477,7 @@ async function renderSwipe(body) {
 
 
 /* ---------- 老师 / 对标：他们新发的视频，Park 自己去看（9/30） ----------
- * 不下载、不拆、不按点赞筛。「去看」打开抖音并记成看过；老师的可以记一句学到什么；对标的可以点「想复刻」
+ * 不下载、不拆、不按点赞筛。「去看」打开抖音，只记成点开过，行留在原地；只有点「看过了」才下去；老师的可以记一句学到什么；对标的可以点「想复刻」
  * 存进流量视频；哪一栏都能点「拆解」——点了才拆。 */
 const FD = { data: null, days: 7, showSeen: false };
 
@@ -490,10 +490,10 @@ function feedRow(v, kind) {
   const copy = kind !== 'benchmark' ? '' : v.swipe_id ? '<span class="fd-tag ok">在流量视频里</span>'
     : `<button class="btn small ghost" type="button" data-fd-swipe="${esc(v.url)}">想复刻</button>`;
   return `<div class="fd-row ${v.seen_at ? 'seen' : ''}" data-fd="${esc(v.video_id)}">
-    <div class="fd-meta"><b>${esc(v.account)}</b><small>${esc(when)}${dur ? ' · ' + dur : ''}${v.likes != null ? ' · ' + fmt(v.likes) + ' 赞' : ''}${v.is_image_post ? ' · 图文' : ''}</small></div>
+    <div class="fd-meta"><b>${esc(v.account)}${v.opened_at && !v.seen_at ? ' <i class="fd-opened">点开过</i>' : ''}</b><small>${esc(when)}${dur ? ' · ' + dur : ''}${v.likes != null ? ' · ' + fmt(v.likes) + ' 赞' : ''}${v.is_image_post ? ' · 图文' : ''}</small></div>
     <div class="fd-title">${esc(cleanTitle(v.title) || '（没有标题）')}</div>
     <div class="fd-acts">
-      <a class="btn small ${v.seen_at ? '' : 'primary'}" href="${esc(v.url)}" target="_blank" rel="noopener" data-fd-open="${esc(v.video_id)}">去看 ↗</a>
+      <a class="btn small ${v.seen_at || v.opened_at ? '' : 'primary'}" href="${esc(v.url)}" target="_blank" rel="noopener" data-fd-open="${esc(v.video_id)}">${v.opened_at ? '再看 ↗' : '去看 ↗'}</a>
       <button class="btn small ghost" type="button" data-fd-seen="${esc(v.video_id)}" data-to="${v.seen_at ? '0' : '1'}">${v.seen_at ? '标成没看' : '看过了'}</button>
       ${copy}${torn}
     </div>
@@ -516,7 +516,7 @@ async function renderFeed(body, kind) {
       <div class="fd-head"><div><b>${label}新发的 · ${unseen.length} 条没看</b>
         <small>${who.length ? esc(who.join('、')) : `还没有${label}`} · 每天 9:30 查一次有没有新发的</small></div>
         <div class="seg-toggle" role="group" aria-label="时间">${[[3, '3 天'], [7, '7 天'], [30, '30 天']].map(([n, l]) => `<button type="button" class="${FD.days === n ? 'on' : ''}" data-fd-days="${n}">${l}</button>`).join('')}</div></div>
-      <p class="in-note">${kind === 'teacher' ? '老师是来学东西的：去看，学到什么记一句。' : '对标是看他在做什么：去看，觉得值得照着做一条，点「想复刻」存进流量视频。'}工作台不替你筛、不自动拆，想拆点那条的「拆解」。谁是老师谁是对标，在「05 已发出 → 老师和对标」里改。</p>
+      <p class="in-note">${kind === 'teacher' ? '老师是来学东西的：去看，学到什么记一句，没用的点「看过了」。' : '对标是看他在做什么：去看，值得照着做一条就点「想复刻」存进流量视频，没用的点「看过了」。'}工作台不替你筛、不自动拆，想拆点那条的「拆解」。谁是老师谁是对标，在「05 已发出 → 老师和对标」里改。</p>
       ${unseen.length ? unseen.map((v) => feedRow(v, kind)).join('') : `<div class="empty"><b>${rows.length ? '都看过了' : `这 ${FD.days} 天${label}没有发新的`}</b></div>`}
       ${seen.length ? `<button class="btn quiet fd-more" type="button" id="fdMore">${FD.showSeen ? '收起' : `看过的 ${seen.length} 条`}</button>${FD.showSeen ? seen.map((v) => feedRow(v, kind)).join('') : ''}` : ''}
     </div>`;
@@ -525,7 +525,8 @@ async function renderFeed(body, kind) {
   const act = async (fn) => { try { await fn(); } catch (err) { toast(err.message); } again(); };
   const mark = (id, payload) => api(`/api/feed/${id}`, { method: 'PUT', body: payload });
   $$('[data-fd-days]', body).forEach((b) => (b.onclick = () => { FD.days = Number(b.dataset.fdDays); again(); }));
-  $$('[data-fd-open]', body).forEach((a) => a.addEventListener('click', () => { act(() => mark(a.dataset.fdOpen, { seen: true })); }));
+  // 点「去看」只记成点开过，这一行留在原地：看完要复刻、要拆解还得在这儿点。没用的他自己点「看过了」。
+  $$('[data-fd-open]', body).forEach((a) => a.addEventListener('click', () => { act(() => mark(a.dataset.fdOpen, { opened: true })); }));
   $$('[data-fd-seen]', body).forEach((b) => (b.onclick = () => act(() => mark(b.dataset.fdSeen, { seen: b.dataset.to === '1' }))));
   $$('[data-fd-note]', body).forEach((i) => (i.onchange = () => act(() => mark(i.dataset.fdNote, { note: i.value }))));
   $$('[data-fd-swipe]', body).forEach((b) => (b.onclick = () => act(async () => { await api('/api/swipe', { method: 'POST', body: { url: b.dataset.fdSwipe } }); toast('存进流量视频了，正在下载'); })));
