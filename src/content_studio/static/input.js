@@ -358,27 +358,21 @@ async function pickDaily(key, id) {
 /* ================= K 线日报：紧凑网格，一个标的一张日线卡 ================= */
 const K = { data: null, loadedAt: 0 };
 
-/** 迷你日线：bars = [[o,h,l,c], ...]，三条 path，淡绿涨淡红跌。 */
-function miniCandles(bars, w = 160, h = 56) {
-  if (!bars || !bars.length) return `<svg class="k-svg" viewBox="0 0 ${w} ${h}" aria-label="无数据"></svg>`;
-  const hi = Math.max(...bars.map((b) => b[1]));
-  const lo = Math.min(...bars.map((b) => b[2]));
+/** 迷你收盘线：closes = [c, ...]。卡片这么小，OHLC 四个点看不清，只剩形态，所以直接画线。 */
+function miniLine(closes, w = 160, h = 56) {
+  if (!closes || closes.length < 2) return `<svg class="k-svg" viewBox="0 0 ${w} ${h}" aria-label="无数据"></svg>`;
+  const hi = Math.max(...closes);
+  const lo = Math.min(...closes);
   const rng = hi - lo || 1;
-  const pad = 2;
-  const step = (w - pad * 2) / bars.length;
-  const bw = Math.max(1, step * 0.62);
-  const y = (v) => pad + ((hi - v) / rng) * (h - pad * 2);
-  let wick = '', up = '', dn = '';
-  bars.forEach((b, i) => {
-    const [o, hh, ll, c] = b;
-    const x = pad + i * step + step / 2;
-    const top = y(Math.max(o, c));
-    const bot = y(Math.min(o, c));
-    wick += `M${x.toFixed(1)} ${y(hh).toFixed(1)}V${y(ll).toFixed(1)}`;
-    const body = `M${(x - bw / 2).toFixed(1)} ${top.toFixed(1)}h${bw.toFixed(1)}v${Math.max(0.8, bot - top).toFixed(1)}h-${bw.toFixed(1)}z`;
-    if (c >= o) up += body; else dn += body;
-  });
-  return `<svg class="k-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="最近 ${bars.length} 根日线"><path class="w" d="${wick}"/><path class="u" d="${up}"/><path class="d" d="${dn}"/></svg>`;
+  const padX = 2, padTop = 4, padBot = 4;
+  const step = (w - padX * 2 - 3) / (closes.length - 1);
+  const x = (i) => padX + i * step;
+  const y = (v) => padTop + ((hi - v) / rng) * (h - padTop - padBot);
+  const pts = closes.map((c, i) => `${x(i).toFixed(1)} ${y(c).toFixed(1)}`);
+  const line = 'M' + pts.join('L');
+  const area = `${line}L${x(closes.length - 1).toFixed(1)} ${h}L${x(0).toFixed(1)} ${h}Z`;
+  const lx = x(closes.length - 1), ly = y(closes[closes.length - 1]);
+  return `<svg class="k-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="最近 ${closes.length} 个交易日收盘价"><path class="a" d="${area}"/><path class="l" d="${line}" vector-effect="non-scaling-stroke"/><circle class="p" cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="1.8"/></svg>`;
 }
 
 const kPx = (v) => {
@@ -390,11 +384,11 @@ const kPct = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`);
 const kCls = (v) => (v == null ? '' : v > 0 ? 'up' : v < 0 ? 'dn' : '');
 
 function klineCard(c) {
-  const tip = [c.name, c.symbol, c.sector, c.note].filter(Boolean).join(' · ');
-  return `<div class="k-card" title="${esc(tip)}">
+  const tip = [c.name, c.symbol, c.sector, c.day ? `截至 ${c.day}` : '', c.note].filter(Boolean).join(' · ');
+  return `<div class="k-card ${c.behind ? 'behind' : ''}" title="${esc(tip)}">
     <div class="k-top"><b class="k-name">${esc(c.name)}</b><span class="k-chg ${kCls(c.chg1d)}">${kPct(c.chg1d)}</span></div>
-    <div class="k-sub"><span>${esc(c.symbol)}</span><span class="num">${kPx(c.close)}</span></div>
-    ${miniCandles(c.bars)}
+    <div class="k-sub"><span>${esc(c.symbol)}${c.behind ? ` · <i class="k-late">${esc((c.day || '').slice(5))}</i>` : ''}</span><span class="num">${kPx(c.close)}</span></div>
+    ${miniLine(c.closes)}
     ${c.tags && c.tags.length ? `<div class="k-tags">${c.tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : c.sector ? `<div class="k-sector">${esc(c.sector)}</div>` : ''}
   </div>`;
 }
@@ -407,11 +401,11 @@ async function renderKline(body) {
     catch (err) { body.innerHTML = tabBar() + `<div class="panel empty"><b>${esc(err.message)}</b></div>`; bindTabs(body); return; }
   }
   const d = K.data;
-  const groups = d.groups.map((g) => `<section class="k-group"><h3>${esc(g.label)} <small>${g.items.length}</small></h3><div class="k-grid">${g.items.map(klineCard).join('')}</div></section>`).join('');
+  const groups = d.groups.map((g) => `<section class="k-group"><h3>${esc(g.label)} <small>${g.items.length}${g.day ? ` · 收盘至 ${esc(g.day.slice(5))}` : ''}</small></h3><div class="k-grid">${g.items.map(klineCard).join('')}</div></section>`).join('');
   body.innerHTML = tabBar() + `<div class="panel k-board">
-      <div class="k-head"><div><div class="d-eyebrow">日线 · 截至 ${esc(d.day || '—')} · ${d.count} 个标的</div>${d.conclusion ? `<h2 class="k-verdict">${esc(d.conclusion)}</h2>` : ''}</div></div>
+      <div class="k-head"><div><div class="d-eyebrow">收盘线 · ${d.count} 个标的 · 每组最新收盘日见组名</div>${d.conclusion ? `<h2 class="k-verdict">${esc(d.conclusion)}</h2>` : ''}</div></div>
       ${d.count ? groups : '<div class="empty"><b>还没有 K 线数据</b><span>每天 08:15 数据更新、08:20 出 K 线日报后这里就有了。</span></div>'}
-      <p class="in-note">每张卡是最近 60 根日线。鼠标停在卡片上看宏观的一句话结论。</p>
+      <p class="in-note">每张卡是最近 120 个交易日的收盘价连线，数字是最近一个已收盘交易日。数据每天 08:15、10:00、17:00 更新；比同组晚一天的卡会标出日期。鼠标停在卡片上看宏观的一句话结论。</p>
     </div>`;
   bindTabs(body);
 }

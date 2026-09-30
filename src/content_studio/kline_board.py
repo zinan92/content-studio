@@ -22,7 +22,27 @@ KLINE_DB = Path(os.environ.get("CS_KLINE_DB", HOME / "park-data" / "market" / "k
 MANIFEST = Path(os.environ.get("CS_KLINE_MANIFEST", HOME / "park-runtime" / "datafeed" / "configs" / "watchlist_registry_manifest.json"))
 KLINE_DIR = Path(os.environ.get("CS_KLINE_DIR", HOME / "park-hands" / "007_kline daily newsletter"))
 
-BARS = 60
+# A line needs only closes, so the window can be twice as long for the same payload.
+BARS = 120
+
+
+def session_day(timestamp: str) -> str:
+    """Trading-session date of a stored daily bar.
+
+    Asian markets are stored as "session date at local midnight", i.e. the
+    previous day 15:00/16:00 UTC, so the raw UTC date is one day early
+    (2026-09-30: every A-share card read 09-28 for the 09-29 session).
+    """
+    text = str(timestamp)
+    day = text[:10]
+    try:
+        hour = int(text[11:13])
+    except ValueError:
+        return day
+    if hour >= 12:
+        from datetime import date, timedelta
+        return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+    return day
 
 MACRO_ORDER = ["DXY", "SPX", "NDX", "SCHD", "VIX", "GOLD", "SILVER", "WTI", "BTC", "ETH", "HYPE", "SHCOMP", "STAR50", "DIVIDEND", "N225", "KOSPI"]
 MACRO_NAMES = {
@@ -53,7 +73,7 @@ def load_bars(db: Path, instrument_id: str, limit: int = BARS) -> list[list[floa
     return [r[1:] for r in rows]
 
 
-def bars_with_date(db: Path, instrument_id: str, limit: int = BARS) -> list[list[Any]]:
+def bars_with_date(db: Path, instrument_id: str, limit: int = BARS) -> list[list[Any]]:  # single-instrument helper
     if not db.exists():
         return []
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -66,7 +86,7 @@ def bars_with_date(db: Path, instrument_id: str, limit: int = BARS) -> list[list
     finally:
         con.close()
     rows.reverse()
-    return [[str(t)[:10], *(round(float(v), 6) for v in (o, h, l, c))] for t, o, h, l, c in rows if None not in (o, h, l, c)]
+    return [[session_day(t), *(round(float(v), 6) for v in (o, h, l, c))] for t, o, h, l, c in rows if None not in (o, h, l, c)]
 
 
 def latest_kline_md(folder: Path = KLINE_DIR) -> Path | None:
@@ -139,7 +159,7 @@ def all_daily_bars(db: Path, ids: list[str], limit: int = BARS) -> dict[str, lis
             ).fetchall()
             by_day: dict[str, list[Any]] = {}
             for t, o, h, l, c in rows:
-                day = str(t)[:10]
+                day = session_day(t)
                 if day not in by_day and None not in (o, h, l, c):
                     by_day[day] = [day, *(round(float(v), 6) for v in (o, h, l, c))]
             out[iid] = sorted(by_day.values())[-limit:]
@@ -186,7 +206,9 @@ def _build(db: Path, manifest: Path, kline_dir: Path) -> dict[str, Any]:
         card = {
             "id": iid,
             "symbol": inst.get("display_symbol") or iid.split(".")[-1],
-            "bars": [r[1:] for r in rows],
+            # Closes only: at card size the four OHLC points are not readable
+            # (Park, 2026-09-30), so the card draws a line.
+            "closes": [r[4] for r in rows],
             **_stats(rows),
         }
         if iid.startswith("WATCH.CROSS."):
@@ -219,8 +241,15 @@ def _build(db: Path, manifest: Path, kline_dir: Path) -> dict[str, Any]:
             groups.append({"key": code, "label": label, "items": items})
 
     days = [c["day"] for g in groups for c in g["items"] if c.get("day")]
+    newest = max(days) if days else None
+    for g in groups:
+        g_days = [c["day"] for c in g["items"] if c.get("day")]
+        g["day"] = max(g_days) if g_days else None
+        for c in g["items"]:
+            # behind its own group's newest session = this card missed an update
+            c["behind"] = bool(c.get("day") and g["day"] and c["day"] < g["day"])
     return {
-        "day": max(days) if days else None,
+        "day": newest,
         "report": md_path.name[:10] if md_path else None,
         "conclusion": parsed["conclusion"],
         "count": sum(len(g["items"]) for g in groups),
