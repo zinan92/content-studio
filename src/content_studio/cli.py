@@ -23,7 +23,6 @@ from .accounts import (
     ContentDownloaderClient,
     PLATFORM_DOUYIN,
     add_account,
-    auto_enqueue_outliers,
     sync_account,
 )
 from .pipeline import DEFAULT_GLOSSARY_PATH, PipelineError, run_pipeline
@@ -75,7 +74,6 @@ def build_parser() -> argparse.ArgumentParser:
     sync_all.add_argument("--store", type=Path, default=DEFAULT_STORE_PATH)
     sync_all.add_argument("--cookies", type=Path, default=DEFAULT_COOKIE_PATH)
     sync_all.add_argument("--creator-db", type=Path, default=DEFAULT_DB_PATH)
-    sync_all.add_argument("--no-enqueue", action="store_true")
 
     screen = commands.add_parser("screen-reach", help="read 小红书 views from a screenshot of Park's own Chrome")
     screen.add_argument("--store", type=Path, default=DEFAULT_STORE_PATH)
@@ -136,8 +134,6 @@ def sync_everything(
     *,
     cookie_path: Path,
     creator_db: Path,
-    enqueue: bool = True,
-    has_report=lambda _video_id: False,
     platform_fetchers: dict | None = None,
     benchmarks: bool = True,
 ) -> dict:
@@ -158,7 +154,7 @@ def sync_everything(
     if mine:
         summary["creator_metrics"] = sync_creator_metrics(cookie_path=cookie_path, creator_db=creator_db)
     if benchmarks:
-        bench = sync_benchmarks(store, cookie_path=cookie_path, enqueue=enqueue, has_report=has_report, factory=factory)
+        bench = sync_benchmarks(store, cookie_path=cookie_path, factory=factory)
         summary["accounts"] += bench["accounts"]
         summary["enqueued"] = bench["enqueued"]
         if bench.get("stopped"):
@@ -169,23 +165,15 @@ def sync_everything(
 BENCHMARK_PAGES = 1  # 对标只看最新一页（约 20 条）：够看出有没有新发的，少占抖音额度
 
 
-def sync_benchmarks(
-    store: StudioStore,
-    *,
-    cookie_path: Path,
-    enqueue: bool = True,
-    has_report=lambda _video_id: False,
-    factory=None,
-) -> dict:
-    """对标账号：每个号读资料 + 最新一页作品；这一周点赞到 2× 中位数的排进拆解。撞上风控整趟停下。"""
+def sync_benchmarks(store: StudioStore, *, cookie_path: Path, factory=None) -> dict:
+    """关注的账号（老师和对标）：每个号读资料 + 最新一页作品，只为了知道有没有新发的。撞上风控整趟停下。
+
+    9/30 Park：「拆解必须是我主动要求，而不是你自动看到一条就拆一条，这个没有意义。」所以这里不再排任何拆解；
+    新发的列在进项的「老师」「对标」里，他自己去看，想拆、想复刻再点。
+    """
     factory = factory or _cookie_client_factory(cookie_path)
     summary: dict = {"accounts": [], "enqueued": 0}
-    if _sync_douyin(store, store.followed_accounts(), factory, summary, pages=BENCHMARK_PAGES):
-        return summary
-    if enqueue:
-        # 9/29 起不再把对标新发的全排进拆解，只排数据非常好的（见 auto_enqueue_outliers）
-        queued = auto_enqueue_outliers(store, has_report=has_report)
-        summary["enqueued"] = len(queued)
+    _sync_douyin(store, store.followed_accounts(), factory, summary, pages=BENCHMARK_PAGES)
     return summary
 
 
@@ -237,7 +225,7 @@ def archive_new_videos(store: StudioStore, *, cookie_path: Path, limit: int = 5,
 def run_sync(args: argparse.Namespace) -> int:
     with _open_store(args.store) as store:
         summary = sync_everything(
-            store, cookie_path=args.cookies, creator_db=args.creator_db, enqueue=not args.no_enqueue
+            store, cookie_path=args.cookies, creator_db=args.creator_db
         )
         if not summary.get("stopped"):
             summary["archive"] = archive_new_videos(store, cookie_path=args.cookies)

@@ -109,3 +109,31 @@ def test_stylesheet_still_has_every_page(tmp_path: Path) -> None:
     for selector in (".rail-today", ".td-row", ".td-pack", ".rail-consult", ".ov-core", ".pk-row", ".mx-wrap", ".pub-idle", ".k-svg path.l", ".sw-card"):
         assert selector in css, f"styles.css 里没有 {selector}"
     assert css.count("{") == css.count("}")
+
+
+def test_feed_lists_new_posts_by_teacher_and_benchmark_and_marks_seen(client: TestClient) -> None:
+    """9/30 Park：老师和对标新发的他都自己去看；不筛、不拆，看过了点一下。"""
+    from tests.test_web import SEC, _wait_sync
+
+    acct = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}"}).json()["account"]
+    _wait_sync(client)
+    feed = client.get("/api/feed").json()
+    assert feed["teacher"] == [] and len(feed["benchmark"]) >= 1  # 新加的默认是对标
+    assert feed["counts"]["benchmark"]["unseen"] == len(feed["benchmark"])
+    row = feed["benchmark"][0]
+    assert row["url"].endswith(row["video_id"]) and row["seen_at"] is None and row["job"] is None
+
+    # 改成老师：整个号的新视频挪到「老师」一栏
+    assert client.patch(f"/api/accounts/{acct['id']}", json={"kind": "teacher"}).json()["account"]["kind"] == "teacher"
+    assert client.patch(f"/api/accounts/{acct['id']}", json={"kind": "boss"}).status_code == 400
+    feed = client.get("/api/feed").json()
+    assert feed["benchmark"] == [] and len(feed["teacher"]) >= 1 and feed["accounts"]["teacher"] == ["对标号"]
+
+    vid = feed["teacher"][0]["video_id"]
+    client.put(f"/api/feed/{vid}", json={"seen": True})
+    assert next(r for r in client.get("/api/feed").json()["teacher"] if r["video_id"] == vid)["seen_at"]
+    client.put(f"/api/feed/{vid}", json={"seen": False})
+    client.put(f"/api/feed/{vid}", json={"note": "先给结论再讲为什么"})
+    r = next(r for r in client.get("/api/feed").json()["teacher"] if r["video_id"] == vid)
+    assert r["note"] == "先给结论再讲为什么" and r["seen_at"]  # 写了一句就算看过了
+    assert client.put("/api/feed/nope", json={"seen": True}).status_code == 400

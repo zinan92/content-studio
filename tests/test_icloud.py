@@ -38,6 +38,7 @@ def test_the_video_root_is_refused_when_it_is_synced(tmp_path: Path, monkeypatch
     assert video_project.resolve_root(str(root)) == root.resolve()
 
 
+@pytest.mark.skipif(not hasattr(stat, "SF_DATALESS"), reason="iCloud 占位文件只有 macOS 有（SF_DATALESS）")
 def test_a_placeholder_says_not_downloaded_instead_of_corrupt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """9/22 真发生过：占位文件被 ffprobe 读成 moov atom not found，看起来像坏了，其实只是没下载。"""
     video = tmp_path / "粗剪.mp4"

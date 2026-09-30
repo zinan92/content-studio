@@ -1906,6 +1906,30 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .sw-col{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--ink-3)}
 .sw-col select{font:inherit;font-size:13px;padding:5px 6px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink)}
 .sw-body > .btn{align-self:flex-start;margin-top:2px}
+
+/* ===== 进项 · 老师 / 对标新发的（input.js renderFeed） ===== */
+.fd-panel{padding:16px 18px 18px;display:flex;flex-direction:column;gap:10px}
+.fd-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.fd-head b{font-size:16px;display:block}
+.fd-head small{color:var(--ink-3);font-size:12px}
+.fd-row{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:6px 14px;align-items:center;padding:12px 4px;border-top:1px solid var(--line-soft)}
+.fd-row.seen{opacity:.6}
+.fd-meta{display:flex;flex-direction:column;min-width:0}
+.fd-meta b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fd-meta small{font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+.fd-title{font-size:14px;line-height:1.5;min-width:0}
+.fd-acts{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.fd-acts a.btn{text-decoration:none;color:inherit}
+.fd-acts a.btn.primary{color:var(--on-accent)}
+.fd-tag{font-size:12px;color:var(--ink-3)}
+.fd-tag.ok{color:var(--out)}
+.fd-note{grid-column:2 / -1;font:inherit;font-size:13px;padding:6px 8px;border:1px dashed var(--line);border-radius:7px;background:transparent;color:var(--ink)}
+.fd-noted{grid-column:2 / -1;color:var(--ink-2);font-size:13px}
+.fd-more{align-self:flex-start}
+.kind-pill{font:inherit;font-size:11px;font-weight:600;padding:2px 8px;margin-right:8px;border-radius:99px;border:1px solid var(--line);background:var(--sunk);color:var(--ink-2);cursor:pointer;vertical-align:2px}
+.kind-pill.teacher{background:var(--in-soft);border-color:var(--in);color:var(--in)}
+.kind-pill:hover{border-color:var(--ink-3)}
+@media (max-width:900px){.fd-row{grid-template-columns:1fr}.fd-acts{justify-content:flex-start}.fd-note,.fd-noted{grid-column:1}}
 /* 咨询客户 · 诊断流程：做咨询时照着过的那一页，字大一点、一屏能扫完一类问题 */
 .page-h-actions{display:flex;gap:8px;align-items:center}
 .playbook-dlg{width:min(820px,96vw);max-width:none;max-height:92vh;border-radius:16px;overflow:hidden}
