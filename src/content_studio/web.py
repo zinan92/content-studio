@@ -214,6 +214,12 @@ class DmBody(BaseModel):
     day: str | None = None
 
 
+class SwipeBody(BaseModel):
+    url: str | None = None
+    note: str | None = None
+    collection: str | None = None
+
+
 class CountBody(BaseModel):
     value: int
     day: str | None = None
@@ -3525,6 +3531,150 @@ def create_app(
             "backfill": backfill_state(tkey),
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
         }
+
+    # -- 流量视频：看到就想复刻的单条视频，先存下来（swipe.py，9/30 Park） -----------
+
+    swipe_root = data_dir / "swipe"
+    # 上次服务停的时候还在下的：线程没了，标成失败让他点重试
+    for _row in store.swipe_videos():
+        if _row["state"] == "downloading":
+            store.update_swipe(_row["id"], state="failed", error="下到一半服务重启了，点重试")
+
+    def _swipe_view(row: dict[str, Any]) -> dict[str, Any]:
+        from . import swipe
+
+        info = row.get("info") or {}
+        topic = None
+        if row.get("topic_id"):
+            try:
+                t = store.topic(row["topic_id"])
+                topic = {"id": t["id"], "title": t["title"], "shipped": board_mod.is_shipped(t), "archived": bool(t.get("archived_at"))}
+            except StoreError:
+                topic = None
+        status = "downloading" if row["state"] == "downloading" else "failed" if row["state"] == "failed" \
+            else "shipped" if topic and topic["shipped"] else "making" if topic and not topic["archived"] else "saved"
+        return {
+            "id": row["id"], "url": row["url"], "platform": row["platform"], "platform_label": swipe.LABELS.get(row["platform"], row["platform"]),
+            "status": status, "error": row.get("error"), "note": row.get("note") or "", "collection": row.get("collection") or "",
+            "created_at": row["created_at"], "topic": topic,
+            **{k: info.get(k) for k in ("title", "author", "published_at", "likes", "comments", "shares", "collects", "views", "is_video")},
+            "cover": f"/api/swipe/{row['id']}/cover" if info.get("cover") else None,
+            "video": f"/api/swipe/{row['id']}/video" if info.get("video") else None,
+        }
+
+    def _swipe_download(swipe_id: int) -> None:
+        from . import swipe
+
+        row = store.swipe_video(swipe_id)
+        try:
+            folder = swipe.download(row["url"], row["platform"], out_dir=swipe_root, cookies=cookie_path if row["platform"] == "douyin" else None)
+            store.update_swipe(swipe_id, state="ready", error=None, content_dir=str(folder), info=swipe.read_item(folder))
+            store.log_event("swipe", f"流量视频存好了：{(store.swipe_video(swipe_id)['info'].get('title') or row['url'])[:40]}")
+        except Exception as exc:  # noqa: BLE001 - 卡片上显示
+            logger.warning("swipe %s failed: %s", swipe_id, exc)
+            store.update_swipe(swipe_id, state="failed", error=str(exc)[:300] or type(exc).__name__)
+
+    def _swipe_douyin_left() -> int:
+        from . import swipe
+
+        start = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+        return max(0, swipe.DOUYIN_DAILY_CAP - store.swipe_count_since("douyin", start))
+
+    @app.get("/api/swipe")
+    def list_swipe() -> dict[str, Any]:
+        from . import swipe
+
+        return {"videos": [_swipe_view(r) for r in store.swipe_videos()], "collections": list(swipe.COLLECTIONS),
+                "douyin_left": _swipe_douyin_left(), "douyin_cap": swipe.DOUYIN_DAILY_CAP}
+
+    @app.post("/api/swipe")
+    def add_swipe(body: SwipeBody) -> dict[str, Any]:
+        from . import swipe
+
+        try:
+            url, platform = swipe.clean_url(body.url or "")
+        except swipe.SwipeError as exc:
+            raise ValueError(str(exc)) from None
+        if platform == "douyin" and _swipe_douyin_left() <= 0:
+            raise ValueError(f"今天抖音的已经存了 {swipe.DOUYIN_DAILY_CAP} 条：用的是你的抖音登录，一天不多下，明天再存")
+        row = store.add_swipe(url, platform, body.note)
+        threading.Thread(target=_swipe_download, args=(row["id"],), name=f"swipe-{row['id']}", daemon=True).start()
+        return {"video": _swipe_view(row)}
+
+    @app.patch("/api/swipe/{swipe_id}")
+    def patch_swipe(swipe_id: int, body: SwipeBody) -> dict[str, Any]:
+        from . import swipe
+
+        fields: dict[str, Any] = {}
+        if body.note is not None:
+            fields["note"] = body.note.strip()[:300] or None
+        if body.collection is not None:
+            if body.collection and body.collection not in swipe.COLLECTIONS:
+                raise ValueError("没有这个合集")
+            fields["collection"] = body.collection or None
+        return {"video": _swipe_view(store.update_swipe(swipe_id, **fields))}
+
+    @app.post("/api/swipe/{swipe_id}/retry")
+    def retry_swipe(swipe_id: int) -> dict[str, Any]:
+        row = store.swipe_video(swipe_id)
+        if row["state"] != "failed":
+            raise ValueError("这条不用重试")
+        store.update_swipe(swipe_id, state="downloading", error=None)
+        threading.Thread(target=_swipe_download, args=(swipe_id,), name=f"swipe-{swipe_id}", daemon=True).start()
+        return {"video": _swipe_view(store.swipe_video(swipe_id))}
+
+    @app.delete("/api/swipe/{swipe_id}")
+    def delete_swipe(swipe_id: int) -> dict[str, Any]:
+        import shutil
+
+        row = store.swipe_video(swipe_id)
+        folder = Path(row["content_dir"]) if row.get("content_dir") else None
+        # 只删 swipe 目录里的东西
+        if folder and folder.is_dir() and swipe_root.resolve() in folder.resolve().parents:
+            shutil.rmtree(folder, ignore_errors=True)
+        store.delete_swipe(swipe_id)
+        return {"ok": True}
+
+    @app.post("/api/swipe/{swipe_id}/start")
+    def start_swipe(swipe_id: int) -> dict[str, Any]:
+        """开始复刻：建一条选题、放到「接下来要拍的」最上面。是他点的，不自动加。"""
+        row = store.swipe_video(swipe_id)
+        if row["state"] != "ready":
+            raise ValueError("还没下好")
+        if row.get("topic_id"):
+            try:
+                return {"topic": store.topic(row["topic_id"])}
+            except StoreError:
+                pass
+        info = row.get("info") or {}
+        title = f"复刻：{(info.get('title') or row['url'])[:40]}"
+        memo = "\n".join(x for x in (f"流量视频：{row['url']}", f"为什么想转：{row['note']}" if row.get("note") else "",
+                                     f"归哪个合集：{row['collection']}" if row.get("collection") else "") if x)
+        me = store.self_account()
+        topic = store.create_topic(title, formats="video", account_id=me["id"] if me else None, memo=memo)
+        store.update_swipe(swipe_id, topic_id=topic["id"])
+        store.add_shoot_item(title, top=True, topic_id=topic["id"])
+        store.log_event("pool", f"开始复刻《{title[:30]}》", topic["id"])
+        return {"topic": topic}
+
+    def _swipe_file(swipe_id: int, key: str) -> Path:
+        row = store.swipe_video(swipe_id)
+        rel = (row.get("info") or {}).get(key)
+        folder = Path(row["content_dir"]) if row.get("content_dir") else None
+        if not rel or folder is None:
+            raise HTTPException(status_code=404, detail="没有这个文件")
+        path = (folder / rel).resolve()
+        if folder.resolve() not in path.parents or not path.is_file():
+            raise HTTPException(status_code=404, detail="没有这个文件")
+        return path
+
+    @app.get("/api/swipe/{swipe_id}/cover")
+    def swipe_cover(swipe_id: int) -> FileResponse:
+        return FileResponse(_swipe_file(swipe_id, "cover"), headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.get("/api/swipe/{swipe_id}/video")
+    def swipe_video_file(swipe_id: int) -> FileResponse:
+        return FileResponse(_swipe_file(swipe_id, "video"), media_type="video/mp4")
 
     # -- D 补发：提前打好的包，一声令下发一条（9/29 Park） -------------------------
     # 自己发出去的：B 站（投稿，审核后公开）、YouTube（直接公开）、X（直接发，被拒就存草稿）。

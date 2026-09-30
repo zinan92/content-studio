@@ -18,6 +18,8 @@ function syncTabs() {
   dailies.forEach((d) => TABS.push({ key: d.key, label: d.label, kind: 'daily' }));
   TABS.push({ key: 'kline', label: 'K 线日报', kind: 'kline' });
   NOTE_TABS.forEach((t) => TABS.push(t));
+  // 流量视频（9/30）：看到就想复刻的单条视频，贴链接存下来。不是笔记，有自己的一页。
+  TABS.push({ key: 'swipe', label: '流量视频', kind: 'swipe' });
   if (!TABS.some((t) => t.key === C.tab)) C.tab = 'all';
 }
 const DAY_TABS = [[1, '1 天'], [3, '3 天'], [7, '7 天'], [30, '30 天']];
@@ -170,6 +172,7 @@ window.VIEWS.input = {
     if (def.kind === 'daily') { await renderDaily(body); return; }
     // K 线日报：100 多个标的，一张日线卡一个，一行铺满，往下扫一遍就看完。
     if (def.kind === 'kline') { await renderKline(body); return; }
+    if (def.kind === 'swipe') { await renderSwipe(body); return; }
 
     const rows = rowsFor(C.tab);
     const fresh = (C.items || []).filter((i) => noteState(i) === 'fresh').length;
@@ -261,6 +264,7 @@ function tabBar() {
   const count = (t) => {
     if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && noteState(i) === 'fresh').length;
     if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && noteState(i) === 'fresh').length;
+    if (t.kind === 'swipe') return SW.data ? SW.data.videos.filter((v) => v.status === 'saved').length : 0;
     return 0;
   };
   return `<div class="in-bar"><div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div></div>`;
@@ -408,4 +412,62 @@ async function renderKline(body) {
       <p class="in-note">每张卡是最近 120 个交易日的收盘价连线，数字是最近一个已收盘交易日。数据每天 08:15、10:00、17:00 更新；比同组晚一天的卡会标出日期。鼠标停在卡片上看宏观的一句话结论。</p>
     </div>`;
   bindTabs(body);
+}
+
+
+/* ---------- 流量视频：看到就想复刻的单条视频（swipe.py） ---------- */
+const SW = { data: null, timer: null, playing: null };
+const SW_STATUS = { saved: '存着', making: '在复刻', shipped: '发了', downloading: '下载中', failed: '没下下来' };
+
+function swipeCard(v, collections) {
+  const stats = [['赞', v.likes], ['藏', v.collects], ['转', v.shares], ['评', v.comments]].filter(([, n]) => n != null).map(([l, n]) => `${l} ${fmt(n)}`).join(' · ');
+  const media = v.status === 'downloading' ? '<div class="sw-ph"><span class="spin"></span><small>下载中…</small></div>'
+    : v.status === 'failed' ? `<div class="sw-ph bad"><small>${esc(v.error || '没下下来')}</small><button class="btn small" type="button" data-sw-retry="${v.id}">重试</button></div>`
+      : SW.playing === v.id && v.video ? `<video src="${v.video}" controls autoplay playsinline></video>`
+        : `<button type="button" class="sw-cover" data-sw-play="${v.id}" ${v.video ? '' : 'disabled'}>${v.cover ? `<img src="${v.cover}" alt="" loading="lazy">` : '<span class="sw-ph"><small>没有封面</small></span>'}${v.video ? '<i>▶</i>' : ''}</button>`;
+  const ready = ['saved', 'making', 'shipped'].includes(v.status);
+  return `<article class="sw-card s-${v.status}" data-sw="${v.id}">
+    <div class="sw-media">${media}</div>
+    <div class="sw-body">
+      <div class="sw-top"><span class="pill ${v.status === 'saved' ? 'mid' : v.status === 'failed' ? 'low' : 'hot'}">${SW_STATUS[v.status]}</span><small>${esc(v.platform_label)}${v.author ? ' · ' + esc(v.author) : ''}</small>
+        <a href="${esc(v.url)}" target="_blank" rel="noopener" title="打开原视频">↗</a><button type="button" class="linklike" data-sw-del="${v.id}" title="删掉这条和它的视频文件" aria-label="删掉">×</button></div>
+      <b class="sw-title">${esc(v.title || v.url)}</b>
+      ${stats ? `<small class="sw-stats">${stats}</small>` : ''}
+      <input class="sw-note" data-sw-note="${v.id}" maxlength="300" placeholder="我为什么想转它？一句话" value="${esc(v.note)}" autocomplete="off">
+      <label class="sw-col">换成我的，归哪个合集
+        <select data-sw-col="${v.id}"><option value="">还没想</option>${collections.map((c) => `<option ${c === v.collection ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      ${!ready ? '' : v.topic ? `<button class="btn small" type="button" data-sw-open="${v.topic.id}">${v.status === 'shipped' ? '复刻的那条 →' : '接着做 →'}</button>`
+        : `<button class="btn small primary" type="button" data-sw-start="${v.id}">开始复刻</button>`}
+    </div></article>`;
+}
+
+async function renderSwipe(body) {
+  try { SW.data = await api('/api/swipe'); } catch (err) { body.innerHTML = tabBar() + `<div class="panel empty"><b>${esc(err.message)}</b></div>`; bindTabs(body); return; }
+  const d = SW.data;
+  if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input, select') && body.querySelector('.sw-grid')) return;
+  const sig = JSON.stringify([d, SW.playing]);
+  if (body.dataset.sig === 'sw' + sig) return;
+  body.dataset.sig = 'sw' + sig;
+  body.innerHTML = tabBar() + `<div class="panel sw-panel">
+      <form class="sw-add" id="swAdd"><input id="swUrl" placeholder="贴一条视频链接（抖音、X、小红书），回车就存下来" autocomplete="off"><button class="btn primary" type="submit">存下来</button></form>
+      <p class="in-note">看到就想转、想复刻的视频放这里。存的时候就把视频下到本机：这类视频常被删，而且复刻要看的是画面。抖音的用你的登录下，今天还能存 ${d.douyin_left} 条（一天最多 ${d.douyin_cap} 条）；X、小红书不限。</p>
+      ${d.videos.length ? `<div class="sw-grid">${d.videos.map((v) => swipeCard(v, d.collections)).join('')}</div>`
+        : '<div class="empty"><b>还没有存</b><span>刷到一条你一看就想转的，把链接贴在上面。</span></div>'}
+    </div>`;
+  bindTabs(body);
+  const again = () => { body.dataset.sig = ''; renderView(); };
+  const act = async (fn) => { try { await fn(); } catch (err) { toast(err.message); } again(); };
+  $('#swAdd').onsubmit = (e) => { e.preventDefault(); const url = $('#swUrl').value.trim(); if (!url) return; $('#swUrl').value = ''; act(() => api('/api/swipe', { method: 'POST', body: { url } })); };
+  $$('[data-sw-play]', body).forEach((b) => (b.onclick = () => { SW.playing = Number(b.dataset.swPlay); again(); }));
+  $$('[data-sw-retry]', body).forEach((b) => (b.onclick = () => act(() => api(`/api/swipe/${b.dataset.swRetry}/retry`, { method: 'POST' }))));
+  $$('[data-sw-del]', body).forEach((b) => (b.onclick = () => {
+    if (b.dataset.armed) { act(() => api(`/api/swipe/${b.dataset.swDel}`, { method: 'DELETE' })); return; }
+    b.dataset.armed = '1'; b.textContent = '再点一次删掉'; setTimeout(() => { if (document.body.contains(b)) { delete b.dataset.armed; b.textContent = '×'; } }, 3000);
+  }));
+  $$('[data-sw-note]', body).forEach((i) => (i.onchange = () => act(() => api(`/api/swipe/${i.dataset.swNote}`, { method: 'PATCH', body: { note: i.value } }))));
+  $$('[data-sw-col]', body).forEach((sel) => (sel.onchange = () => act(() => api(`/api/swipe/${sel.dataset.swCol}`, { method: 'PATCH', body: { collection: sel.value } }))));
+  $$('[data-sw-start]', body).forEach((b) => (b.onclick = () => act(async () => { await api(`/api/swipe/${b.dataset.swStart}/start`, { method: 'POST' }); toast('建成选题了，在「今天」的「接下来要拍的」最上面'); })));
+  $$('[data-sw-open]', body).forEach((b) => (b.onclick = () => { location.hash = `#work/${b.dataset.swOpen}`; go(readHash(), { push: false }); }));
+  clearTimeout(SW.timer);
+  if (d.videos.some((v) => v.status === 'downloading')) SW.timer = setTimeout(() => { if (S.view === 'input' && C.tab === 'swipe') renderView(); }, 4000);
 }
