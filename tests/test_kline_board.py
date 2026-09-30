@@ -62,8 +62,8 @@ def test_board_groups_macro_first_then_markets(tmp_path: Path) -> None:
     assert gold["chg1d"] == 2.5 and gold["close"] == 4100
     nvda = b["groups"][2]["items"][0]
     assert nvda["sector"] == "算力" and nvda["chg1d"] == 10.0
-    # daily only; the 4h row must not leak into the chart
-    assert len(nvda["bars"]) == 2 and all(len(bar) == 4 for bar in nvda["bars"])
+    # daily only; the 4h row must not leak into the line
+    assert nvda["closes"] == [100, 110] and "bars" not in nvda
 
 
 def test_macro_keywords_keep_dividend_away_from_schd() -> None:
@@ -74,3 +74,32 @@ def test_macro_keywords_keep_dividend_away_from_schd() -> None:
 def test_board_survives_missing_inputs(tmp_path: Path) -> None:
     b = kb.board(tmp_path / "none.db", tmp_path / "none.json", tmp_path / "none")
     assert b["count"] == 0 and b["groups"] == [] and b["conclusion"] == ""
+
+
+def test_asian_session_bars_are_dated_by_session_not_utc() -> None:
+    # A-share 09-29 session is stored as 09-28 16:00 UTC (local midnight)
+    assert kb.session_day("2026-09-28T16:00:00+00:00") == "2026-09-29"
+    assert kb.session_day("2026-09-28T15:00:00+00:00") == "2026-09-29"   # Tokyo / Seoul
+    assert kb.session_day("2026-09-29T00:00:00+00:00") == "2026-09-29"   # US, UTC midnight
+    assert kb.session_day("2026-09-29") == "2026-09-29"
+
+
+def test_card_that_missed_todays_update_is_flagged(tmp_path: Path) -> None:
+    db = _db(tmp_path / "k.db", {"WATCH.US.NVDA": [100, 110, 120], "WATCH.CN.A.600900": [20, 19]})
+    con = sqlite3.connect(db)
+    con.execute("insert into mvp_candles (instrument_id,timeframe,timestamp,open,high,low,close) values ('WATCH.US.META','1d','2026-09-01T00:00:00+00:00',5,6,4,5)")
+    con.execute("insert into mvp_candles (instrument_id,timeframe,timestamp,open,high,low,close) values ('WATCH.US.META','1d','2026-09-02T00:00:00+00:00',5,6,4,5)")
+    con.commit(); con.close()
+    m = tmp_path / "m.json"
+    m.write_text(json.dumps({"instruments": [
+        {"instrument_id": "WATCH.US.NVDA", "display_name": "英伟达", "display_symbol": "NVDA", "metadata": {"registry_market": "US"}},
+        {"instrument_id": "WATCH.US.META", "display_name": "Meta", "display_symbol": "META", "metadata": {"registry_market": "US"}},
+        {"instrument_id": "WATCH.CN.A.600900", "display_name": "长江电力", "display_symbol": "600900", "metadata": {"registry_market": "CN"}},
+    ]}), encoding="utf-8")
+    b = kb.board(db, m, tmp_path / "none")
+    us = next(g for g in b["groups"] if g["key"] == "US")
+    by = {c["symbol"]: c for c in us["items"]}
+    assert us["day"] == "2026-09-03" and by["NVDA"]["behind"] is False and by["META"]["behind"] is True
+    # a market on a different calendar is judged against its own group, not the global newest
+    cn = next(g for g in b["groups"] if g["key"] == "CN")
+    assert cn["items"][0]["behind"] is False
