@@ -39,6 +39,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "traffic_tags": {},
     # 抖音上设成私密（比如被判违规藏起来）但别的平台还要发的视频：全平台追踪照样列出来（9/29 Park）。
     "tracker_keep": [],
+    # 不补发的旧视频（9/30 Park：半年前的实操、没有时效性的，不再往别的平台补）：全平台追踪里划掉，不算旧内容。
+    "tracker_cancel": [],
     # 各平台主页的名字、简介、链接（profiles.py）：{platform: {name, bio, link, applied: {name, bio, link, at}}}
     "profiles": {},
     # 9/29 Park：KPI 由 Claude 定，Park 照做。出摊和回私信算他的分；触达和收到私信是结果。

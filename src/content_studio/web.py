@@ -110,6 +110,10 @@ class BackfillMarkBody(BaseModel):
     done: bool = True
 
 
+class BackfillCancelBody(BaseModel):
+    cancel: bool = True
+
+
 class DailyPickBody(BaseModel):
     key: str
     path: str
@@ -4408,8 +4412,13 @@ def create_app(
         keys = tuple(k for k in publish_desk.SEQUENCE if k in backfill.PLATFORMS and k in on)
         rows = backfill.queue(videos, links=links, records=records, marks=store.backfill_marks(), median=median, platforms=keys, forms=platform_forms())
         keep = set(store.settings().get("tracker_keep") or [])
+        cancelled = set(store.settings().get("tracker_cancel") or [])
         for r in rows:
             r["hidden_on_douyin"] = r["video_id"] in keep
+            # 他说了不补发的：还列着（能点回来），但哪个平台都不算缺，不进补发、不算旧内容
+            r["cancelled"] = r["video_id"] in cancelled
+            if r["cancelled"]:
+                r["missing"] = []
         topics = {t["id"]: t for t in store.topics(include_archived=True)}
         for r in rows:
             t = topics.get(r["topic_id"]) if r["topic_id"] else None
@@ -4478,6 +4487,15 @@ def create_app(
             raise ValueError("找不到这条抖音视频")
         store.set_backfill_mark(video_id, body.platform, body.done)
         return {"ok": True}
+
+    @app.post("/api/backfill/{video_id}/cancel")
+    def cancel_backfill(video_id: str, body: BackfillCancelBody) -> dict[str, Any]:
+        """这条旧视频不补发了（没有时效性了）。只是不再往别的平台补，抖音上那条不动；点回来就恢复。"""
+        if store.video(video_id) is None:
+            raise ValueError("找不到这条抖音视频")
+        current = [v for v in (store.settings().get("tracker_cancel") or []) if v != video_id]
+        store.update_settings({"tracker_cancel": current + [video_id] if body.cancel else current})
+        return {"ok": True, "cancelled": body.cancel}
 
     @app.post("/api/backfill/{video_id}/take")
     def take_backfill(video_id: str) -> dict[str, Any]:

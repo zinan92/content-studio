@@ -1470,6 +1470,18 @@ def test_backfill_queue_mark_and_take_never_download_or_publish(client: TestClie
     again = next(v for v in client.get("/api/backfill").json()["videos"] if v["video_id"] == first["video_id"])
     assert again["done"]["youtube"] == "mark" and "youtube" not in again["missing"] and again["topic_id"] is None  # no topic for a mark
 
+    # 9/30：没有时效性的旧内容不补发了——还列着，但哪个平台都不算缺；能点回来
+    other = q["videos"][1]
+    assert client.post(f"/api/backfill/{other['video_id']}/cancel", json={"cancel": True}).json()["cancelled"] is True
+    sheet = client.get("/api/backfill").json()
+    gone = next(v for v in sheet["videos"] if v["video_id"] == other["video_id"])
+    assert gone["cancelled"] is True and gone["missing"] == []
+    assert sheet["platforms"][1]["missing"] == q["platforms"][1]["missing"] - 1
+    client.post(f"/api/backfill/{other['video_id']}/cancel", json={"cancel": False})
+    back = next(v for v in client.get("/api/backfill").json()["videos"] if v["video_id"] == other["video_id"])
+    assert back["cancelled"] is False and back["missing"] == keys
+    assert client.post("/api/backfill/nope/cancel", json={"cancel": True}).status_code == 400
+
     took = client.post(f"/api/backfill/{first['video_id']}/take").json()
     assert took["has_video"] is False  # nothing was downloaded
     topic = client.get("/api/topics?archived=true").json()
