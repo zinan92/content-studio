@@ -43,8 +43,14 @@ def clean_url(raw: str) -> tuple[str, str]:
         raise SwipeError("贴一个视频链接")
     for key, _label, pattern in PLATFORMS:
         if pattern.search(url):
-            if key == "douyin" and "/user/" in url and "modal_id=" not in url:
-                raise SwipeError("这是账号主页。流量视频存的是单条视频；想盯这个号去「对标雷达」")
+            if key == "douyin":
+                # 在主页、搜索、推荐里点开的视频，地址是「那一页 + modal_id=视频号」。照原样交给下载工具，
+                # 它会当成整个账号主页（9/30 Park 贴的两条就是这样，什么都没下）。一律换成单条视频的地址。
+                vid = re.search(r"/video/(\d{8,})", url) or re.search(r"[?&]modal_id=(\d{8,})", url)
+                if vid:
+                    return f"https://www.douyin.com/video/{vid.group(1)}", key
+                if "/user/" in url:
+                    raise SwipeError("这是账号主页。流量视频存的是单条视频；想盯这个号去「对标雷达」")
             return url, key
     raise SwipeError("现在认得的是抖音、X、小红书的视频链接")
 
