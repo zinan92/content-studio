@@ -13,8 +13,11 @@
   今天已经出摊了，「明天出摊」排到回私信后面。
 - 做完尽量由工作台自己看出来（有了链接、定了稿、填了数）；看不到的才要他点「做完了」。
 - 跳过可以，但要写一句为什么，记进 driver_log，周复盘把重复的借口摆出来。
-- 9/30 Park 定了阶段：现在是「追平」——把发送连贯起来，把过去没发的都发出去。所以补发从 10/1 起也算分
-  （每天补一条，做不到减 1 分），旧内容清完这一项自己消失。出关：旧内容清完，并且连续出摊 14 天（`stage`）。
+- 9/30 Park 定了阶段：现在是「追平」——把发送连贯起来，把过去没发的都发出去。
+  **每天要么发一条新视频，要么补发 4 格旧内容**（一条内容发到一个平台算一格）：两种都算当天出摊，都不减分，
+  连续天数都接着算。早上先问他今天发不发新的；不发，就补当天抽好的 4 格（`pick_cells`：2 格重要平台 + 2 格次要平台，
+  随机，不按点赞）。算分只看结果：发了新视频，或者当天的格子都发完。再加一条每周下限：一周至少 3 条新视频，
+  少一条减 1 分（周过完才扣，不倒扣）。出关：旧内容清完，并且连续出摊 14 天（`stage`）。
   之后的阶段是客户（每周两三个）、成交，那时再改算分的项，现在不拿来打分。
 - 不推荐选题、不往选题池加东西：拍什么看他自己写的「接下来要拍的」清单；只有他点
   「我今天不知道拍什么」才建议。
@@ -40,34 +43,30 @@ WINDOW = 7
 
 def kpi_days(today: date, *, posted: set[str], dms: dict[str, dict[str, int]], started: str,
              x_replies: dict[str, int] | None = None, x_target: int = 0,
-             reads: dict[str, bool] | None = None, read_started: str = "9999",
-             backfilled: set[str] | None = None, bf_started: str = "9999", bf_none: set[str] | None = None) -> list[dict[str, Any]]:
+             reads: dict[str, bool] | None = None, read_started: str = "9999") -> list[dict[str, Any]]:
     """最近 7 天每天三项 KPI 的结果：ship 出摊、dm 回私信、xr X 回复。
+    posted 是「出摊了的日子」：发了新视频的，加上补发当天的格子都发完的（调用的人并好）。
     today 还没过完：没做到不算减分（pending），做到了算过。
 
     出摊从有数据起就算（发没发抖音一直看得到）；私信和 X 回复从 KPI 开始那天（started）起算，
     之前没记过，不能倒扣。"""
     return kpi_range(today - timedelta(days=WINDOW - 1), today, today, posted=posted, dms=dms, started=started,
-                     x_replies=x_replies, x_target=x_target, reads=reads, read_started=read_started,
-                     backfilled=backfilled, bf_started=bf_started, bf_none=bf_none)
+                     x_replies=x_replies, x_target=x_target, reads=reads, read_started=read_started)
 
 
 def kpi_range(since: date, until: date, today: date, *, posted: set[str], dms: dict[str, dict[str, int]], started: str,
               x_replies: dict[str, int] | None = None, x_target: int = 0,
-              reads: dict[str, bool] | None = None, read_started: str = "9999", ship_started: str = "",
-              backfilled: set[str] | None = None, bf_started: str = "9999", bf_none: set[str] | None = None) -> list[dict[str, Any]]:
+              reads: dict[str, bool] | None = None, read_started: str = "9999", ship_started: str = "") -> list[dict[str, Any]]:
     """since 到 until 每一天每项 KPI 的结果（周历用：哪一周都能算）。规则和 kpi_days 同一套：
     今天没做到是 pending，不减分；还没到的日子每一项都是 future。
-    ship_started：出摊从哪天起算（周历传他第一次发抖音那天，翻到更早的周不倒扣）；不传就一直算。
-    补发（追平阶段）：backfilled 是补完了一条的那些天；从 bf_started 起算；bf_none 是没有旧内容可补的那些天
-    （都清完了，或者包还没打好），那些天不算。"""
+    ship_started：出摊从哪天起算（周历传他第一次发抖音那天，翻到更早的周不倒扣）；不传就一直算。"""
     out = []
     for i in range((until - since).days + 1):
         d = since + timedelta(days=i)
         key = d.isoformat()
         entry, count = dms.get(key), (x_replies or {}).get(key)
         if d > today:
-            out.append({"day": key, "rd": "future", "ship": "future", "dm": "future", "xr": "future", "bf": "future", "dm_entry": None, "xr_count": None})
+            out.append({"day": key, "rd": "future", "ship": "future", "dm": "future", "xr": "future", "dm_entry": None, "xr_count": None})
             continue
         is_today = d == today
         ship = "ok" if key in posted else ("pending" if is_today else "miss" if key >= ship_started else "n/a")
@@ -81,13 +80,7 @@ def kpi_range(since: date, until: date, today: date, *, posted: set[str], dms: d
             rd = "n/a"
         else:
             rd = "ok" if reads[key] else ("pending" if is_today else "miss")
-        if key in (backfilled or set()):
-            bf = "ok"
-        elif key < bf_started or key in (bf_none or set()):
-            bf = "n/a"
-        else:
-            bf = "pending" if is_today else "miss"
-        out.append({"day": key, "rd": rd, "ship": ship, "dm": dm, "xr": xr, "bf": bf, "dm_entry": entry, "xr_count": count})
+        out.append({"day": key, "rd": rd, "ship": ship, "dm": dm, "xr": xr, "dm_entry": entry, "xr_count": count})
     return out
 
 
@@ -112,9 +105,19 @@ def now_item(t: dict[str, Any]) -> dict[str, Any] | None:
     if unread:
         return {**item("kpi", "rd", f"读日报：{'、'.join(unread)}还没读", why="每天第一件事。日报不读，就白出了。"), "row": "rd"}
     ship = t.get("ship") or {}
-    if not ship.get("done") and ship.get("next"):
-        return {**ship["next"], "row": "ship"}
     cell = (t.get("days") or [{}])[-1]
+    out = t.get("out") or {}
+    if cell.get("ship") != "ok":  # 今天还没发出去：新视频，或者补发当天那几格
+        left = [c for c in out.get("cells") or [] if not c["sent"]]
+        if out.get("mode") is None and left:
+            return {**item("ship", "mode", "今天发不发新视频？", why=f"发，就去拍；不发，今天补发 {len(out['cells'])} 格旧内容。两种都算今天出摊。", inputs="mode"), "row": "ship"}
+        if out.get("mode") == "backfill" and left:
+            c = left[0]
+            return {**item("ship", f"cell:{c['slot']}", f"补发：《{c['title'][:24]}》发到{c['label']}",
+                           why=f"今天补发 {len(out['cells'])} 格，已发 {len(out['cells']) - len(left)} 格。发完回来点「发了」。",
+                           go=f"publish/{c['topic_id']}", button="去发布台", inputs="cell"), "slot": c["slot"], "row": "ship"}
+        if ship.get("next"):
+            return {**ship["next"], "row": "ship"}
     if cell.get("dm") == "pending":
         entry = (t.get("dm") or {}).get("entry")
         left = f"还差 {entry['received'] - entry['replied']} 条没回" if entry else "回完把收到几条、回了几条填上"
@@ -123,24 +126,39 @@ def now_item(t: dict[str, Any]) -> dict[str, Any] | None:
         xr = t.get("xr") or {}
         left = f"还差 {xr['target'] - xr['count']} 条" if xr.get("count") is not None else f"回 {xr.get('target')} 条，回完填数"
         return {**item("kpi", "xr", f"X 互动：{left}", why="在别人的帖子下面回一句有立场的话；不填数，明天按没做到算。"), "row": "xr"}
-    if cell.get("bf") == "pending":
-        bf = t.get("backfill") or {}
-        if bf.get("today"):
-            p = bf["today"]
-            return {**item("kpi", "bf", f"把今天补发的《{p['title'][:24]}》发完：还差{'、'.join(p.get('missing_labels') or [])}",
-                           why="公众号群发，视频号和小红书扫码上传；发完回来点「发出去了」。", go=f"publish/{p['topic_id']}", button="去发布台"), "row": "bf"}
-        first = (bf.get("ready") or [None])[0]
-        if first:
-            return {**item("kpi", "bf", f"补发一条旧的：《{first['title'][:24]}》", why=f"追平阶段每天补一条，打好包的还有 {len(bf['ready'])} 条。十几分钟。"), "row": "bf"}
-    if ship.get("next"):  # 今天发了：剩下的平台，或者明天那条
+    if ship.get("done") and ship.get("next"):  # 今天发了新视频：剩下的平台，或者明天那条
         return {**ship["next"], "row": "ship"}
     for it in t.get("wrap") or []:
         return {**it, "row": "wrap"}
     return None
 
 
+def pick_cells(cells: list[dict[str, Any]], rng: Any, *, need: int = 4, important: int = 2, taken: set[tuple[str, str]] | None = None) -> list[dict[str, Any]]:
+    """当天补发哪几格（9/30 Park：「纯 random，不按点赞倍数」「两个重要平台、两个不重要的平台，也不一定非得发同一个内容」）。
+    cells 是现在就能发的格子，每格 {video_id, platform, tier: "major"|"minor", ...}；rng 是 random.Random。
+    默认 2 格重要平台 + 2 格次要平台；哪一档不够，用另一档补齐。taken 是今天已经排了的，不重复排。
+    抽格子是代码的事，不交给模型；抽完存下来，当天不再变（调用的人负责存）。"""
+    pool = [c for c in cells if (c["video_id"], c["platform"]) not in (taken or set())]
+    rng.shuffle(pool)
+
+    def spread(group: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """同一档里先每个平台各来一格（今天尽量发到不同的平台），再轮到同一个平台的第二格。"""
+        seen: set[str] = set()
+        first, again = [], []
+        for c in group:
+            (again if c["platform"] in seen else first).append(c)
+            seen.add(c["platform"])
+        return first + again
+
+    major = spread([c for c in pool if c["tier"] == "major"])
+    minor = spread([c for c in pool if c["tier"] != "major"])
+    picked = major[:important] + minor[:need - important]
+    rest = major[important:] + minor[need - important:]
+    return (picked + rest[:need - len(picked)])[:need]
+
+
 def stage(*, backlog: int, streak: dict[str, Any], streak_target: int) -> dict[str, Any]:
-    """现在在哪个阶段（9/30 Park）。追平：把发送连贯起来，把过去没发的都发出去。
+    """现在在哪个阶段（9/30 Park）。追平：把发送连贯起来，把过去没发的都发出去。backlog 是还没发的格数（一条内容一个平台算一格）。
     出关 = 旧内容清完，并且连续出摊到数。出关以后换哪个阶段、算分的项怎么改，是 Park 拍板的事，这里只报到没到。"""
     run = streak["days"] if streak.get("kind") == "ok" else 0
     return {"key": "catchup", "label": "追平", "backlog": backlog, "streak": run, "streak_target": streak_target,
@@ -167,7 +185,7 @@ def ship_streak(today: date, posted: set[str]) -> dict[str, Any]:
 
 
 def demerits(days: list[dict[str, Any]]) -> int:
-    return sum((d["rd"] == "miss") + (d["ship"] == "miss") + (d["dm"] == "miss") + (d["xr"] == "miss") + (d.get("bf") == "miss") for d in days)
+    return sum((d["rd"] == "miss") + (d["ship"] == "miss") + (d["dm"] == "miss") + (d["xr"] == "miss") for d in days)
 
 
 def order(items: list[dict[str, Any]], *, skipped: set[str], done: set[str]) -> list[dict[str, Any]]:

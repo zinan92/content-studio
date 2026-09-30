@@ -120,14 +120,16 @@ def test_a_reply_on_the_card_counts_as_activity_and_nudges_are_counted(client: T
     # 微信里刚说过话也算动静（那边传过来的时间）
     quiet = client.get("/api/wendy/nudge", params={"wechat_at": datetime.now().isoformat()}).json()
     assert quiet["due"] is False
-
-
-def test_in_catchup_the_card_sends_him_to_backfill_after_the_daily_four() -> None:
-    done = {"first": [], "rd": {"items": []}, "ship": {"done": True, "next": None}, "days": [{"dm": "ok", "xr": "ok", "bf": "pending"}],
-            "dm": {}, "xr": {}, "wrap": [], "backfill": {"today": None, "ready": [{"title": "AI时代的明牌机会", "topic_id": 35}, {"title": "第二条", "topic_id": 36}]}}
-    now = driver.now_item(done)
-    assert now["row"] == "bf" and "AI时代的明牌机会" in now["text"] and "2 条" in now["why"]
-    picked = {**done, "backfill": {"today": {"title": "AI时代的明牌机会", "topic_id": 35, "missing_labels": ["公众号", "小红书"]}, "ready": []}}
-    now = driver.now_item(picked)
-    assert now["go"] == "publish/35" and "公众号、小红书" in now["text"]
-    assert driver.now_item({**done, "days": [{"dm": "ok", "xr": "ok", "bf": "ok"}]}) is None
+def test_card_asks_first_then_walks_him_through_the_path_he_chose() -> None:
+    cells = [{"slot": 0, "title": "how to be successful", "label": "小红书", "topic_id": 36, "sent": True},
+             {"slot": 1, "title": "为什么AI重度用户劝你考公", "label": "X", "topic_id": 37, "sent": False}]
+    t = {"first": [], "rd": {"items": []}, "ship": {"done": False, "next": driver.item("ship", "note:1", "拍「接了一单咨询」")},
+         "days": [{"ship": "pending", "dm": "ok", "xr": "ok"}], "dm": {}, "xr": {}, "wrap": [], "out": {"mode": None, "cells": cells}}
+    ask = driver.now_item(t)
+    assert ask["inputs"] == "mode" and "发不发新视频" in ask["text"]  # 早上先问
+    fill = driver.now_item({**t, "out": {"mode": "backfill", "cells": cells}})
+    assert fill["inputs"] == "cell" and fill["slot"] == 1 and "考公" in fill["text"] and "X" in fill["text"] and fill["go"] == "publish/37"
+    assert driver.now_item({**t, "out": {"mode": "new", "cells": cells}})["text"] == "拍「接了一单咨询」"
+    assert driver.now_item({**t, "out": {"mode": None, "cells": []}})["text"] == "拍「接了一单咨询」"  # 没有能补的：只有一条路
+    # 补发的格子都发完了：今天算出摊，不再让他去拍
+    assert driver.now_item({**t, "days": [{"ship": "ok", "dm": "ok", "xr": "ok"}], "out": {"mode": "backfill", "cells": cells}}) is None

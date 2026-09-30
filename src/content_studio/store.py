@@ -51,8 +51,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "x_replies_daily": 10,
             # 读日报从这天起算分（9/30 Park）
             "read_started": "2026-09-30",
-            # 追平阶段（9/30 Park）：补发从这天起算分，每天一条；出关要连续出摊这么多天
-            "bf_started": "2026-10-01", "ship_streak_target": 14},
+            # 追平阶段（9/30 Park）：出关要连续出摊这么多天；不发新视频的日子补发这么多格
+            "ship_streak_target": 14, "backfill_cells": 4,
+            # 每周至少这么多条新视频，少一条减 1 分；从这一周（周一）起算，之前不倒扣
+            "new_weekly": 3, "new_weekly_started": "2026-10-05"},
 }
 
 # 9/20 Park 把对标和老师合成一类；9/30 又分开：老师是学理念的，对标是看要不要复刻的。
@@ -221,6 +223,13 @@ CREATE TABLE IF NOT EXISTS plan_items (
     text TEXT NOT NULL,
     created_at TEXT NOT NULL,
     done_at TEXT
+);
+CREATE TABLE IF NOT EXISTS backfill_plan (
+    day TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    video_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    PRIMARY KEY (day, slot)
 );
 CREATE TABLE IF NOT EXISTS wendy_thread (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1184,6 +1193,25 @@ class StudioStore:
                 "ON CONFLICT(day, key, kind) DO UPDATE SET reason = excluded.reason, at = excluded.at",
                 (day, key, kind, reason, now_iso()),
             )
+
+    def driver_unmark(self, day: str, key: str, kind: str) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM driver_log WHERE day = ? AND key = ? AND kind = ?", (day, key, kind))
+
+    # -- 当天补发哪几格：早上抽一次存下来，当天不再变（换一格只换那一格）--------------------
+
+    def backfill_plan(self, day: str) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM backfill_plan WHERE day = ? ORDER BY slot", (day,))
+
+    def set_backfill_plan(self, day: str, cells: list[tuple[str, str]]) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM backfill_plan WHERE day = ?", (day,))
+            conn.executemany("INSERT INTO backfill_plan(day, slot, video_id, platform) VALUES (?, ?, ?, ?)",
+                             [(day, i, v, p) for i, (v, p) in enumerate(cells)])
+
+    def replace_backfill_cell(self, day: str, slot: int, video_id: str, platform: str) -> None:
+        with self.tx() as conn:
+            conn.execute("UPDATE backfill_plan SET video_id = ?, platform = ? WHERE day = ? AND slot = ?", (video_id, platform, day, slot))
 
     def driver_log(self, since_day: str = "", kind: str | None = None) -> list[dict[str, Any]]:
         if kind:

@@ -31,7 +31,7 @@ DEFAULT_ROLE = Path(__file__).resolve().parent / "examples" / "wendy" / "Wendy.m
 DEFAULT_HERMES = Path("~/.hermes")
 JOB_PREFIX = "wendy-"  # Hermes 里她的定时任务都叫 wendy-xxx
 JOB_LABEL = {"wendy-morning": "早上", "wendy-evening": "晚上", "wendy-weekly": "周日", "wendy-nudge": "来催你"}
-KPI = (("rd", "读日报"), ("ship", "出摊"), ("dm", "回私信"), ("xr", "X 互动"), ("bf", "补发"))
+KPI = (("rd", "读日报"), ("ship", "出摊"), ("dm", "回私信"), ("xr", "X 互动"))
 PLATFORM = {"douyin": "抖音", "x": "X", "xiaohongshu": "小红书", "bilibili": "B 站", "youtube": "YouTube",
             "channels": "视频号", "wechat_mp": "公众号", "miniprogram": "小程序"}
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -138,13 +138,17 @@ def brief(today: dict[str, Any], reach: dict[str, Any], now_item: dict[str, Any]
 
     st = today.get("stage")
     if st:
-        out.append(f"[现在在哪个阶段] {st['label']}：把发送连贯起来，把过去没发的都发出去。旧内容还剩 {st['backlog']} 条；连续出摊 {st['streak']}/{st['streak_target']} 天。"
+        out.append(f"[现在在哪个阶段] {st['label']}：把发送连贯起来，把过去没发的都发出去。旧内容还剩 {st['backlog']} 格（一条内容发到一个平台算一格）；连续出摊 {st['streak']}/{st['streak_target']} 天。"
                    + (f"出关条件已经达到，下一阶段是「{st['next']}」，换阶段要 Park 拍板。" if st["done"] else f"出关条件：旧内容清完，并且连续出摊 {st['streak_target']} 天。下一阶段（{st['next']}）现在不算分。"))
     line = []
     if streak.get("days"):
         line.append(f"连续出摊 {streak['days']} 天" if streak["kind"] == "ok" else f"连续 {streak['days']} 天没出摊")
     line.append(f"这一周（周一起）出摊 {week['shipped']}/{week['ship_days']} 天，减 {week['demerits']} 分")
     out.append("[现在在哪条线上] " + "；".join(line))
+    if week.get("new_target"):
+        short = max(0, week["new_target"] - week["new_videos"])
+        out.append(f"[本周新视频] {week['new_videos']}/{week['new_target']} 条" + (f"，周日前还差 {short} 条" if short else "，下限已经够了")
+                   + ("。一周至少这么多条，少一条减 1 分。" if week.get("new_counts") else "。这条下限从下一周起才算分，这一周只看进度。"))
 
     y = cells.get(yesterday)
     if y:
@@ -174,31 +178,28 @@ def brief(today: dict[str, Any], reach: dict[str, Any], now_item: dict[str, Any]
         out.append(f"{n}. 读日报：" + ("已读完" if not unread else "还没读 " + "、".join(unread)))
     ship = today.get("ship") or {}
     n += 1
+    plan = today.get("out") or {}
+    cells = plan.get("cells") or []
     if ship.get("done"):
-        out.append(f"{n}. 出摊：今天已经发了")
+        out.append(f"{n}. 出摊：今天已经发了新视频")
+    elif d.get("ship") == "ok":
+        out.append(f"{n}. 出摊：做到（今天没发新的，补发的 {len(cells)} 格都发完了）")
     else:
         nxt = (ship.get("next") or {}).get("text")
         notes = [x["text"] for x in ship.get("notes") or [] if not x.get("done_at")][:3]
-        out.append(f"{n}. 出摊：今天还没发抖音" + (f"。工作台排的下一步：{nxt}" if nxt else "")
-                   + (f"。「接下来要拍的」清单：{'；'.join(notes)}" if notes else ""))
+        mode = {"new": "他选了今天发新视频", "backfill": "他选了今天不发新的，补发", None: "他还没说今天发不发新视频——先问他"}[plan.get("mode")]
+        out.append(f"{n}. 出摊：还没做到。今天两条路，做到一条就算出摊：{mode}。")
+        out.append(f"   路一，发新视频：" + (nxt or "拍一条发到抖音") + (f"。「接下来要拍的」清单：{'；'.join(notes)}" if notes else ""))
+        if cells:
+            out.append(f"   路二，补发这 {len(cells)} 格（今天抽好的，已发 {plan.get('sent', 0)} 格）：")
+            out += [f"   - {'已发' if c['sent'] else '没发'} · {c['label']}（{'重要' if c['tier'] == 'major' else '次要'}平台）·《{c['title'][:24]}》" for c in cells]
+            out.append("   他想换哪一格，在工作台那一格上点「换一格」；发完要在工作台点「发了」才算，在微信里说发了不算。")
+        else:
+            out.append("   路二，补发：今天没有能补的格子。")
     n += 1
     out.append(f"{n}. 回私信：{_status(d, 'dm')}")
     n += 1
     out.append(f"{n}. X 互动：{_status(d, 'xr')}，目标 {(today.get('xr') or {}).get('target')} 条")
-    bf = today.get("backfill") or {}
-    ready = bf.get("ready") or []
-    if d.get("bf") in ("ok", "pending"):
-        n += 1
-        picked = bf.get("today")
-        if d["bf"] == "ok":
-            out.append(f"{n}. 补发：做到（今天补完了一条）")
-        elif picked:
-            out.append(f"{n}. 补发：今天挑了《{picked['title'][:24]}》，还差{'、'.join(picked.get('missing_labels') or [])}没发")
-        else:
-            out.append(f"{n}. 补发：还没补。打好包的有 {len(ready)} 条，排最前的是《{ready[0]['title'][:24]}》" if ready else f"{n}. 补发：还没补")
-        out.append("（补发是追平阶段每天一条，算分；它不能顶替出摊，今天不出摊照样减 1 分。）")
-    elif ready and not ship.get("done"):
-        out.append(f"补发（不算分，今天不出摊时保触达用）：打好包的有 {len(ready)} 条，排最前的是《{ready[0]['title'][:24]}》")
     for item in today.get("wrap") or []:
         n += 1
         out.append(f"{n}. 收尾：{item['text']}")
