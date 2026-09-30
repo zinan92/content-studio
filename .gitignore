@@ -19,3 +19,6 @@ build/
 
 # 个人配置（模板是 profile.example.yaml）
 profile.yaml
+
+# 别的会话写的草稿（角色文件、PARK-OS 的改动稿）：不进公开仓库
+drafts/
