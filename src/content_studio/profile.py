@@ -123,6 +123,9 @@ def check(data: dict[str, Any] | None = None) -> list[Check]:
     item("anna.role", "Anna 的角色文件", False,
          lambda v: _filled(v) and Path(str(v)).expanduser().is_file(),
          "不填就用仓库自带的通用版主编；填你自己的 Markdown 才是你的 Anna")
+    item("wendy.role", "Wendy 的角色文件", False,
+         lambda v: _filled(v) and Path(str(v)).expanduser().is_file(),
+         "「今天」页最上面盯你执行的那个人；不填就用仓库自带的通用版")
     item("anna.workflows", "提纲框架文件夹", False,
          lambda v: _filled(v) and (Path(str(v)).expanduser() / "一勾式骨架.md").is_file(),
          "里面要有 一勾式骨架.md；不填用仓库自带的通用版")

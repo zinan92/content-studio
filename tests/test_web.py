@@ -52,6 +52,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (workflows / outline.FRAMEWORK_FILE).write_text(
         f"# {outline.LABEL}\n\n前三句里必须有一个真实数字。结尾禁止稀缺性和催单。\n", encoding="utf-8")
     monkeypatch.setenv(outline.WORKFLOWS_ENV, str(workflows))
+    # Wendy 卡片会读微信那边（Hermes）留下的话：测试读自己的空目录，不读 Park 的。
+    monkeypatch.setenv("CONTENT_STUDIO_HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.delenv("CONTENT_STUDIO_WENDY_ROLE", raising=False)
     cookie = tmp_path / "cookies.json"
     cookie.write_text(json.dumps({"sessionid": "x"}))
     cookie.chmod(0o600)
@@ -79,6 +82,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         brief_fn=_fake_brief,
         opening_fn=lambda prompt: {"stated_at": 0.5, "quote": "开门见山说主线", "before": "", "fixes": ["保持"]},
         anna_fn=_fake_anna,
+        wendy_fn=lambda system, user, session_id: {"text": "连续 1 天没出摊。今天几点拍？" if "Park：" in user else "", "session_id": None},
         qa_fn=lambda prompt: {k: {"score": 4, "reason": "r", "evidence": "大多数人以为是能力问题"} for k in ("pain", "contrast", "delivery")} | {"thin": False, "fix": "补一张截图", "caution": ""},
         outline_fn=lambda prompt: "<<<ARTICLE>>>\n# 标题\n\n## 主线\n大多数人以为是能力问题，其实是位置问题。\n\n## 开头候选\n"
         + "\n".join(f"{i}. 「大多数人以为是能力问题，其实是位置问题。」（绝对否定 · 靠素材）" for i in range(1, 7))

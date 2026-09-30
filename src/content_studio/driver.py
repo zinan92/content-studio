@@ -88,6 +88,34 @@ def plan_order(notes: list[dict[str, Any]], target_day: str) -> list[dict[str, A
     return [n for _, n in sorted(enumerate(notes), key=lambda p: (*rank(p[1]), p[0]))]
 
 
+def now_item(t: dict[str, Any]) -> dict[str, Any] | None:
+    """现在做这一件（Wendy 卡片最上面那一句）：照「今天」页的顺序，取第一件还没做完的。
+    t 是 /api/today 的结果。不经过模型，他做完一件，下一次打开就是下一件。
+    row 说的是这件事在页面上哪一行（first / rd / ship / dm / xr / wrap），卡片上的按钮带他过去。"""
+    for it in t.get("first") or []:
+        return {**it, "row": "first"}
+    unread = [i["label"] for i in (t.get("rd") or {}).get("items") or [] if i.get("exists") and not i.get("read_at")]
+    if unread:
+        return {**item("kpi", "rd", f"读日报：{'、'.join(unread)}还没读", why="每天第一件事。日报不读，就白出了。"), "row": "rd"}
+    ship = t.get("ship") or {}
+    if not ship.get("done") and ship.get("next"):
+        return {**ship["next"], "row": "ship"}
+    cell = (t.get("days") or [{}])[-1]
+    if cell.get("dm") == "pending":
+        entry = (t.get("dm") or {}).get("entry")
+        left = f"还差 {entry['received'] - entry['replied']} 条没回" if entry else "回完把收到几条、回了几条填上"
+        return {**item("kpi", "dm", f"回私信：{left}", why="当天收到的当天回完；不填数，明天按没做到算。"), "row": "dm"}
+    if cell.get("xr") == "pending":
+        xr = t.get("xr") or {}
+        left = f"还差 {xr['target'] - xr['count']} 条" if xr.get("count") is not None else f"回 {xr.get('target')} 条，回完填数"
+        return {**item("kpi", "xr", f"X 互动：{left}", why="在别人的帖子下面回一句有立场的话；不填数，明天按没做到算。"), "row": "xr"}
+    if ship.get("next"):  # 今天发了：剩下的平台，或者明天那条
+        return {**ship["next"], "row": "ship"}
+    for it in t.get("wrap") or []:
+        return {**it, "row": "wrap"}
+    return None
+
+
 def week_start(day: date) -> date:
     """那一周的周一。"""
     return day - timedelta(days=day.weekday())
