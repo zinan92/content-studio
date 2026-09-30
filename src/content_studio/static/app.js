@@ -99,7 +99,7 @@ function bindTeardownButtons(root) {
 window.VIEWS = window.VIEWS || {};
 const CORE_VIEWS = ['mine', 'radar', 'report', 'settings'];
 const OUTPUT_FAMILY = ['output', 'mine', 'radar', 'report'];
-const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '对标雷达'], ['report', '拆解报告']];
+const SUBNAV = [['output', '概览'], ['mine', '总览'], ['radar', '老师和对标'], ['report', '拆解报告']];
 const S = {
   view: 'today',
   workId: null,
@@ -241,7 +241,7 @@ function renderChrome() {
   $('#qSummary').textContent = `${st.active_jobs ? `${st.active_jobs} 条进行中` : '没有进行中的'}${failedJobs ? ` · ${failedJobs} 条失败` : ''}`;
   paintChrome(S.view);
   $$('[data-sync-all]').forEach((b) => { b.disabled = st.full_sync_running || st.benchmarks_running; b.textContent = st.full_sync_running ? '同步中…' : '同步全部账号'; });
-  $$('[data-sync-bench]').forEach((b) => { b.disabled = st.full_sync_running || st.benchmarks_running; b.textContent = st.benchmarks_running ? '同步中…' : '同步对标账号'; });
+  $$('[data-sync-bench]').forEach((b) => { b.disabled = st.full_sync_running || st.benchmarks_running; b.textContent = st.benchmarks_running ? '同步中…' : '同步老师和对标'; });
   $('#syncState').innerHTML = st.full_sync_running ? '<span class="spin"></span><span>正在同步你自己的账号</span>'
     : st.benchmarks_running ? `<span class="spin"></span><span>正在同步 ${st.benchmark_count} 个对标账号</span>`
     : `<span class="dot"></span><span>${st.active_jobs} 个拆解进行中</span>`;
@@ -502,7 +502,9 @@ function mixBar(v) {
 
 function renderRadar() {
   const threshold = S.state.settings.threshold;
-  const cards = S.accounts.map((a) => {
+  // 9/30 Park：老师（学理念）和对标（看要不要复刻）分开。对标排前面，老师在后面；卡片上能切换。
+  const ordered = [...S.accounts].sort((x, y) => (x.kind === 'teacher') - (y.kind === 'teacher'));
+  const cards = ordered.map((a) => {
     const status = a.platform !== '抖音'
       ? `<div class="wait">${esc(a.pending_note)}</div>`
       : a.syncing ? '<div class="status"><span class="spin"></span>正在同步近期作品…</div>'
@@ -510,16 +512,20 @@ function renderRadar() {
           : `<div class="status">${esc(ago(a.last_synced_at))}</div>`;
     const title = a.nickname || (a.platform === '抖音' ? '新账号（同步后显示昵称）' : a.external_id ? '@' + a.external_id : '新账号');
     return `<div class="panel acct pick ${S.radarAccount === a.id ? 'on' : ''}" data-pick="${a.id}" title="点一下只看这个账号，再点一下看全部">
-      <div class="acct-top"><h3 title="${esc(title)}"><span class="pb">${esc(a.platform)}</span>${esc(title)}</h3><span class="fans">${a.follower_count !== null ? fmt(a.follower_count) + ' 粉' : ''} <button class="acct-x" data-rm="${a.id}" title="移出对标库" aria-label="移出对标库">×</button></span></div>
+      <div class="acct-top"><h3 title="${esc(title)}"><button type="button" class="kind-pill ${a.kind === 'teacher' ? 'teacher' : ''}" data-kind="${a.id}" data-to="${a.kind === 'teacher' ? 'benchmark' : 'teacher'}" title="点一下换成${a.kind === 'teacher' ? '对标' : '老师'}">${a.kind === 'teacher' ? '老师' : '对标'}</button>${esc(title)}</h3><span class="fans">${a.follower_count !== null ? fmt(a.follower_count) + ' 粉' : ''} <button class="acct-x" data-rm="${a.id}" title="移出对标库" aria-label="移出对标库">×</button></span></div>
       ${a.platform === '抖音' ? spark(a.spark, a.median_likes, threshold) : `<div class="url">${esc(a.profile_url)}</div>`}
       ${a.platform === '抖音' ? `<div class="meta"><span>中位 <b>${fmt(a.median_likes)}</b></span><span>作品 <b>${a.video_count}</b></span><span style="color:var(--hot)">爆款 <b style="color:var(--hot)">${a.breakout_count}</b></span></div>` : ''}
       ${status}
       ${a.platform === '抖音' ? `<div class="row-actions"><button class="btn small ghost" type="button" data-sync="${a.id}" ${a.syncing ? 'disabled' : ''}>同步</button><a class="btn small ghost" href="${esc(a.profile_url)}" target="_blank" rel="noopener">主页 ↗</a></div>` : ''}
     </div>`;
   }).join('');
-  $('#accts').innerHTML = cards + `<button class="panel acct add" id="addBtn" type="button"><span class="plus">+</span>加入对标账号<span>抖音 · 小红书 · X · 视频号</span></button>`;
+  $('#accts').innerHTML = cards + `<button class="panel acct add" id="addBtn" type="button"><span class="plus">+</span>加一个老师或对标<span>抖音 · 小红书 · X · 视频号</span></button>`;
   $('#addBtn').onclick = () => openAdd('benchmark');
   bindAccountActions($('#accts'), '对标库');
+  $$('#accts [data-kind]').forEach((b) => (b.onclick = async (e) => {
+    e.stopPropagation();
+    try { await api(`/api/accounts/${b.dataset.kind}`, { method: 'PATCH', body: { kind: b.dataset.to } }); toast(b.dataset.to === 'teacher' ? '改成老师了' : '改成对标了'); await refreshAll(); } catch (err) { toast(err.message); }
+  }));
 
   $$('#accts [data-pick]').forEach((card) => (card.onclick = (e) => {
     if (e.target.closest('button, a')) return;  // 卡片上的按钮和链接照旧

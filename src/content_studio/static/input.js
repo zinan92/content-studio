@@ -5,7 +5,6 @@ window.VIEWS = window.VIEWS || {};
 
 // tab key → 它从哪来。daily 走 /api/vault/dailies，followed 走对标账号的新作品，其余是 Obsidian 笔记。
 const NOTE_TABS = [
-  { key: 'benchmark', label: '对标', kind: 'note' },
   { key: 'raw', label: 'Park 原始输出', kind: 'note' },
   { key: 'saved', label: '我收藏的', kind: 'note' },
   { key: 'clipping', label: 'Clippings', kind: 'note' },
@@ -17,9 +16,11 @@ function syncTabs() {
   TABS.length = 1;
   dailies.forEach((d) => TABS.push({ key: d.key, label: d.label, kind: 'daily' }));
   TABS.push({ key: 'kline', label: 'K 线日报', kind: 'kline' });
-  NOTE_TABS.forEach((t) => TABS.push(t));
-  // 流量视频（9/30）：看到就想复刻的单条视频，贴链接存下来。不是笔记，有自己的一页。
+  // 老师和对标新发的视频（9/30）：他自己去看，不拆、不筛。流量视频是看到就想复刻的单条。
+  TABS.push({ key: 'teacher', label: '老师', kind: 'feed' });
+  TABS.push({ key: 'benchmark', label: '对标', kind: 'feed' });
   TABS.push({ key: 'swipe', label: '流量视频', kind: 'swipe' });
+  NOTE_TABS.forEach((t) => TABS.push(t));
   if (!TABS.some((t) => t.key === C.tab)) C.tab = 'all';
 }
 const DAY_TABS = [[1, '1 天'], [3, '3 天'], [7, '7 天'], [30, '30 天']];
@@ -173,6 +174,7 @@ window.VIEWS.input = {
     // K 线日报：100 多个标的，一张日线卡一个，一行铺满，往下扫一遍就看完。
     if (def.kind === 'kline') { await renderKline(body); return; }
     if (def.kind === 'swipe') { await renderSwipe(body); return; }
+    if (def.kind === 'feed') { await renderFeed(body, def.key); return; }
 
     const rows = rowsFor(C.tab);
     const fresh = (C.items || []).filter((i) => noteState(i) === 'fresh').length;
@@ -265,6 +267,7 @@ function tabBar() {
     if (t.kind === 'note') return (C.items || []).filter((i) => i.source === t.key && noteState(i) === 'fresh').length;
     if (t.kind === 'all') return (C.items || []).filter((i) => i.source !== 'raw' && noteState(i) === 'fresh').length;
     if (t.kind === 'swipe') return SW.data ? SW.data.videos.filter((v) => v.status === 'saved').length : 0;
+    if (t.kind === 'feed') return FD.data ? FD.data.counts[t.key].unseen : 0;
     return 0;
   };
   return `<div class="in-bar"><div class="in-tabs" role="tablist" aria-label="来源">${TABS.map((t) => { const n = count(t); return `<button type="button" role="tab" class="${C.tab === t.key ? 'on' : ''}" data-tab="${t.key}">${t.label}${n ? `<b class="num">${n}</b>` : ''}</button>`; }).join('')}</div></div>`;
@@ -470,4 +473,64 @@ async function renderSwipe(body) {
   $$('[data-sw-open]', body).forEach((b) => (b.onclick = () => { location.hash = `#work/${b.dataset.swOpen}`; go(readHash(), { push: false }); }));
   clearTimeout(SW.timer);
   if (d.videos.some((v) => v.status === 'downloading')) SW.timer = setTimeout(() => { if (S.view === 'input' && C.tab === 'swipe') renderView(); }, 4000);
+}
+
+
+/* ---------- 老师 / 对标：他们新发的视频，Park 自己去看（9/30） ----------
+ * 不下载、不拆、不按点赞筛。「去看」打开抖音并记成看过；老师的可以记一句学到什么；对标的可以点「想复刻」
+ * 存进流量视频；哪一栏都能点「拆解」——点了才拆。 */
+const FD = { data: null, days: 7, showSeen: false };
+
+function feedRow(v, kind) {
+  const when = v.published_at ? new Date(v.published_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  const dur = v.duration_seconds ? `${Math.floor(v.duration_seconds / 60)}:${String(Math.round(v.duration_seconds % 60)).padStart(2, '0')}` : '';
+  const torn = v.has_report ? `<button class="btn small" type="button" data-fd-report="${esc(v.video_id)}">看拆解</button>`
+    : v.job && !['done', 'failed'].includes(v.job.stage) ? '<span class="fd-tag"><span class="spin"></span> 拆解中</span>'
+      : `<button class="btn small ghost" type="button" data-fd-tear="${esc(v.video_id)}">拆解</button>`;
+  const copy = kind !== 'benchmark' ? '' : v.swipe_id ? '<span class="fd-tag ok">在流量视频里</span>'
+    : `<button class="btn small ghost" type="button" data-fd-swipe="${esc(v.url)}">想复刻</button>`;
+  return `<div class="fd-row ${v.seen_at ? 'seen' : ''}" data-fd="${esc(v.video_id)}">
+    <div class="fd-meta"><b>${esc(v.account)}</b><small>${esc(when)}${dur ? ' · ' + dur : ''}${v.likes != null ? ' · ' + fmt(v.likes) + ' 赞' : ''}${v.is_image_post ? ' · 图文' : ''}</small></div>
+    <div class="fd-title">${esc(cleanTitle(v.title) || '（没有标题）')}</div>
+    <div class="fd-acts">
+      <a class="btn small ${v.seen_at ? '' : 'primary'}" href="${esc(v.url)}" target="_blank" rel="noopener" data-fd-open="${esc(v.video_id)}">去看 ↗</a>
+      <button class="btn small ghost" type="button" data-fd-seen="${esc(v.video_id)}" data-to="${v.seen_at ? '0' : '1'}">${v.seen_at ? '标成没看' : '看过了'}</button>
+      ${copy}${torn}
+    </div>
+    ${kind === 'teacher' ? `<input class="fd-note" data-fd-note="${esc(v.video_id)}" maxlength="300" placeholder="学到什么？记一句" value="${esc(v.note)}" autocomplete="off">` : v.note ? `<small class="fd-noted">${esc(v.note)}</small>` : ''}
+  </div>`;
+}
+
+async function renderFeed(body, kind) {
+  try { FD.data = await api(`/api/feed?days=${FD.days}`); } catch (err) { body.innerHTML = tabBar() + `<div class="panel empty"><b>${esc(err.message)}</b></div>`; bindTabs(body); return; }
+  const d = FD.data;
+  if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
+  const sig = 'fd' + JSON.stringify([kind, d, FD.showSeen]);
+  if (body.dataset.sig === sig) return;
+  body.dataset.sig = sig;
+  const rows = d[kind];
+  const unseen = rows.filter((r) => !r.seen_at), seen = rows.filter((r) => r.seen_at);
+  const who = d.accounts[kind];
+  const label = kind === 'teacher' ? '老师' : '对标';
+  body.innerHTML = tabBar() + `<div class="panel fd-panel">
+      <div class="fd-head"><div><b>${label}新发的 · ${unseen.length} 条没看</b>
+        <small>${who.length ? esc(who.join('、')) : `还没有${label}`} · 每天 9:30 查一次有没有新发的</small></div>
+        <div class="seg-toggle" role="group" aria-label="时间">${[[3, '3 天'], [7, '7 天'], [30, '30 天']].map(([n, l]) => `<button type="button" class="${FD.days === n ? 'on' : ''}" data-fd-days="${n}">${l}</button>`).join('')}</div></div>
+      <p class="in-note">${kind === 'teacher' ? '老师是来学东西的：去看，学到什么记一句。' : '对标是看他在做什么：去看，觉得值得照着做一条，点「想复刻」存进流量视频。'}工作台不替你筛、不自动拆，想拆点那条的「拆解」。谁是老师谁是对标，在「05 已发出 → 老师和对标」里改。</p>
+      ${unseen.length ? unseen.map((v) => feedRow(v, kind)).join('') : `<div class="empty"><b>${rows.length ? '都看过了' : `这 ${FD.days} 天${label}没有发新的`}</b></div>`}
+      ${seen.length ? `<button class="btn quiet fd-more" type="button" id="fdMore">${FD.showSeen ? '收起' : `看过的 ${seen.length} 条`}</button>${FD.showSeen ? seen.map((v) => feedRow(v, kind)).join('') : ''}` : ''}
+    </div>`;
+  bindTabs(body);
+  const again = () => { body.dataset.sig = ''; renderView(); };
+  const act = async (fn) => { try { await fn(); } catch (err) { toast(err.message); } again(); };
+  const mark = (id, payload) => api(`/api/feed/${id}`, { method: 'PUT', body: payload });
+  $$('[data-fd-days]', body).forEach((b) => (b.onclick = () => { FD.days = Number(b.dataset.fdDays); again(); }));
+  $$('[data-fd-open]', body).forEach((a) => a.addEventListener('click', () => { act(() => mark(a.dataset.fdOpen, { seen: true })); }));
+  $$('[data-fd-seen]', body).forEach((b) => (b.onclick = () => act(() => mark(b.dataset.fdSeen, { seen: b.dataset.to === '1' }))));
+  $$('[data-fd-note]', body).forEach((i) => (i.onchange = () => act(() => mark(i.dataset.fdNote, { note: i.value }))));
+  $$('[data-fd-swipe]', body).forEach((b) => (b.onclick = () => act(async () => { await api('/api/swipe', { method: 'POST', body: { url: b.dataset.fdSwipe } }); toast('存进流量视频了，正在下载'); })));
+  $$('[data-fd-tear]', body).forEach((b) => (b.onclick = () => act(async () => { await api('/api/jobs', { method: 'POST', body: { video_id: b.dataset.fdTear, source: label } }); toast('排进拆解了，几分钟后能看'); })));
+  $$('[data-fd-report]', body).forEach((b) => (b.onclick = () => { S.reportId = b.dataset.fdReport; go('report'); }));
+  const more = $('#fdMore');
+  if (more) more.onclick = () => { FD.showSeen = !FD.showSeen; again(); };
 }
