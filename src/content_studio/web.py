@@ -217,7 +217,8 @@ class DmBody(BaseModel):
 class ProfileBody(BaseModel):
     name: str | None = None
     bio: str | None = None
-    link: str | None = None
+    mtime: float | None = None
+    drop_suggestion: bool = False
 
 
 class AccountKindBody(BaseModel):
@@ -3967,33 +3968,69 @@ def create_app(
 
     # -- 定位：我是谁 / 怎么找到客户 / 卖什么 -------------------------------------
 
-    # -- 各平台主页：名字、简介、链接，工作台里写好再贴到平台上（profiles.py） ---------
+    # -- 对外简介：一份 profile，正本在 Obsidian（profiles.py） -----------------------
 
-    def _profiles_view() -> dict[str, Any]:
+    def _profile_view() -> dict[str, Any]:
         from . import profiles, reach
 
+        prof = profiles.read(vault.vault_root(vault_path()))
         accounts = store.settings()["platform_accounts"] or {}
-        on = {key: (bool((accounts.get(key) or {}).get("on")) if key in accounts else key == "douyin") for key, *_ in profiles.SPECS}
+        on = {key: (bool((accounts.get(key) or {}).get("on")) if key in accounts else False) for key, *_ in profiles.PLATFORMS}
         on["douyin"] = True
-        return {"platforms": profiles.view(store.settings().get("profiles") or {}, on, reach.CORE)}
+        applied = store.settings().get("profiles") or {}
+        # 上午按「每个平台各写一份」存的 X 草稿：当成一条建议给他看，他点了才换进去
+        draft = (applied.get("x") or {}) if not (applied.get("x") or {}).get("at") else {}
+        suggestion = {"name": draft.get("name") or "", "bio": draft.get("bio") or ""} if draft.get("bio") and draft.get("bio") != prof["bio"] else None
+        return {"profile": prof, "platforms": profiles.platforms(prof, {k: v for k, v in applied.items() if isinstance(v, dict) and v.get("at")}, on, reach.CORE),
+                "limits": {"name": profiles.X_NAME_MAX, "bio": profiles.X_BIO_MAX}, "suggestion": suggestion}
 
-    @app.get("/api/profiles")
-    def get_profiles() -> dict[str, Any]:
-        return _profiles_view()
-
-    @app.put("/api/profiles/{platform}")
-    def put_profile(platform: str, body: ProfileBody) -> dict[str, Any]:
+    def _mark_applied(platform: str) -> None:
         from . import profiles
 
+        if platform not in {k for k, *_ in profiles.PLATFORMS}:
+            raise ValueError("没有这个平台")
+        prof = profiles.read(vault.vault_root(vault_path()))
+        if not prof["name"] and not prof["bio"]:
+            raise ValueError("简介还是空的")
         saved = dict(store.settings().get("profiles") or {})
-        rec = dict(saved.get(platform) or {})
-        merged = {f: (getattr(body, f) if getattr(body, f) is not None else rec.get(f) or "") for f in profiles.FIELDS}
-        rec.update(profiles.check(platform, merged))
-        saved[platform] = rec
+        saved[platform] = {"name": prof["name"], "bio": prof["bio"], "at": now_iso()}
         store.update_settings({"profiles": saved})
-        return _profiles_view()
 
-    @app.get("/api/profiles/x/live")
+    @app.get("/api/profile")
+    def get_profile() -> dict[str, Any]:
+        return _profile_view()
+
+    @app.put("/api/profile")
+    def put_profile(body: ProfileBody) -> dict[str, Any]:
+        from . import profiles
+
+        try:
+            profiles.write(vault.vault_root(vault_path()), name=body.name or "", bio=body.bio or "", mtime=body.mtime)
+        except profiles.ProfileError as exc:
+            raise ValueError(str(exc)) from None
+        if body.drop_suggestion:
+            saved = dict(store.settings().get("profiles") or {})
+            if not (saved.get("x") or {}).get("at"):
+                saved.pop("x", None)
+                store.update_settings({"profiles": saved})
+        store.log_event("profile", "对外简介改了")
+        return _profile_view()
+
+    @app.delete("/api/profile/suggestion")
+    def drop_profile_suggestion() -> dict[str, Any]:
+        saved = dict(store.settings().get("profiles") or {})
+        if not (saved.get("x") or {}).get("at"):
+            saved.pop("x", None)
+            store.update_settings({"profiles": saved})
+        return _profile_view()
+
+    @app.post("/api/profile/applied/{platform}")
+    def profile_applied(platform: str) -> dict[str, Any]:
+        """他已经把现在这一版贴到这个平台上了：记下哪天、哪一版。"""
+        _mark_applied(platform)
+        return _profile_view()
+
+    @app.get("/api/profile/x/live")
     def x_profile_live() -> dict[str, Any]:
         """X 上现在的名字和简介（只读）。"""
         from . import x_profile
@@ -4004,40 +4041,24 @@ def create_app(
         except XError as exc:
             raise ValueError(str(exc)) from None
 
-    @app.post("/api/profiles/x/push")
+    @app.post("/api/profile/x/push")
     def x_profile_push() -> dict[str, Any]:
-        """把工作台里写的名字、简介、链接改到 X 上。改的是他公开的主页：只有他点了按钮才调。"""
+        """把现在这份简介改到 X 上。改的是他公开的主页：只有他点了按钮才调。"""
         from . import profiles, x_profile
         from .x_post import XError
 
-        saved = dict(store.settings().get("profiles") or {})
-        rec = dict(saved.get("x") or {})
-        if not (rec.get("name") or rec.get("bio")):
-            raise ValueError("还没写")
+        prof = profiles.read(vault.vault_root(vault_path()))
+        if not prof["name"] and not prof["bio"]:
+            raise ValueError("简介还是空的")
+        if len(prof["bio"]) > profiles.X_BIO_MAX:
+            raise ValueError(f"X 的简介最多 {profiles.X_BIO_MAX} 个字，现在 {len(prof['bio'])} 个：先改短")
         try:
-            live = (x_profile_update_fn or x_profile.update)(name=rec.get("name") or "", bio=rec.get("bio") or "", link=rec.get("link") or "")
+            live = (x_profile_update_fn or x_profile.update)(name=prof["name"], bio=prof["bio"])
         except XError as exc:
             raise ValueError(str(exc)) from None
-        rec["applied"] = {**{f: rec.get(f) or "" for f in profiles.FIELDS}, "at": now_iso()}
-        saved["x"] = rec
-        store.update_settings({"profiles": saved})
-        store.log_event("profile", "X 的主页改好了：" + (rec.get("bio") or "")[:60])
-        return {**_profiles_view(), "live": live}
-
-    @app.post("/api/profiles/{platform}/applied")
-    def profile_applied(platform: str) -> dict[str, Any]:
-        """他已经把这一版贴到平台上了：记下贴上去的是哪一版、哪天贴的。"""
-        from . import profiles
-
-        saved = dict(store.settings().get("profiles") or {})
-        rec = dict(saved.get(platform) or {})
-        if not any(rec.get(f) for f in profiles.FIELDS):
-            raise ValueError("还没写")
-        rec["applied"] = {**{f: rec.get(f) or "" for f in profiles.FIELDS}, "at": now_iso()}
-        saved[platform] = rec
-        store.update_settings({"profiles": saved})
-        store.log_event("profile", f"{platform} 的主页改到平台上了")
-        return _profiles_view()
+        _mark_applied("x")
+        store.log_event("profile", "X 的主页改好了：" + prof["bio"][:60])
+        return {**_profile_view(), "live": live}
 
     @app.get("/api/positioning")
     def get_positioning() -> dict[str, Any]:
