@@ -214,6 +214,19 @@ CREATE TABLE IF NOT EXISTS dm_entries (
     replied INTEGER NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS swipe_videos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    state TEXT NOT NULL,
+    error TEXT,
+    content_dir TEXT,
+    info TEXT,
+    note TEXT,
+    collection TEXT,
+    topic_id INTEGER,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS kpi_counts (
     day TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -1014,6 +1027,51 @@ class StudioStore:
                 "ON CONFLICT(day) DO UPDATE SET received = excluded.received, replied = excluded.replied, updated_at = excluded.updated_at",
                 (day, int(received), int(replied), now_iso()),
             )
+
+    # -- 流量视频（swipe.py） -------------------------------------------------
+
+    def _swipe(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {**row, "info": json.loads(row["info"]) if row.get("info") else {}}
+
+    def swipe_videos(self) -> list[dict[str, Any]]:
+        return [self._swipe(r) for r in self._rows("SELECT * FROM swipe_videos ORDER BY id DESC")]
+
+    def swipe_video(self, swipe_id: int) -> dict[str, Any]:
+        row = self._swipe(self._row("SELECT * FROM swipe_videos WHERE id = ?", (swipe_id,)))
+        if row is None:
+            raise StoreError("这条流量视频已经不在了")
+        return row
+
+    def add_swipe(self, url: str, platform: str, note: str | None = None) -> dict[str, Any]:
+        dup = self._row("SELECT id FROM swipe_videos WHERE url = ?", (url,))
+        if dup:
+            raise StoreError("这条已经存过了")
+        with self.tx() as conn:
+            cur = conn.execute("INSERT INTO swipe_videos(url, platform, state, note, created_at) VALUES (?, ?, 'downloading', ?, ?)",
+                               (url, platform, (note or "").strip()[:300] or None, now_iso()))
+        return self.swipe_video(cur.lastrowid)
+
+    def update_swipe(self, swipe_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"state", "error", "content_dir", "info", "note", "collection", "topic_id"}
+        if set(fields) - allowed:
+            raise StoreError(f"不可更新的字段：{sorted(set(fields) - allowed)}")
+        if "info" in fields and fields["info"] is not None:
+            fields["info"] = json.dumps(fields["info"], ensure_ascii=False)
+        if fields:
+            cols = ", ".join(f"{k} = ?" for k in fields)
+            with self.tx() as conn:
+                conn.execute(f"UPDATE swipe_videos SET {cols} WHERE id = ?", (*fields.values(), swipe_id))
+        return self.swipe_video(swipe_id)
+
+    def delete_swipe(self, swipe_id: int) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM swipe_videos WHERE id = ?", (swipe_id,))
+
+    def swipe_count_since(self, platform: str, since_iso: str) -> int:
+        row = self._row("SELECT COUNT(*) AS n FROM swipe_videos WHERE platform = ? AND created_at >= ?", (platform, since_iso))
+        return int(row["n"]) if row else 0
 
     def kpi_counts(self, since_day: str, key: str) -> dict[str, int]:
         return {r["day"]: int(r["value"]) for r in self._rows("SELECT day, value FROM kpi_counts WHERE key = ? AND day >= ?", (key, since_day))}
