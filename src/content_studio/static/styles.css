@@ -2054,3 +2054,8 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .wd-stage b{font-family:var(--mono);color:var(--ink)}
 .wd-stage.done{background:var(--out-soft);color:var(--out)}
 .wd-stage + .wd-nudged{margin-left:10px}
+/* 全平台追踪：不补发的旧内容划掉 */
+.bf-cancelled .bf-title b{text-decoration:line-through;color:var(--ink-3)}
+.bf-cancelled td.c{opacity:.45}
+.bf-dot.off{border-style:solid;border-color:var(--line-soft)}
+.bf-drop{font-size:12px;color:var(--ink-3)}

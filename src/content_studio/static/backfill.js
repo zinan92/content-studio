@@ -23,6 +23,7 @@ function bfCell(v, p) {
   // 抖音上藏起来的（被判违规设成私密）：别的平台照样补发，抖音这格标「藏」，链接别人点不开
   if (p.key === 'douyin') return v.hidden_on_douyin ? '<span class="bf-dot hid" title="抖音上已设为私密；别的平台照样补发">藏</span>' : `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="在抖音上打开">↗</a>`;
   const st = v.done[p.key];
+  if (v.cancelled && !st) return '<span class="bf-dot off" title="这条不补发了">–</span>';
   if (st === 'record' && url) return `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(p.label)}：${esc(url)}">↗</a>`;
   if (st === 'record') return `<span class="bf-dot on" title="${esc(p.label)}：发过了，没记链接">✓</span>`;
   if (st === 'mark') return `<button class="bf-dot on mark" type="button" data-bfunmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：你标过已经发过，点一下撤回">✓</button>`;
@@ -31,15 +32,18 @@ function bfCell(v, p) {
 
 /* 每条只有一个按钮，永远是下一步：没有成片 → 先下成片；正在下 → 等；有了 → 拿去补发。 */
 function bfNext(v) {
+  // 9/30 Park：没有时效性的旧内容不补发了。划掉，能点回来。
+  if (v.cancelled) return `<span class="bf-file">不补发了</span><button class="linklike" type="button" data-bfcancel="${esc(v.video_id)}" data-on="0">恢复</button>`;
   if (!v.missing.length) return '';
+  const drop = `<button class="linklike bf-drop" type="button" data-bfcancel="${esc(v.video_id)}" data-on="1" title="没有时效性了：不再往别的平台补。抖音上那条不动">不补发</button>`;
   const has = v.video === 'master' || v.video === 'download';
   const d = v.download;
-  if (!has && d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下成片…</span>';
-  if (!has && BF.archive && BF.archive.progress && BF.archive.progress.state === 'downloading') return '<span class="bf-file">排队存档中</span>';
+  if (!has && d && d.state === 'downloading') return '<span class="bf-file"><span class="spin"></span> 正在下成片…</span>' + drop;
+  if (!has && BF.archive && BF.archive.progress && BF.archive.progress.state === 'downloading') return '<span class="bf-file">排队存档中</span>' + drop;
   // 没有成片：原片在另一台电脑上。拷进作品库里这条的「1 成片」（或 SSD 视频目录的任何地方），点顶上「在本机再找一遍」。
-  if (!has) return '<span class="bf-file" title="原片在另一台电脑上：拷进作品库这条的「1 成片」，再点顶上「在本机再找一遍」">作品库缺成片 · 在另一台电脑上</span>';
+  if (!has) return '<span class="bf-file" title="原片在另一台电脑上：拷进作品库这条的「1 成片」，再点顶上「在本机再找一遍」">作品库缺成片 · 在另一台电脑上</span>' + drop;
   const note = v.video === 'master' ? '有成片' : '作品库里有成片';
-  return `<span class="bf-file ok">${note}</span><button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>拿去补发</button>`;
+  return `<span class="bf-file ok">${note}</span><button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>拿去补发</button>${drop}`;
 }
 
 window.VIEWS.backfill = {
@@ -52,8 +56,8 @@ window.VIEWS.backfill = {
     const d = BF.data;
     const cols = d.platforms;
     const todo = d.videos.filter((v) => v.missing.length);
-    $('#backfillFigs').innerHTML = `<div class="pub-figs"><span>${d.videos.length} 条内容 · ${todo.length} 条还有平台没发</span><button class="btn small" type="button" id="bfCsv">下载表格</button></div>`;
-    const row = (v) => `<tr>
+    $('#backfillFigs').innerHTML = `<div class="pub-figs"><span>${d.videos.length} 条内容 · ${todo.length} 条还有平台没发${d.videos.some((v) => v.cancelled) ? ` · ${d.videos.filter((v) => v.cancelled).length} 条不补发` : ''}</span><button class="btn small" type="button" id="bfCsv">下载表格</button></div>`;
+    const row = (v) => `<tr class="${v.cancelled ? 'bf-cancelled' : ''}">
       <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${day(v.published_at)} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
         <div class="bf-acts">${bfNext(v)}</div></td>
       ${cols.map((p) => `<td class="c">${bfCell(v, p)}</td>`).join('')}
@@ -84,6 +88,9 @@ window.VIEWS.backfill = {
     const mark = async (vid, p, doneFlag) => { try { await api(`/api/backfill/${vid}/mark`, { method: 'POST', body: { platform: p, done: doneFlag } }); await loadBackfill(); renderView(); } catch (err) { toast(err.message); } };
     $$('[data-bfmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfmark, b.dataset.p, true)));
     $$('[data-bfunmark]', body).forEach((b) => (b.onclick = () => mark(b.dataset.bfunmark, b.dataset.p, false)));
+    $$('[data-bfcancel]', body).forEach((b) => (b.onclick = async () => {
+      try { await api(`/api/backfill/${b.dataset.bfcancel}/cancel`, { method: 'POST', body: { cancel: b.dataset.on === '1' } }); toast(b.dataset.on === '1' ? '这条不补发了，能点回来' : '恢复了'); await loadBackfill(); renderView(); if (window.refreshTodayBadge) window.refreshTodayBadge(); } catch (err) { toast(err.message); }
+    }));
     $$('[data-bfopen]', body).forEach((b) => (b.onclick = () => { S.publishId = Number(b.dataset.bfopen); go('publish'); }));
     // 9/29 起发布台要打包定稿过才发（文字平台）：补发接上以后先进打包，定稿了再去发
     $$('[data-bftake]', body).forEach((b) => (b.onclick = async () => {
