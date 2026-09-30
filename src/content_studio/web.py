@@ -220,6 +220,7 @@ class AccountKindBody(BaseModel):
 class FeedMarkBody(BaseModel):
     seen: bool | None = None
     note: str | None = None
+    opened: bool | None = None
 
 
 class SwipeBody(BaseModel):
@@ -764,7 +765,7 @@ def create_app(
             out[kind].append({
                 "video_id": v["video_id"], "url": url, "title": v.get("title") or "", "account": acct.get("nickname") or "", "account_id": v["account_id"],
                 "published_at": v.get("published_at"), "duration_seconds": v.get("duration_seconds"), "likes": v.get("likes"), "is_image_post": bool(v.get("is_image_post")),
-                "seen_at": mark.get("seen_at"), "note": mark.get("note") or "", "swipe_id": swiped.get(url), **teardown_state(v["video_id"]),
+                "seen_at": mark.get("seen_at"), "opened_at": mark.get("opened_at"), "note": mark.get("note") or "", "swipe_id": swiped.get(url), **teardown_state(v["video_id"]),
             })
         counts = {k: {"total": len(rows), "unseen": sum(1 for r in rows if not r["seen_at"])} for k, rows in out.items()}
         accounts = {k: [a["nickname"] or "未同步" for a in kinds.values() if ("teacher" if a.get("kind") == "teacher" else "benchmark") == k] for k in out}
@@ -774,7 +775,7 @@ def create_app(
     def put_feed_mark(video_id: str, body: FeedMarkBody) -> dict[str, Any]:
         if store.video(video_id) is None:
             raise ValueError("找不到这条视频")
-        store.set_feed_mark(video_id, seen=body.seen, note=body.note)
+        store.set_feed_mark(video_id, seen=body.seen, note=body.note, opened=body.opened)
         return {"ok": True}
 
     @app.get("/api/outliers")
