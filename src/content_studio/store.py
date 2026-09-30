@@ -49,8 +49,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             "read_started": "2026-09-30"},
 }
 
-# Kept as history only: Park collapsed 对标 and 老师 into one category on 2026-09-20, so nothing
-# branches on this any more. The column stays because dropping it would need a table rebuild.
+# 9/20 Park 把对标和老师合成一类；9/30 又分开：老师是学理念的，对标是看要不要复刻的。
+# 处理方式一样（新发的他都自己看），但进项里分两栏；一个人只有一个身份，两样都是的算对标。
 KIND_SELF = "self"
 KIND_BENCHMARK = "benchmark"
 KIND_TEACHER = "teacher"
@@ -213,6 +213,11 @@ CREATE TABLE IF NOT EXISTS dm_entries (
     received INTEGER NOT NULL,
     replied INTEGER NOT NULL,
     updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feed_marks (
+    video_id TEXT PRIMARY KEY,
+    seen_at TEXT,
+    note TEXT
 );
 CREATE TABLE IF NOT EXISTS swipe_videos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1027,6 +1032,22 @@ class StudioStore:
                 "ON CONFLICT(day) DO UPDATE SET received = excluded.received, replied = excluded.replied, updated_at = excluded.updated_at",
                 (day, int(received), int(replied), now_iso()),
             )
+
+    # -- 老师和对标新发的视频：看过了没有、记了一句什么 --------------------------
+
+    def feed_marks(self) -> dict[str, dict[str, Any]]:
+        return {r["video_id"]: r for r in self._rows("SELECT * FROM feed_marks")}
+
+    def set_feed_mark(self, video_id: str, *, seen: bool | None = None, note: str | None = None) -> None:
+        with self.tx() as conn:
+            conn.execute("INSERT OR IGNORE INTO feed_marks(video_id) VALUES (?)", (video_id,))
+            if seen is not None:
+                conn.execute("UPDATE feed_marks SET seen_at = ? WHERE video_id = ?", (now_iso() if seen else None, video_id))
+            if note is not None:
+                note = note.strip()[:300]
+                # 写了一句，就算看过了
+                conn.execute("UPDATE feed_marks SET note = ?, seen_at = COALESCE(seen_at, ?) WHERE video_id = ?",
+                             (note or None, now_iso() if note else None, video_id))
 
     # -- 流量视频（swipe.py） -------------------------------------------------
 

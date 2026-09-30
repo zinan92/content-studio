@@ -184,7 +184,7 @@ def test_index_and_state_load_on_an_empty_library(client: TestClient) -> None:
     assert client.get("/api/reports").json() == []
 
 
-def test_add_benchmark_syncs_and_breakout_is_auto_queued_then_reported(client: TestClient) -> None:
+def test_add_benchmark_syncs_and_nothing_is_torn_down_until_park_asks(client: TestClient) -> None:
     res = client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}?from_tab_name=main"})
     assert res.status_code == 200
     _wait_sync(client)
@@ -194,10 +194,13 @@ def test_add_benchmark_syncs_and_breakout_is_auto_queued_then_reported(client: T
     assert accounts[0]["breakout_count"] == 1
     outliers = client.get("/api/outliers").json()
     assert [o["video_id"] for o in outliers] == ["5"]
-    assert outliers[0]["job"]["stage"] == "queued"
-
+    # 9/30 Park：「拆解必须是我主动要求」——同步完不自动排任何拆解，哪怕是爆款
+    assert outliers[0]["job"] is None
     client.app.state.worker.drain()
-    # Every recent post is queued now, not just the breakout; the 5× one is among them.
+    assert client.processed == []
+
+    client.post("/api/jobs", json={"video_id": "5", "source": "对标"})
+    client.app.state.worker.drain()
     assert "https://www.douyin.com/video/5" in client.processed
     assert client.get("/api/outliers").json()[0]["has_report"] is True
     report = client.get("/api/reports/5").json()

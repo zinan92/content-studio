@@ -66,13 +66,13 @@ def test_benchmarks_read_one_page_each_and_stop_on_risk_control(tmp_path: Path, 
     store, me, others = _sync_store(tmp_path)
     calls: list = []
     _patch_sync(monkeypatch, calls)
-    sync_everything(store, cookie_path=tmp_path / "c", creator_db=tmp_path / "d", enqueue=False)
+    sync_everything(store, cookie_path=tmp_path / "c", creator_db=tmp_path / "d")
     assert BENCHMARK_PAGES == 1
     assert calls == [(me["id"], None)] + [(o["id"], 1) for o in others]
 
     calls.clear()
     _patch_sync(monkeypatch, calls, stop_at=others[1]["id"])
-    summary = sync_benchmarks(store, cookie_path=tmp_path / "c", enqueue=False)
+    summary = sync_benchmarks(store, cookie_path=tmp_path / "c")
     assert [c[0] for c in calls] == [others[0]["id"], others[1]["id"]]  # 撞上风控，第三个不再碰
     assert summary["stopped"]
 

@@ -25,7 +25,6 @@ from .accounts import (
     AccountError,
     ContentDownloaderClient,
     add_account,
-    auto_enqueue_outliers,
     sync_account,
 )
 from .creator_metrics import CookieFileError, load_cookie_file
@@ -212,6 +211,15 @@ class DmBody(BaseModel):
     received: int
     replied: int
     day: str | None = None
+
+
+class AccountKindBody(BaseModel):
+    kind: str
+
+
+class FeedMarkBody(BaseModel):
+    seen: bool | None = None
+    note: str | None = None
 
 
 class SwipeBody(BaseModel):
@@ -456,7 +464,6 @@ def create_app(
                 store,
                 cookie_path=cookie_path,
                 creator_db=creator_db or Path("/nonexistent"),
-                has_report=lambda vid: report_file(vid) is not None,
                 benchmarks=False,
             ))
         worker.notify()
@@ -467,10 +474,8 @@ def create_app(
     def benchmark_sync() -> dict:
         from .cli import sync_benchmarks
 
-        result = sync_benchmarks(store, cookie_path=cookie_path, factory=factory,
-                                 has_report=lambda vid: report_file(vid) is not None)
-        store.log_event("sync", f"对标同步完：{sum(1 for a in result['accounts'] if a['status'] == 'ok')} 个号，排进拆解 {result['enqueued']} 条")
-        worker.notify()
+        result = sync_benchmarks(store, cookie_path=cookie_path, factory=factory)
+        store.log_event("sync", f"老师和对标同步完：{sum(1 for a in result['accounts'] if a['status'] == 'ok')} 个号")
         return result
 
     stop_auto = threading.Event()
@@ -698,15 +703,8 @@ def create_app(
         result = sync_account(store, account_id, client_factory=factory, pages=pages)
         acct = store.account(account_id)
         store.log_event("sync", f"{'往回翻完' if deep else '同步完'} {acct.get('nickname') or '账号'}，这次拉到 {result.get('video_count', '?')} 条作品")
-        if deep:
-            return result  # 往回翻是为了找旧作品看，不触发自动拆解，免得占掉当天的名额
-        if store.account(account_id)["is_self"]:
-            if creator_sync_fn is not None:
-                result["creator_metrics"] = creator_sync_fn()
-        else:
-            has_report = lambda vid: report_file(vid) is not None  # noqa: E731
-            auto_enqueue_outliers(store, has_report=has_report)
-            worker.notify()
+        if not deep and is_self and creator_sync_fn is not None:
+            result["creator_metrics"] = creator_sync_fn()
         return result
 
     @app.post("/api/accounts/{account_id}/sync")
@@ -734,6 +732,49 @@ def create_app(
     @app.delete("/api/accounts/{account_id}")
     def delete_account(account_id: int) -> dict[str, Any]:
         store.delete_account(account_id)
+        return {"ok": True}
+
+    @app.patch("/api/accounts/{account_id}")
+    def patch_account(account_id: int, body: AccountKindBody) -> dict[str, Any]:
+        """老师 / 对标（9/30 Park：一个人只有一个身份，既是老师又是对标的算对标）。"""
+        account = store.account(account_id)
+        if account["is_self"]:
+            raise ValueError("这是你自己的号")
+        if body.kind not in ("teacher", "benchmark"):
+            raise ValueError("只能是老师或对标")
+        store.update_account(account_id, kind=body.kind)
+        threshold = float(store.settings()["threshold"])
+        return {"account": account_view(store.account(account_id), threshold)}
+
+    @app.get("/api/feed")
+    def get_feed(days: int = 7) -> dict[str, Any]:
+        """老师和对标新发的视频：Park 自己去看，看过了点一下。不下载、不拆、不按点赞筛（9/30 Park：
+        「他俩出了视频我都去看就好了」「视频可能刚跑了 6 个小时，你怎么知道最终结果怎么样」）。
+        想拆、想复刻，他点了才做。"""
+        days = min(max(days, 1), 30)
+        marks = store.feed_marks()
+        swiped = {r["url"]: r["id"] for r in store.swipe_videos()}
+        kinds = {a["id"]: a for a in store.followed_accounts()}
+        out: dict[str, list[dict[str, Any]]] = {"teacher": [], "benchmark": []}
+        for v in store.followed_posts(days):
+            acct = kinds.get(v["account_id"]) or {}
+            kind = "teacher" if acct.get("kind") == "teacher" else "benchmark"
+            url = f"https://www.douyin.com/video/{v['video_id']}"
+            mark = marks.get(v["video_id"]) or {}
+            out[kind].append({
+                "video_id": v["video_id"], "url": url, "title": v.get("title") or "", "account": acct.get("nickname") or "", "account_id": v["account_id"],
+                "published_at": v.get("published_at"), "duration_seconds": v.get("duration_seconds"), "likes": v.get("likes"), "is_image_post": bool(v.get("is_image_post")),
+                "seen_at": mark.get("seen_at"), "note": mark.get("note") or "", "swipe_id": swiped.get(url), **teardown_state(v["video_id"]),
+            })
+        counts = {k: {"total": len(rows), "unseen": sum(1 for r in rows if not r["seen_at"])} for k, rows in out.items()}
+        accounts = {k: [a["nickname"] or "未同步" for a in kinds.values() if ("teacher" if a.get("kind") == "teacher" else "benchmark") == k] for k in out}
+        return {"days": days, **out, "counts": counts, "accounts": accounts}
+
+    @app.put("/api/feed/{video_id}")
+    def put_feed_mark(video_id: str, body: FeedMarkBody) -> dict[str, Any]:
+        if store.video(video_id) is None:
+            raise ValueError("找不到这条视频")
+        store.set_feed_mark(video_id, seen=body.seen, note=body.note)
         return {"ok": True}
 
     @app.get("/api/outliers")
