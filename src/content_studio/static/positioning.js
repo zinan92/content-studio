@@ -124,9 +124,9 @@ function posPage(d) {
     </section>
 
     <section class="pos-sec pos-foot">
-      <div class="pos-h"><h2>待拍板</h2><p>${pend.length ? `Anna 提了 ${pend.length} 条，采纳的自己挪进上面正文` : 'Anna 还没提过。说不清三问的时候，叫她过来。'}</p></div>
+      <div class="pos-h"><h2>待拍板</h2><p>${pend.length ? `有 ${pend.length} 条建议，采纳的自己挪进上面正文` : '还没有建议。定位怎么写由你拍板；想不清三问的时候，找 Wendy 聊。'}</p></div>
       <div class="pos-pend">${pend.map((x) => `<div class="pos-chip"><span>${esc(x.text)}</span><small>${esc(x.at)}${x.source ? ' · ' + esc(x.source) : ''}</small><button class="linklike" type="button" data-pos-drop="${esc(x.id)}">不采纳</button></div>`).join('')}</div>
-      <div class="pos-bar"><button class="btn small primary" type="button" id="posAsk">叫 Anna 过来</button><span class="pos-bar-meta"><code>${esc(d.path.replace(/positioning\.md$/, 'positioning.json'))}</code><button class="linklike" type="button" id="posReload">重新读</button></span></div>
+      <div class="pos-bar"><span class="pos-bar-meta"><code>${esc(d.path.replace(/positioning\.md$/, 'positioning.json'))}</code><button class="linklike" type="button" id="posReload">重新读</button></span></div>
     </section>
   </div>`;
 }
@@ -145,13 +145,13 @@ window.VIEWS.positioning = {
     } else if (d.exists) {
       // 没有 json：退回渲染 Markdown（老形态）
       body.innerHTML = `<div class="pos"><article class="panel pos-doc"><div class="md">${renderMarkdown(d.markdown)}</div></article>
-        <div class="pos-bar"><button class="btn small primary" type="button" id="posAsk">叫 Anna 过来</button><span class="pos-bar-meta"><code>${esc(d.path)}</code> 改于 ${posUpdated(d.updated)} <button class="linklike" type="button" id="posReload">重新读</button></span></div></div>`;
+        <div class="pos-bar"><span class="pos-bar-meta"><code>${esc(d.path)}</code> 改于 ${posUpdated(d.updated)} <button class="linklike" type="button" id="posReload">重新读</button></span></div></div>`;
     } else {
       body.innerHTML = `<div class="panel empty"><b>还没有定位文件。</b><span>在编辑器里新建 <code>${esc(d.path)}</code>，写下三问：我是谁、怎么找到客户、卖什么。</span></div>`;
       return;
     }
     if (window.renderProfiles) window.renderProfiles();
-    $('#posAsk').onclick = () => { if (window.openAnna) window.openAnna('先帮我看这一页：我的三问里，哪一问答得最不像细分定位？只追问一个问题。'); };
+    // 9/30 Park：定位是他和 Wendy 聊出来的，这一页不再有「叫 Anna 过来」。Anna 还在左边栏，她提的建议照旧进「待拍板」。
     $('#posReload').onclick = () => window.reloadPositioning();
     $$('[data-pos-drop]', body).forEach((b) => (b.onclick = async () => {
       if (!confirm('把这一条从待拍板里删掉？')) return;
