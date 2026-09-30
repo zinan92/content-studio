@@ -106,7 +106,7 @@ def test_stylesheet_still_has_every_page(tmp_path: Path) -> None:
     """9/30：另一个改动把 styles.css 后面 362 行截掉了，今天页、咨询、概览、打包的样式全没了，测试却全过。
     每一页挑一个选择器守着：少了哪个，就是样式文件又被截了。"""
     css = (Path(__file__).resolve().parents[1] / "src/content_studio/static/styles.css").read_text(encoding="utf-8")
-    for selector in (".rail-today", ".td-row", ".td-pack", ".rail-consult", ".ov-core", ".pk-row", ".mx-wrap", ".pub-idle", ".k-svg path.l", ".sw-card", ".fd-row", ".pf-one"):
+    for selector in (".rail-today", ".td-row", ".td-pack", ".rail-consult", ".ov-core", ".pk-row", ".mx-wrap", ".pub-idle", ".k-svg path.l", ".sw-card", ".fd-row", ".pf-var"):
         assert selector in css, f"styles.css 里没有 {selector}"
     assert css.count("{") == css.count("}")
 
