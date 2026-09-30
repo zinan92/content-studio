@@ -1930,3 +1930,12 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .kind-pill.teacher{background:var(--in-soft);border-color:var(--in);color:var(--in)}
 .kind-pill:hover{border-color:var(--ink-3)}
 @media (max-width:900px){.fd-row{grid-template-columns:1fr}.fd-acts{justify-content:flex-start}.fd-note,.fd-noted{grid-column:1}}
+/* 咨询客户 · 诊断流程：做咨询时照着过的那一页，字大一点、一屏能扫完一类问题 */
+.page-h-actions{display:flex;gap:8px;align-items:center}
+.playbook-dlg{width:min(820px,96vw);max-width:none;max-height:92vh;border-radius:16px;overflow:hidden}
+.playbook-dlg[open]{display:flex;flex-direction:column}
+.playbook-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line)}
+.playbook-bar span{display:flex;gap:8px}
+.playbook-md{overflow-y:auto;max-width:none;padding:6px 28px 32px;font-size:16px}
+.playbook-md h3{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-size:18px}
+.playbook-md li{margin:4px 0}

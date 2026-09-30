@@ -1774,6 +1774,16 @@ def create_app(
 
         return {"consults": [_consult_row(r) for r in consult.jobs()][:20]}
 
+    @app.get("/api/consults/playbook")
+    def consult_playbook() -> dict[str, Any]:
+        """做咨询时照着过的「诊断流程」：vault 010_咨询/诊断流程.md，每次打开都重新读。"""
+        from urllib.parse import quote
+
+        from . import consult
+
+        doc = consult.playbook(vault.vault_root(vault_path()))
+        return {**doc, "obsidian": "obsidian://open?path=" + quote(doc["path"])}
+
     @app.post("/api/consults")
     async def post_consult(request: Request) -> dict[str, Any]:
         from . import consult

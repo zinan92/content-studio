@@ -111,10 +111,25 @@ function openConsult() {
   $('#consultDlg').showModal();
 }
 
+/* 诊断流程：做咨询时照着过的那一页（vault 010_咨询/诊断流程.md）。每次打开重新读，Obsidian 里改了这里就变。 */
+async function openPlaybook() {
+  const body = $('#playbookBody');
+  body.innerHTML = '<p class="cl-none">正在读…</p>';
+  $('#playbookDlg').showModal();
+  try {
+    const d = await api('/api/consults/playbook');
+    $('#playbookEdit').href = d.obsidian;
+    body.innerHTML = d.markdown ? renderMarkdown(d.markdown) : `<p class="cl-none">还没有这一页。在 Obsidian 里建 ${esc(d.path)}，写好再回来点开。</p>`;
+    body.scrollTop = 0;
+  } catch (err) { body.innerHTML = `<p class="cl-none">${esc(err.message)}</p>`; }
+}
+
 window.VIEWS.consults = { render: renderClients };
 
 document.addEventListener('DOMContentLoaded', () => {
   $('#consultUpload').onclick = openConsult;
+  $('#playbookOpen').onclick = openPlaybook;
+  $('#playbookClose').onclick = () => $('#playbookDlg').close();
   $('#csCancel').onclick = () => $('#consultDlg').close();
   $('#clientsBody').addEventListener('change', (e) => { if (e.target.matches('.cl-in')) saveClientField(e.target); });
   $('#clientsBody').addEventListener('click', async (e) => {

@@ -1528,6 +1528,19 @@ def test_consult_upload_runs_the_whole_thing(client: TestClient, tmp_path: Path,
     assert client.post("/api/consults/0928-阿平/reveal?what=client").json()["path"].endswith("阿平/0928 客户版.pdf")
 
 
+def test_consult_playbook_is_read_from_the_vault_each_time(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    empty = client.get("/api/consults/playbook").json()
+    assert empty["markdown"] == "" and empty["path"].endswith(f"{consult.FOLDER}/{consult.PLAYBOOK}")
+    home = tmp_path / "vault-default" / consult.FOLDER
+    home.mkdir(parents=True, exist_ok=True)
+    (home / consult.PLAYBOOK).write_text("# 诊断流程\n\n### 1. 现在的生意\n", encoding="utf-8")
+    doc = client.get("/api/consults/playbook").json()
+    assert "现在的生意" in doc["markdown"] and doc["obsidian"].startswith("obsidian://open?path=")
+    # 这一页是文件，不是客户：客户表里不能多出一行
+    assert client.get("/api/clients").json()["clients"] == []
+
+
 def test_brand_defaults_to_park_and_logo_is_optional(client: TestClient) -> None:
     brand = client.get("/api/state").json()["brand"]
     assert brand["name"] == "帕克动手" and brand["slogan"] == "企业家的 AI 产品经理" and brand["logo"] == ""
