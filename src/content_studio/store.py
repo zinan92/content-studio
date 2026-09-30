@@ -208,6 +208,14 @@ CREATE TABLE IF NOT EXISTS shoot_list (
     position REAL NOT NULL,
     topic_id INTEGER,
     created_at TEXT NOT NULL,
+    done_at TEXT,
+    planned_day TEXT
+);
+CREATE TABLE IF NOT EXISTS plan_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
     done_at TEXT
 );
 CREATE TABLE IF NOT EXISTS dm_entries (
@@ -327,7 +335,7 @@ class StudioStore:
 
     def _migrate(self) -> None:
         """Add columns introduced after a table was first created (SQLite has no IF NOT EXISTS for columns)."""
-        wanted = {"feed_marks": {"opened_at": "TEXT"}, "publish_records": {"form": "TEXT"}, "accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
+        wanted = {"shoot_list": {"planned_day": "TEXT"}, "feed_marks": {"opened_at": "TEXT"}, "publish_records": {"form": "TEXT"}, "accounts": {"kind": "TEXT NOT NULL DEFAULT 'benchmark'"}, "topics": {"write_state": "TEXT", "write_error": "TEXT", "outline_path": "TEXT", "outline_state": "TEXT", "outline_error": "TEXT", "video_project": "TEXT", "published_video_id": "TEXT", "copy_state": "TEXT", "copy_error": "TEXT", "is_focus": "INTEGER NOT NULL DEFAULT 0", "snoozed_until": "TEXT", "manual_stage": "TEXT", "closed_at": "TEXT", "video_file": "TEXT"}}
         for table, columns in wanted.items():
             existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns.items():
@@ -981,19 +989,19 @@ class StudioStore:
             raise StoreError("这一条已经不在清单里了")
         return row
 
-    def add_shoot_item(self, text: str, *, top: bool = False, topic_id: int | None = None) -> dict[str, Any]:
+    def add_shoot_item(self, text: str, *, top: bool = False, topic_id: int | None = None, planned_day: str | None = None) -> dict[str, Any]:
         text = (text or "").strip()
         if not text:
             raise StoreError("写一句要拍什么")
         edge = self._row(f"SELECT {'MIN' if top else 'MAX'}(position) AS p FROM shoot_list WHERE done_at IS NULL")
         base = edge["p"] if edge and edge["p"] is not None else 0.0
         with self.tx() as conn:
-            cur = conn.execute("INSERT INTO shoot_list(text, position, topic_id, created_at) VALUES (?, ?, ?, ?)",
-                               (text[:200], base - 1 if top else base + 1, topic_id, now_iso()))
+            cur = conn.execute("INSERT INTO shoot_list(text, position, topic_id, created_at, planned_day) VALUES (?, ?, ?, ?, ?)",
+                               (text[:200], base - 1 if top else base + 1, topic_id, now_iso(), planned_day))
         return self.shoot_item(cur.lastrowid)
 
     def update_shoot_item(self, item_id: int, **fields: Any) -> dict[str, Any]:
-        allowed = {"text", "position", "topic_id", "done_at"}
+        allowed = {"text", "position", "topic_id", "done_at", "planned_day"}
         if set(fields) - allowed:
             raise StoreError(f"不可更新的字段：{sorted(set(fields) - allowed)}")
         self.shoot_item(item_id)
@@ -1020,6 +1028,27 @@ class StudioStore:
     def delete_shoot_item(self, item_id: int) -> None:
         with self.tx() as conn:
             conn.execute("DELETE FROM shoot_list WHERE id = ?", (item_id,))
+
+    # -- 周历上不算分的事（「约两个博主诊断」这种）：哪天、做什么、做完没有 --------------
+
+    def plan_items(self, since_day: str, until_day: str) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM plan_items WHERE day >= ? AND day <= ? ORDER BY day, id", (since_day, until_day))
+
+    def add_plan_item(self, day: str, text: str) -> dict[str, Any]:
+        text = (text or "").strip()
+        if not text:
+            raise StoreError("写一句这天要做什么")
+        with self.tx() as conn:
+            cur = conn.execute("INSERT INTO plan_items(day, text, created_at) VALUES (?, ?, ?)", (day, text[:200], now_iso()))
+        return self._row("SELECT * FROM plan_items WHERE id = ?", (cur.lastrowid,))
+
+    def set_plan_item_done(self, item_id: int, done: bool) -> None:
+        with self.tx() as conn:
+            conn.execute("UPDATE plan_items SET done_at = ? WHERE id = ?", (now_iso() if done else None, item_id))
+
+    def delete_plan_item(self, item_id: int) -> None:
+        with self.tx() as conn:
+            conn.execute("DELETE FROM plan_items WHERE id = ?", (item_id,))
 
     def dm_entries(self, since_day: str) -> dict[str, dict[str, int]]:
         return {r["day"]: {"received": r["received"], "replied": r["replied"]}

@@ -43,26 +43,68 @@ def kpi_days(today: date, *, posted: set[str], dms: dict[str, dict[str, int]], s
 
     出摊从有数据起就算（发没发抖音一直看得到）；私信和 X 回复从 KPI 开始那天（started）起算，
     之前没记过，不能倒扣。"""
+    return kpi_range(today - timedelta(days=WINDOW - 1), today, today, posted=posted, dms=dms, started=started,
+                     x_replies=x_replies, x_target=x_target, reads=reads, read_started=read_started)
+
+
+def kpi_range(since: date, until: date, today: date, *, posted: set[str], dms: dict[str, dict[str, int]], started: str,
+              x_replies: dict[str, int] | None = None, x_target: int = 0,
+              reads: dict[str, bool] | None = None, read_started: str = "9999", ship_started: str = "") -> list[dict[str, Any]]:
+    """since 到 until 每一天四项 KPI 的结果（周历用：哪一周都能算）。规则和 kpi_days 同一套：
+    今天没做到是 pending，不减分；还没到的日子四项都是 future。
+    ship_started：出摊从哪天起算（周历传他第一次发抖音那天，翻到更早的周不倒扣）；不传就一直算。"""
     out = []
-    for i in range(WINDOW - 1, -1, -1):
-        d = today - timedelta(days=i)
+    for i in range((until - since).days + 1):
+        d = since + timedelta(days=i)
         key = d.isoformat()
-        is_today = i == 0
-        ship = "ok" if key in posted else ("pending" if is_today else "miss")
-        entry = dms.get(key)
+        entry, count = dms.get(key), (x_replies or {}).get(key)
+        if d > today:
+            out.append({"day": key, "rd": "future", "ship": "future", "dm": "future", "xr": "future", "dm_entry": None, "xr_count": None})
+            continue
+        is_today = d == today
+        ship = "ok" if key in posted else ("pending" if is_today else "miss" if key >= ship_started else "n/a")
         if key < started:
             dm = xr = "n/a"
         else:
             dm = "ok" if entry is not None and entry["replied"] >= entry["received"] else ("pending" if is_today else "miss")
-            count = (x_replies or {}).get(key)
             xr = "ok" if x_target and count is not None and count >= x_target else ("pending" if is_today else "miss")
         # 读日报（9/30 起）：reads[day] = 那天出了的日报都读完了没有；那天一份都没出，不算
         if key < read_started or key not in (reads or {}):
             rd = "n/a"
         else:
             rd = "ok" if reads[key] else ("pending" if is_today else "miss")
-        out.append({"day": key, "rd": rd, "ship": ship, "dm": dm, "xr": xr, "dm_entry": entry, "xr_count": (x_replies or {}).get(key)})
+        out.append({"day": key, "rd": rd, "ship": ship, "dm": dm, "xr": xr, "dm_entry": entry, "xr_count": count})
     return out
+
+
+def plan_order(notes: list[dict[str, Any]], target_day: str) -> list[dict[str, Any]]:
+    """下一条拍哪条：排在这一天的先，然后是排过但已经过期的（最早的先），然后是没排日子的（照清单顺序），
+    排在以后的最后。哪条排哪天只由 Park 定，这里只决定先提哪条。"""
+    def rank(note: dict[str, Any]) -> tuple[int, str]:
+        day = note.get("planned_day")
+        if not day:
+            return (2, "")
+        return (0, "") if day == target_day else (1, day) if day < target_day else (3, day)
+    return [n for _, n in sorted(enumerate(notes), key=lambda p: (*rank(p[1]), p[0]))]
+
+
+def week_start(day: date) -> date:
+    """那一周的周一。"""
+    return day - timedelta(days=day.weekday())
+
+
+def ship_streak(today: date, posted: set[str]) -> dict[str, Any]:
+    """现在在哪条线上：连续出摊几天，或者连续几天没出摊。今天发了算进去；今天还没发不算断，从昨天往回数。"""
+    if not posted:
+        return {"kind": "none", "days": 0}
+    d = today if today.isoformat() in posted else today - timedelta(days=1)
+    kind = "ok" if d.isoformat() in posted else "miss"
+    first = date.fromisoformat(min(posted))
+    n = 0
+    while d >= first and (d.isoformat() in posted) == (kind == "ok"):
+        n += 1
+        d -= timedelta(days=1)
+    return {"kind": kind, "days": n}
 
 
 def demerits(days: list[dict[str, Any]]) -> int:
