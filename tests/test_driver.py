@@ -276,3 +276,38 @@ def test_past_days_show_what_went_out_and_the_demerits(client: TestClient, tmp_p
     assert d["streak"] == {"kind": "miss", "days": 1}
     week = client.get("/api/today/week", params={"start": yesterday.isoformat()}).json()
     assert week["demerits"] == sum(c["demerits"] for c in week["days"]) and week["ship_days"] >= 1
+
+
+# -- 追平阶段（9/30 Park）：补发算分；出关 = 旧内容清完 + 连续出摊 14 天 ------------------------
+
+def test_backfill_is_scored_from_its_start_day_and_not_when_there_is_nothing_to_send() -> None:
+    today = date(2026, 10, 4)
+    days = driver.kpi_range(date(2026, 9, 30), today, today, posted=set(), dms={}, started="9999",
+                            backfilled={"2026-10-01"}, bf_started="2026-10-01", bf_none={"2026-10-03"})
+    assert [(d["day"][-2:], d["bf"]) for d in days] == [("30", "n/a"), ("01", "ok"), ("02", "miss"), ("03", "n/a"), ("04", "pending")]
+    assert sum(d["bf"] == "miss" for d in days) == 1
+    # 补发不能顶替出摊：那几天没出摊照样各减 1 分，加上 10/2 没补发的 1 分
+    assert driver.demerits(days) == sum(d["ship"] == "miss" for d in days) + 1
+    # 不传这几个参数（老调用）：补发不算分
+    assert all(d["bf"] == "n/a" for d in driver.kpi_days(today, posted=set(), dms={}, started="9999"))
+
+
+def test_stage_is_catchup_until_backlog_is_clear_and_the_streak_is_long_enough() -> None:
+    st = driver.stage(backlog=17, streak={"kind": "ok", "days": 1}, streak_target=14)
+    assert (st["key"], st["backlog"], st["streak"], st["done"]) == ("catchup", 17, 1, False)
+    assert driver.stage(backlog=0, streak={"kind": "ok", "days": 13}, streak_target=14)["done"] is False
+    assert driver.stage(backlog=3, streak={"kind": "ok", "days": 20}, streak_target=14)["done"] is False
+    assert driver.stage(backlog=0, streak={"kind": "miss", "days": 2}, streak_target=14)["streak"] == 0  # 断了就从头数
+    assert driver.stage(backlog=0, streak={"kind": "ok", "days": 14}, streak_target=14)["done"] is True
+
+
+def test_today_reports_the_stage_and_does_not_score_backfill_when_nothing_is_packed(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    client.app.state.store.update_settings({"kpi": {"bf_started": "2000-01-01"}})
+    d = _today(client)
+    assert d["stage"]["key"] == "catchup" and d["stage"]["backlog"] == 0 and d["stage"]["streak_target"] == 14
+    assert d["days"][-1]["bf"] == "n/a"  # 没有打好包的旧内容：今天没得补，不算
+    assert next(c for c in d["week"]["days"] if c["state"] == "today")["bf"] == "n/a"
+    assert client.get("/api/wendy/nudge").json()["pending"].count("补发") == 0
+    brief = client.get("/api/wendy/brief").json()["text"]
+    assert "[现在在哪个阶段] 追平" in brief and "连续出摊 0/14 天" in brief

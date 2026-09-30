@@ -1,7 +1,7 @@
 'use strict';
 /* 今天：最上面是周历（9/30 Park：「plan not just for one day, I can plan for the whole week」「每天扣了多少分，
  * I'm not even keeping count」），下面是 ABC 几件事（逻辑在 driver.py）。
- * 周历：过去的日子看四项做没做到、减几分、发了哪条；今天和以后排哪天拍哪条、加不算分的事。排哪条只由他定。
+ * 周历：过去的日子看算分的几项做没做到、减几分、发了哪条；今天和以后排哪天拍哪条、加不算分的事。排哪条只由他定。
  * 做完的行收成一行，补发默认收起；每行原来那串 7 天小圆点拿掉了，周历里有。
  * A 读日报（9/30）；B 出摊：抖音、视频号、小红书发视频，X、公众号发文字；C 回私信；D X 互动，回 20 条；E 补发。
  * 没做到当天各减 1 分，左边栏一直显示。触达是结果，不在这一页看（在「已发出」）。
@@ -43,14 +43,20 @@ function wdMsg(m, clip) {
   return `<div class="wd-m ${m.who === 'park' ? 'me' : ''} ${clip ? 'clip' : ''}"><small>${where} · ${wdWhen(m.at)}</small><p>${esc(m.text)}</p></div>`;
 }
 
+/* 现在在哪个阶段（9/30 Park：追平——发送连贯起来，过去没发的都发出去） */
+function stageLine(st) {
+  if (!st) return '';
+  return `<span class="wd-stage ${st.done ? 'done' : ''}" title="出关：旧内容清完，并且连续出摊 ${st.streak_target} 天。下一阶段：${esc(st.next)}">${esc(st.label)}阶段 · 旧内容还剩 <b>${st.backlog}</b> 条 · 连续出摊 <b>${st.streak}</b>/${st.streak_target} 天${st.done ? ' · 可以出关了' : ''}</span>`;
+}
+
 function wendyCard(w) {
   if (!w) return '';
   const n = w.now;
   let act = '';
-  if (n) act = ['rd', 'dm', 'xr'].includes(n.row) ? `<div class="btns"><button class="btn go" type="button" data-wd-row="${n.row}">去做 ↓</button></div>` : actionButtons(n);
+  if (n) act = ['rd', 'dm', 'xr'].includes(n.row) || (n.row === 'bf' && !n.go) ? `<div class="btns"><button class="btn go" type="button" data-wd-row="${n.row}">去做 ↓</button></div>` : actionButtons(n);
   const msgs = w.messages, shown = TD.wdOlder ? msgs : msgs.slice(-2);  // 平时只看最近两条，最新那条完整显示
   return `<section class="wd">
-    <div class="wd-h"><span class="wd-av">W</span><b>Wendy</b><small>你的老板 · 盯你做没做到</small>${w.nudges.length ? `<span class="wd-nudged">今天在微信催过你 ${w.nudges.length} 次</span>` : ''}</div>
+    <div class="wd-h"><span class="wd-av">W</span><b>Wendy</b><small>你的老板 · 盯你做没做到</small>${stageLine(TD.data && TD.data.stage)}${w.nudges.length ? `<span class="wd-nudged">今天在微信催过你 ${w.nudges.length} 次</span>` : ''}</div>
     <div class="wd-now"><span class="k">现在做这一件</span>${n ? `<b>${esc(n.text)}</b>${n.why ? `<small>${esc(n.why)}</small>` : ''}${act}` : '<b>今天算分的事都做完了。</b><small>明天拍哪条，在下面的周历里排上。</small>'}</div>
     <div class="wd-thread">${msgs.length > 2 ? `<button type="button" class="linklike wd-older" data-wd-older>${TD.wdOlder ? '只看最近两条' : `看之前的 ${msgs.length - 2} 条`}</button>` : ''}
       ${shown.map((m, i) => wdMsg(m, !TD.wdOlder && i < shown.length - 1)).join('') || '<p class="td-note">她还没说过话。早上 9:45 和晚上 22:30 她会来；你也可以现在让她看一眼。</p>'}
@@ -61,7 +67,7 @@ function wendyCard(w) {
 }
 
 /* ---- 周历 ---- */
-const KPI_MARK = [['rd', '读', '读日报'], ['ship', '摊', '出摊'], ['dm', '私', '回私信'], ['xr', 'X', 'X 互动']];
+const KPI_MARK = [['rd', '读', '读日报'], ['ship', '摊', '出摊'], ['dm', '私', '回私信'], ['xr', 'X', 'X 互动'], ['bf', '补', '补发']];
 const MARK_TIP = { ok: '做到了', miss: '没做到，减 1 分', pending: '今天还没做', 'n/a': '那天还不算分', future: '还没到' };
 const md = (key) => `${Number(key.slice(5, 7))}/${Number(key.slice(8))}`;
 const dow = (key) => DOW[new Date(key + 'T00:00:00').getDay()];
@@ -92,7 +98,7 @@ function dayPanel(c, notes) {
       <form class="td-add" data-wk-item="${c.day}"><input maxlength="200" placeholder="这天还要做什么，回车加上（比如：约两个博主诊断）" autocomplete="off"></form></div>`;
   if (c.state === 'past') {
     const RES = { ok: '做到', miss: '没做到，减 1 分', 'n/a': '那天还不算分' };
-    const det = { rd: '', ship: c.shipped.length ? `：${c.shipped.map((t) => `《${esc(t)}》`).join('、')}` : '',
+    const det = { bf: '', rd: '', ship: c.shipped.length ? `：${c.shipped.map((t) => `《${esc(t)}》`).join('、')}` : '',
       dm: c.dm_entry ? `：收到 ${c.dm_entry.received}，回了 ${c.dm_entry.replied}` : c.dm === 'miss' ? '（没填数）' : '',
       xr: c.xr_count != null ? `：${c.xr_count} 条` : c.xr === 'miss' ? '（没填数）' : '' };
     return `<div class="wk-panel"><div class="wk-ph">${title}<span class="wk-score ${c.demerits ? 'bad' : 'ok'}">${c.demerits ? `这天减 ${c.demerits} 分` : '这天没减分'}</span></div>
@@ -265,12 +271,13 @@ function backfillRow(d) {
   const b = d.backfill;
   const done = b.today && b.today.missing.length === 0;
   const list = b.ready.slice(0, TD.bfAll ? 50 : 3).map(packRow).join('');
-  const state = `<span class="td-state ${done ? 'ok' : ''}">${done ? '✓ 今天补完了' : b.today ? '今天在补' : `不算分 · 包打好 ${b.ready_count} 条${b.waiting_count ? ` · 还在打 ${b.waiting_count} 条` : ''}`}</span>`;
+  const scored = d.days[d.days.length - 1].bf !== 'n/a';  // 追平阶段：每天补一条，算分
+  const state = `<span class="td-state ${done ? 'ok' : ''}">${done ? '✓ 今天补完了' : b.today ? '今天在补' : `${scored ? '今天还没' : '不算分'} · 包打好 ${b.ready_count} 条${b.waiting_count ? ` · 还在打 ${b.waiting_count} 条` : ''}`}</span>`;
   return tdRow('bf', 'E', '补发', done, state, `
-    <p class="td-why">没拍新视频的日子，挑一条旧的发到剩下的平台。B 站、YouTube、X 自己发出去；公众号、视频号、小红书你来点，十几分钟。</p>
+    <p class="td-why">${scored ? '追平阶段每天补一条，做不到减 1 分；它不能顶替出摊。' : '没拍新视频的日子，挑一条旧的发到剩下的平台。'}B 站、YouTube、X 自己发出去；公众号、视频号、小红书你来点，十几分钟。</p>
     ${b.today ? todayPack(b.today) : ''}
     ${!b.today || done ? `<div class="td-packs">${list || '<p class="td-note">还没有打好的包。</p>'}</div>
-      ${b.ready.length > 3 ? `<button class="btn quiet" type="button" data-bf-all>${TD.bfAll ? '只看前三条' : `看全部 ${b.ready.length} 条`}</button>` : ''}` : ''}`, !!(b.today && !done) || TD.bfOpen != null);
+      ${b.ready.length > 3 ? `<button class="btn quiet" type="button" data-bf-all>${TD.bfAll ? '只看前三条' : `看全部 ${b.ready.length} 条`}</button>` : ''}` : ''}`, !!(b.today && !done) || TD.bfOpen != null || (scored && !done));
 }
 
 function wrapBlock(d) {
@@ -329,7 +336,7 @@ window.VIEWS.today = {
       $('#wdLook').onclick = () => say('');
     }
     $$('[data-wd-older]', body).forEach((b) => (b.onclick = () => { TD.wdOlder = !TD.wdOlder; again(); }));
-    $$('[data-wd-row]', body).forEach((b) => (b.onclick = () => { const r = $(`[data-row="${b.dataset.wdRow}"]`, body); if (r) { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); const f = $('input, button.go', r); if (f) f.focus({ preventScroll: true }); } }));
+    $$('[data-wd-row]', body).forEach((b) => (b.onclick = () => { const r = $(`[data-row="${b.dataset.wdRow === 'bf' ? 'bf' : b.dataset.wdRow}"]`, body); if (r) { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); const f = $('input, button.go', r); if (f) f.focus({ preventScroll: true }); } }));
     $$('[data-wk-go]', body).forEach((b) => (b.onclick = () => { TD.weekStart = b.dataset.wkGo || null; TD.sel = null; again(); }));
     $$('[data-wk-day]', body).forEach((b) => (b.onclick = () => { TD.sel = TD.sel === b.dataset.wkDay ? null : b.dataset.wkDay; again(); }));
     $$('[data-wk-plan]', body).forEach((f) => (f.onsubmit = (e) => {
