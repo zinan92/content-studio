@@ -120,3 +120,14 @@ def test_a_reply_on_the_card_counts_as_activity_and_nudges_are_counted(client: T
     # 微信里刚说过话也算动静（那边传过来的时间）
     quiet = client.get("/api/wendy/nudge", params={"wechat_at": datetime.now().isoformat()}).json()
     assert quiet["due"] is False
+
+
+def test_in_catchup_the_card_sends_him_to_backfill_after_the_daily_four() -> None:
+    done = {"first": [], "rd": {"items": []}, "ship": {"done": True, "next": None}, "days": [{"dm": "ok", "xr": "ok", "bf": "pending"}],
+            "dm": {}, "xr": {}, "wrap": [], "backfill": {"today": None, "ready": [{"title": "AI时代的明牌机会", "topic_id": 35}, {"title": "第二条", "topic_id": 36}]}}
+    now = driver.now_item(done)
+    assert now["row"] == "bf" and "AI时代的明牌机会" in now["text"] and "2 条" in now["why"]
+    picked = {**done, "backfill": {"today": {"title": "AI时代的明牌机会", "topic_id": 35, "missing_labels": ["公众号", "小红书"]}, "ready": []}}
+    now = driver.now_item(picked)
+    assert now["go"] == "publish/35" and "公众号、小红书" in now["text"]
+    assert driver.now_item({**done, "days": [{"dm": "ok", "xr": "ok", "bf": "ok"}]}) is None

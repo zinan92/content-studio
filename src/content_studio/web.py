@@ -1180,7 +1180,7 @@ def create_app(
                 reads[d.isoformat()] = ok
         days = driver.kpi_days(today, posted=posted_days(), dms=store.dm_entries(since), started=cfg["started"],
                                x_replies=store.kpi_counts(since, "x_replies"), x_target=int(cfg["x_replies_daily"]),
-                               reads=reads, read_started=cfg["read_started"])
+                               reads=reads, read_started=cfg["read_started"], **_bf_kwargs(today.isoformat()))
         return {
             "read_missed": sum(d["rd"] == "miss" for d in days),
             "x_missed": sum(d["xr"] == "miss" for d in days),
@@ -3443,8 +3443,8 @@ def create_app(
                     out.setdefault(day, []).append(" ".join((v.get("title") or "").split())[:40] or "（没有标题）")
         return out
 
-    def _week(start: date, today: date) -> dict[str, Any]:
-        """周历的一周（周一到周日）：过去每天四项做没做到、减几分、发了哪条；今天和以后排了拍哪条、别的事。
+    def _week(start: date, today: date, bf: dict[str, Any] | None = None) -> dict[str, Any]:
+        """周历的一周（周一到周日）：过去每天算分的几项做没做到、减几分、发了哪条；今天和以后排了拍哪条、别的事。
         分数的规则和「今天」是同一套（driver.kpi_range）；排哪天拍哪条只读他自己排的，不自动排。"""
         from . import driver
 
@@ -3461,7 +3461,8 @@ def create_app(
                     reads[d.isoformat()] = ok
         days = driver.kpi_range(start, end, today, posted=set(titles), dms=store.dm_entries(since), started=kpi["started"],
                                 x_replies=store.kpi_counts(since, "x_replies"), x_target=int(kpi["x_replies_daily"]),
-                                reads=reads, read_started=kpi["read_started"], ship_started=min(titles) if titles else "9999")
+                                reads=reads, read_started=kpi["read_started"], ship_started=min(titles) if titles else "9999",
+                                **(bf or _bf_kwargs(tkey)))
         notes = [n for n in store.shoot_list(include_done=True) if since <= (n.get("planned_day") or "") <= until]
         items = store.plan_items(since, until)
         skips = [r for r in store.driver_log(since, "skip") if r["day"] <= until]
@@ -3502,6 +3503,20 @@ def create_app(
         from .store import DEFAULT_SETTINGS
 
         return {**DEFAULT_SETTINGS["kpi"], **(store.settings().get("kpi") or {})}
+
+    def _bf_kwargs(today_key: str, state: dict[str, Any] | None = None) -> dict[str, Any]:
+        """补发算分要的三样：哪些天补完了一条、从哪天起算、哪些天没有旧内容可补。
+        今天的结果在这里顺手记下来（补完了 / 没得补），过了今天才知道那天算什么。"""
+        kpi = kpi_config()
+        if today_key >= kpi["bf_started"]:
+            state = state or backfill_state(today_key)
+            picked = state.get("today")
+            if picked and not picked["missing"]:
+                store.driver_mark(today_key, "bf", "bfdone")
+            elif not picked and not state["ready_count"]:
+                store.driver_mark(today_key, "bf", "bfnone")
+        return {"backfilled": {r["day"] for r in store.driver_log("", "bfdone")}, "bf_started": kpi["bf_started"],
+                "bf_none": {r["day"] for r in store.driver_log("", "bfnone")}}
 
     def _ship_action(cards: list[dict[str, Any]], desk: dict[str, Any], notes: list[dict[str, Any]], rung: str) -> dict[str, Any] | None:
         """出摊这一格现在该做什么：手上快发出去的先做完，然后是他清单里的第一条，再是正在做的那条。"""
@@ -3595,8 +3610,10 @@ def create_app(
                 ok = read_state(d)[1]
                 if ok is not None:
                     reads[d.isoformat()] = ok
+        backfill = backfill_state(tkey)
+        bf = _bf_kwargs(tkey, backfill)
         days = driver.kpi_days(today, posted=posted, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]),
-                               reads=reads, read_started=kpi["read_started"])
+                               reads=reads, read_started=kpi["read_started"], **bf)
         reach = get_reach(14)
         # 清单里那条的选题发出去了，这条就划掉
         for note in store.shoot_list():
@@ -3661,11 +3678,14 @@ def create_app(
             "xr": {"count": xr.get(tkey), "target": int(kpi["x_replies_daily"])},
             "reach": {"avg7": reach.get("avg7"), "target": kpi["reach_daily"], "by": kpi["reach_by"]},
             "wrap": driver.order(wrap, skipped=skipped, done=done_keys),
-            "backfill": backfill_state(tkey),
+            "backfill": backfill,
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
             # 周历：这一周（周一到周日）和他现在连着几天出摊 / 没出摊。上面的 days、demerits 还是最近 7 天，含义不变。
-            "week": _week(driver.week_start(today), today),
+            "week": _week(driver.week_start(today), today, bf),
             "streak": driver.ship_streak(today, posted),
+            # 现在在哪个阶段（追平）：旧内容还剩几条、连续出摊几天、出关没有
+            "stage": driver.stage(backlog=backfill["ready_count"] + backfill["waiting_count"] + (1 if backfill["today"] and backfill["today"]["missing"] else 0),
+                                  streak=driver.ship_streak(today, posted), streak_target=int(kpi["ship_streak_target"])),
         }
 
     @app.get("/api/today/week")

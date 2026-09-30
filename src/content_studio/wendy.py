@@ -31,7 +31,7 @@ DEFAULT_ROLE = Path(__file__).resolve().parent / "examples" / "wendy" / "Wendy.m
 DEFAULT_HERMES = Path("~/.hermes")
 JOB_PREFIX = "wendy-"  # Hermes 里她的定时任务都叫 wendy-xxx
 JOB_LABEL = {"wendy-morning": "早上", "wendy-evening": "晚上", "wendy-weekly": "周日", "wendy-nudge": "来催你"}
-KPI = (("rd", "读日报"), ("ship", "出摊"), ("dm", "回私信"), ("xr", "X 互动"))
+KPI = (("rd", "读日报"), ("ship", "出摊"), ("dm", "回私信"), ("xr", "X 互动"), ("bf", "补发"))
 PLATFORM = {"douyin": "抖音", "x": "X", "xiaohongshu": "小红书", "bilibili": "B 站", "youtube": "YouTube",
             "channels": "视频号", "wechat_mp": "公众号", "miniprogram": "小程序"}
 WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -136,6 +136,10 @@ def brief(today: dict[str, Any], reach: dict[str, Any], now_item: dict[str, Any]
     out = [f"今天是 {tkey}。以下数字全部来自内容工作台，读取于现在。", "",
            "[现在做这一件] " + (f"{now_item['text']}" + (f"（{now_item['why']}）" if now_item.get("why") else "") if now_item else "今天算分的事都做完了，没有在等他的事。")]
 
+    st = today.get("stage")
+    if st:
+        out.append(f"[现在在哪个阶段] {st['label']}：把发送连贯起来，把过去没发的都发出去。旧内容还剩 {st['backlog']} 条；连续出摊 {st['streak']}/{st['streak_target']} 天。"
+                   + (f"出关条件已经达到，下一阶段是「{st['next']}」，换阶段要 Park 拍板。" if st["done"] else f"出关条件：旧内容清完，并且连续出摊 {st['streak_target']} 天。下一阶段（{st['next']}）现在不算分。"))
     line = []
     if streak.get("days"):
         line.append(f"连续出摊 {streak['days']} 天" if streak["kind"] == "ok" else f"连续 {streak['days']} 天没出摊")
@@ -181,12 +185,23 @@ def brief(today: dict[str, Any], reach: dict[str, Any], now_item: dict[str, Any]
     out.append(f"{n}. 回私信：{_status(d, 'dm')}")
     n += 1
     out.append(f"{n}. X 互动：{_status(d, 'xr')}，目标 {(today.get('xr') or {}).get('target')} 条")
+    bf = today.get("backfill") or {}
+    ready = bf.get("ready") or []
+    if d.get("bf") in ("ok", "pending"):
+        n += 1
+        picked = bf.get("today")
+        if d["bf"] == "ok":
+            out.append(f"{n}. 补发：做到（今天补完了一条）")
+        elif picked:
+            out.append(f"{n}. 补发：今天挑了《{picked['title'][:24]}》，还差{'、'.join(picked.get('missing_labels') or [])}没发")
+        else:
+            out.append(f"{n}. 补发：还没补。打好包的有 {len(ready)} 条，排最前的是《{ready[0]['title'][:24]}》" if ready else f"{n}. 补发：还没补")
+        out.append("（补发是追平阶段每天一条，算分；它不能顶替出摊，今天不出摊照样减 1 分。）")
+    elif ready and not ship.get("done"):
+        out.append(f"补发（不算分，今天不出摊时保触达用）：打好包的有 {len(ready)} 条，排最前的是《{ready[0]['title'][:24]}》")
     for item in today.get("wrap") or []:
         n += 1
         out.append(f"{n}. 收尾：{item['text']}")
-    ready = (today.get("backfill") or {}).get("ready") or []
-    if ready and not ship.get("done"):
-        out.append(f"补发（不算分，今天不出摊时保触达用）：打好包的有 {len(ready)} 条，排最前的是《{ready[0]['title'][:24]}》")
     return "\n".join(out)
 
 

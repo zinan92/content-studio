@@ -48,7 +48,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             # X 互动：每天在别人的帖子下面回这么多条（9/29 Park 先定 20；9/30 降到 10）
             "x_replies_daily": 10,
             # 读日报从这天起算分（9/30 Park）
-            "read_started": "2026-09-30"},
+            "read_started": "2026-09-30",
+            # 追平阶段（9/30 Park）：补发从这天起算分，每天一条；出关要连续出摊这么多天
+            "bf_started": "2026-10-01", "ship_streak_target": 14},
 }
 
 # 9/20 Park 把对标和老师合成一类；9/30 又分开：老师是学理念的，对标是看要不要复刻的。
