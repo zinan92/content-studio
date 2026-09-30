@@ -16,6 +16,10 @@ def test_clean_url_knows_the_three_platforms_and_refuses_the_rest() -> None:
     assert swipe.clean_url("看这个 https://v.douyin.com/abc123/ 复制此链接")[1] == "douyin"
     assert swipe.clean_url("https://x.com/someone/status/1234567890")[1] == "x"
     assert swipe.clean_url("https://www.xiaohongshu.com/explore/abcdef")[1] == "xiaohongshu"
+    # 在主页里点开的视频：账号主页 + modal_id → 换成单条视频的地址，不能把整个主页交给下载工具
+    assert swipe.clean_url("https://www.douyin.com/user/MS4wLjABAAAAK1pk?from_tab_name=main&modal_id=7690973351082881939") == (
+        "https://www.douyin.com/video/7690973351082881939", "douyin")
+    assert swipe.clean_url("https://www.douyin.com/video/7690973351082881939?previous_page=app")[0] == "https://www.douyin.com/video/7690973351082881939"
     with pytest.raises(swipe.SwipeError, match="账号主页"):
         swipe.clean_url("https://www.douyin.com/user/MS4wLjABAAAA")
     with pytest.raises(swipe.SwipeError, match="认得的是"):
