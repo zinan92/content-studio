@@ -400,3 +400,41 @@ def test_three_new_videos_a_week_is_only_charged_after_the_week_ends_and_never_b
     assert client.get("/api/today/week", params={"start": week["start"]}).json()["new_short"] == 0
     brief = client.get("/api/wendy/brief").json()["text"]
     assert "[本周新视频] 0/3 条，周日前还差 3 条" in brief and "[现在在哪个阶段] 追平" in brief
+
+
+# -- 月历（10/1 Park：「今天」最上面放 monthly calendar，能看清哪天在哪些平台发了什么）------------------
+
+def test_month_is_whole_weeks_and_shows_what_went_out_where(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_web import SEC, _wait_sync
+
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+    _wait_sync(client)
+    today = date.today()
+    m = client.get("/api/today/month").json()
+    days = [d for w in m["weeks"] for d in w["days"]]
+    assert m["current"] and m["month"] == today.isoformat()[:7] and len(days) % 7 == 0 and 28 <= len(days) <= 42
+    assert date.fromisoformat(days[0]["day"]).weekday() == 0 and days[0]["day"] <= today.replace(day=1).isoformat()  # 从周一开始，盖住 1 号
+    assert {d["day"] for d in days if d["in_month"]} >= {today.isoformat(), today.replace(day=1).isoformat()}
+    assert all(d["sent"] == [] for d in days)  # 还没往别的平台发过
+
+    # 一格标了已发：那一天就写着发到了哪个平台、哪一条
+    sheet = client.get("/api/backfill").json()
+    video, key = sheet["videos"][0], sheet["platforms"][1]["key"]
+    def today_cell() -> dict:
+        return next(d for w in client.get("/api/today/month").json()["weeks"] for d in w["days"] if d["day"] == today.isoformat())
+
+    # 在全平台追踪里补记「以前在外面发过」：不是今天发的，月历上不写
+    client.post(f"/api/backfill/{video['video_id']}/mark", json={"platform": key})
+    assert today_cell()["sent"] == []
+    # 今天补发的格子里点了「发了」：今天这一格就写着发到了哪个平台、哪一条
+    other = sheet["platforms"][2]["key"]
+    client.app.state.store.set_backfill_plan(today.isoformat(), [(video["video_id"], other)])
+    client.post("/api/today/cells/0/sent", json={"sent": True})
+    cell = today_cell()
+    assert [(x["platform"], x["marked"]) for x in cell["sent"]] == [(other, True)] and cell["sent"][0]["title"]
+
+    prev = client.get("/api/today/month", params={"start": m["prev"]}).json()
+    nxt = client.get("/api/today/month", params={"start": m["next"]}).json()
+    assert not prev["current"] and prev["next"] == today.replace(day=1).isoformat() and nxt["prev"] == today.replace(day=1).isoformat()
+    assert all(d["state"] == "future" for w in nxt["weeks"] for d in w["days"] if d["in_month"])

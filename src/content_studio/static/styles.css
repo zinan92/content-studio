@@ -2072,3 +2072,27 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .td-cell .ok{color:var(--out);font-weight:600;font-size:13px}
 .td-cell.sent b,.td-cell.sent .t{color:var(--ink-3)}
 .td-cell .btn{font-size:12px;padding:5px 10px;border-radius:8px}
+/* 今天 · 月历：一个月一张表，一格一天。过去看账和发到了哪些平台，以后排计划 */
+.mo-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.mo-dow{font-size:11px;color:var(--ink-3);text-align:center;padding-bottom:2px}
+.mo-day{font:inherit;text-align:left;color:var(--ink);background:var(--sunk);border:1px solid transparent;border-radius:9px;padding:5px 7px 6px;min-height:54px;display:flex;flex-direction:column;gap:3px;cursor:pointer;min-width:0}
+.mo-day:hover{border-color:var(--line)}
+.mo-day.future{background:transparent;border-color:var(--line-soft)}
+.mo-day.out{opacity:.45}
+.mo-day.today{background:var(--surface);border-color:var(--accent);box-shadow:inset 0 3px 0 var(--accent);opacity:1}
+.mo-day.sel{border-color:var(--in);box-shadow:inset 0 0 0 1px var(--in)}
+.mo-day .wk-d b{font-size:15px}
+.mo-day{overflow:hidden}
+.mo-day .wk-l{display:block;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px}
+.mo-marks{display:flex;gap:2px}
+.mo-marks i{font-style:normal;font-size:10px;width:16px;height:16px;border-radius:5px;display:grid;place-items:center;background:var(--surface);color:var(--ink-3);border:1px solid var(--line-soft)}
+.mo-marks i.ok{background:var(--out-soft);color:var(--out);border-color:transparent}
+.mo-marks i.miss{background:var(--warn-soft);color:var(--warn);border-color:transparent;font-weight:700}
+.mo-marks i.pending{border-style:dashed;border-color:var(--line)}
+.mo-marks i.na{opacity:.4}
+.mo-sent{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--ink-3)}
+.mo-sent i{font-style:normal;font-family:var(--mono);font-size:10px;min-width:16px;height:16px;padding:0 3px;border-radius:5px;display:grid;place-items:center;background:var(--in-soft);color:var(--in)}
+.pos-wendy{margin-bottom:18px;max-width:900px}
+.rail-wendy .an-dot{background:var(--pub)}
+.rail-anna[hidden]{display:none}
+@media (max-width:760px){.mo-day{min-height:64px}.mo-day .wk-l,.mo-sent{display:none}}

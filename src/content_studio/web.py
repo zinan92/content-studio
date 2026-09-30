@@ -223,6 +223,7 @@ class CellSentBody(BaseModel):
 
 class WendyBody(BaseModel):
     message: str = ""
+    page: str = "today"  # 他在哪一页回的她：today / positioning（定位页聊的是方向，带上定位原文）
 
 
 class PlanBody(BaseModel):
@@ -3458,6 +3459,39 @@ def create_app(
                     out.setdefault(day, []).append(" ".join((v.get("title") or "").split())[:40] or "（没有标题）")
         return out
 
+    def _sent_by_day() -> dict[str, list[dict[str, str]]]:
+        """哪天往哪个平台发了哪条（不含抖音的新视频）：月历每一格写的就是这个。"""
+        from . import backfill, copypack
+
+        out: dict[str, list[dict[str, str]]] = {}
+        for r in store.sent_rows():
+            when = _local(r["at"])
+            if when is None:
+                continue
+            title = backfill.split_douyin_title(r["title"] or "")["title"] or (r["title"] or "")[:30]
+            out.setdefault(when.date().isoformat(), []).append(
+                {"platform": r["platform"], "label": (copypack.PLATFORMS.get(r["platform"]) or {}).get("label", r["platform"]), "title": title[:40],
+                 "marked": r["kind"] == "mark"})
+        return out
+
+    def _month(anchor: date, today: date) -> dict[str, Any]:
+        """月历：这个月每一周（周一到周日，头尾带上邻月的几天）。每一天的内容和周历一样，多一项 sent（那天往哪些平台发了什么）。"""
+        from . import driver
+
+        first = anchor.replace(day=1)
+        nxt = (first + timedelta(days=32)).replace(day=1)
+        weeks, start = [], driver.week_start(first)
+        sent = _sent_by_day()
+        while start < nxt:
+            week = _week(start, today)
+            for d in week["days"]:
+                d["sent"] = sent.get(d["day"], [])
+                d["in_month"] = d["day"][:7] == first.isoformat()[:7]
+            weeks.append(week)
+            start += timedelta(days=7)
+        return {"month": first.isoformat()[:7], "prev": (first - timedelta(days=1)).replace(day=1).isoformat(), "next": nxt.isoformat(),
+                "current": first.isoformat()[:7] == today.isoformat()[:7], "weeks": weeks}
+
     def _week(start: date, today: date) -> dict[str, Any]:
         """周历的一周（周一到周日）：过去每天算分的几项做没做到、减几分、发了哪条；今天和以后排了拍哪条、别的事。
         分数的规则和「今天」是同一套（driver.kpi_range）；排哪天拍哪条只读他自己排的，不自动排。"""
@@ -3763,6 +3797,14 @@ def create_app(
             "stage": driver.stage(backlog=out["left"], streak=driver.ship_streak(today, shipped), streak_target=int(kpi["ship_streak_target"])),
         }
 
+    @app.get("/api/today/month")
+    def get_month(start: str | None = None) -> dict[str, Any]:
+        """月历：start 是那个月里的任意一天，不传就是这个月。"""
+        from . import driver
+
+        today = date.today()
+        return {**_month(parse_day(start), today), "streak": driver.ship_streak(today, shipped_days())}
+
     @app.post("/api/today/mode")
     def set_today_mode(body: ModeBody) -> dict[str, Any]:
         """早上那个问题的回答：今天发新视频，还是补发。只决定卡片先给他看哪条路，随时能改；算分只看结果。"""
@@ -3856,12 +3898,18 @@ def create_app(
         return {"now": driver.now_item(today), "messages": said[-12:], "busy": state["busy"], "error": state["error"],
                 "nudges": [{"at": r["at"]} for r in _nudges(today["day"])]}
 
-    def _wendy_turn(message: str) -> None:
-        from . import wendy
+    def _wendy_turn(message: str, page: str = "today") -> None:
+        from . import positioning, wendy
 
         try:
             _, brief_text = _wendy_brief()
-            text = wendy.run_turn(brief_text, _wendy_said()[:-1] if message else _wendy_said(), message, turn_fn=wendy_fn)
+            north = ""
+            if page == "positioning":
+                try:
+                    north = positioning.read().get("markdown") or ""
+                except Exception:  # noqa: BLE001 - 读不到定位就只按今天的账聊
+                    north = ""
+            text = wendy.run_turn(brief_text, _wendy_said()[:-1] if message else _wendy_said(), message, turn_fn=wendy_fn, north=north)
             store.add_wendy("wendy", text)
         except Exception as exc:  # noqa: BLE001 - 卡片里显示
             logger.warning("wendy turn failed: %s", exc)
@@ -3883,7 +3931,7 @@ def create_app(
             wendy_state.update(busy=True, error=None)
         if message:
             store.add_wendy("park", message)
-        threading.Thread(target=_wendy_turn, args=(message,), name="wendy", daemon=True).start()
+        threading.Thread(target=_wendy_turn, args=(message, body.page), name="wendy", daemon=True).start()
         return {"started": True}
 
     @app.get("/api/wendy/brief")
