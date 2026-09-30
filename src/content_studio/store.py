@@ -44,7 +44,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "kpi": {"started": "2026-09-29", "reach_daily": 10000, "reach_by": "2026-10-31", "reach_next": 20000,
             "dm_daily": 0, "dm_baseline_until": "2026-10-06",
             # X 互动：每天在别人的帖子下面回这么多条（9/29 Park：先定 20）
-            "x_replies_daily": 20},
+            "x_replies_daily": 20,
+            # 读日报从这天起算分（9/30 Park）
+            "read_started": "2026-09-30"},
 }
 
 # Kept as history only: Park collapsed 对标 and 老师 into one category on 2026-09-20, so nothing

@@ -22,6 +22,8 @@ function syncTabs() {
 }
 const DAY_TABS = [[1, '1 天'], [3, '3 天'], [7, '7 天'], [30, '30 天']];
 
+/* 从「今天」的读日报直接跳到那一份（9/30） */
+window.openInputTab = (key) => { C.tab = key; C.open = null; C.note = null; go('input'); };
 const C = { tab: 'all', days: 1, items: null, since: null, open: null, note: null, dailies: {}, loadedAt: 0, groups: {} };
 
 const tabDef = (key) => TABS.find((t) => t.key === key) || TABS[0];
