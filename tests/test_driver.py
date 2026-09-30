@@ -278,36 +278,125 @@ def test_past_days_show_what_went_out_and_the_demerits(client: TestClient, tmp_p
     assert week["demerits"] == sum(c["demerits"] for c in week["days"]) and week["ship_days"] >= 1
 
 
-# -- 追平阶段（9/30 Park）：补发算分；出关 = 旧内容清完 + 连续出摊 14 天 ------------------------
+# -- 追平阶段（9/30 Park）：每天发一条新视频，或者补发当天那几格；每周至少 3 条新的；出关 = 旧内容清完 + 连续出摊 14 天 --
 
-def test_backfill_is_scored_from_its_start_day_and_not_when_there_is_nothing_to_send() -> None:
+def _cells(major: int, minor: int) -> list[dict]:
+    return [{"video_id": f"v{i}", "platform": "x", "tier": "major"} for i in range(major)] + \
+           [{"video_id": f"v{i}", "platform": "bilibili", "tier": "minor"} for i in range(minor)]
+
+
+@pytest.mark.parametrize(("major", "minor", "want"), [
+    (10, 10, ["major", "major", "minor", "minor"]),  # 两格重要平台 + 两格次要平台
+    (1, 10, ["major", "minor", "minor", "minor"]),   # 重要的不够：次要的补齐
+    (10, 0, ["major"] * 4),                          # 次要的发完了：全用重要的
+    (1, 1, ["major", "minor"]),                      # 一共不到 4 格：有几格排几格
+    (0, 0, []),
+])
+def test_pick_is_two_major_two_minor_and_fills_from_the_other_tier(major: int, minor: int, want: list[str]) -> None:
+    import random
+
+    picked = driver.pick_cells(_cells(major, minor), random.Random("2026-10-01"))
+    assert sorted(c["tier"] for c in picked) == sorted(want)
+    assert len({(c["video_id"], c["platform"]) for c in picked}) == len(picked)  # 同一格不会排两次
+
+
+def test_pick_is_random_but_the_same_for_the_same_day_and_skips_what_is_taken() -> None:
+    import random
+
+    cells = _cells(8, 8)
+    a = driver.pick_cells(cells, random.Random("2026-10-01"))
+    assert a == driver.pick_cells(cells, random.Random("2026-10-01"))  # 同一天抽出来一样（存下来以后本来也不再抽）
+    assert any(driver.pick_cells(cells, random.Random(f"2026-10-{d:02d}")) != a for d in range(2, 12))  # 不是固定按某个顺序
+    # 同一档里尽量发到不同的平台：重要的三个平台里挑两个不同的，次要的也是
+    mixed = [{"video_id": f"v{i}", "platform": pf, "tier": "major" if pf in ("x", "channels", "xiaohongshu") else "minor"}
+             for i in range(6) for pf in ("x", "channels", "xiaohongshu", "bilibili", "youtube", "wechat_mp")]
+    for seed in range(20):
+        got = driver.pick_cells(mixed, random.Random(seed))
+        assert len({c["platform"] for c in got}) == 4
+    taken = {(c["video_id"], c["platform"]) for c in a}
+    assert not taken & {(c["video_id"], c["platform"]) for c in driver.pick_cells(cells, random.Random(1), taken=taken)}
+
+
+def test_a_backfill_day_counts_as_shipping_and_keeps_the_streak() -> None:
     today = date(2026, 10, 4)
-    days = driver.kpi_range(date(2026, 9, 30), today, today, posted=set(), dms={}, started="9999",
-                            backfilled={"2026-10-01"}, bf_started="2026-10-01", bf_none={"2026-10-03"})
-    assert [(d["day"][-2:], d["bf"]) for d in days] == [("30", "n/a"), ("01", "ok"), ("02", "miss"), ("03", "n/a"), ("04", "pending")]
-    assert sum(d["bf"] == "miss" for d in days) == 1
-    # 补发不能顶替出摊：那几天没出摊照样各减 1 分，加上 10/2 没补发的 1 分
-    assert driver.demerits(days) == sum(d["ship"] == "miss" for d in days) + 1
-    # 不传这几个参数（老调用）：补发不算分
-    assert all(d["bf"] == "n/a" for d in driver.kpi_days(today, posted=set(), dms={}, started="9999"))
+    new_video, backfilled = {"2026-10-01", "2026-10-03"}, {"2026-10-02"}
+    days = driver.kpi_range(date(2026, 9, 30), today, today, posted=new_video | backfilled, dms={}, started="9999", ship_started="2026-09-30")
+    assert [(d["day"][-2:], d["ship"]) for d in days] == [("30", "miss"), ("01", "ok"), ("02", "ok"), ("03", "ok"), ("04", "pending")]
+    assert driver.demerits(days) == 1 and all("bf" not in d for d in days)  # 补发不再单独算一项
+    assert driver.ship_streak(today, new_video | backfilled) == {"kind": "ok", "days": 3}  # 新视频和补发交替，连续天数接着算
+    assert driver.ship_streak(today, new_video) == {"kind": "ok", "days": 1}
 
 
 def test_stage_is_catchup_until_backlog_is_clear_and_the_streak_is_long_enough() -> None:
-    st = driver.stage(backlog=17, streak={"kind": "ok", "days": 1}, streak_target=14)
-    assert (st["key"], st["backlog"], st["streak"], st["done"]) == ("catchup", 17, 1, False)
+    st = driver.stage(backlog=71, streak={"kind": "ok", "days": 1}, streak_target=14)
+    assert (st["key"], st["backlog"], st["streak"], st["done"]) == ("catchup", 71, 1, False)
     assert driver.stage(backlog=0, streak={"kind": "ok", "days": 13}, streak_target=14)["done"] is False
     assert driver.stage(backlog=3, streak={"kind": "ok", "days": 20}, streak_target=14)["done"] is False
     assert driver.stage(backlog=0, streak={"kind": "miss", "days": 2}, streak_target=14)["streak"] == 0  # 断了就从头数
     assert driver.stage(backlog=0, streak={"kind": "ok", "days": 14}, streak_target=14)["done"] is True
 
 
-def test_today_reports_the_stage_and_does_not_score_backfill_when_nothing_is_packed(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_todays_cells_are_drawn_once_and_sending_them_all_counts_as_shipping(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.test_web import SEC, _wait_sync
+
     monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
-    client.app.state.store.update_settings({"kpi": {"bf_started": "2000-01-01"}})
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+    _wait_sync(client)
+    store = client.app.state.store
+    today = date.today().isoformat()
+    sheet = client.get("/api/backfill").json()
+    old = [v for v in sheet["videos"] if not v["published_at"].startswith(today)][:2]
+    keys = [p["key"] for p in sheet["platforms"]][1:]
+    for i in _today(client)["rd"]["items"]:  # 今天出了的日报先读完，才轮到出摊
+        if i["exists"]:
+            client.put("/api/today/checks", json={"day": today, "key": i["key"], "checked": True})
     d = _today(client)
-    assert d["stage"]["key"] == "catchup" and d["stage"]["backlog"] == 0 and d["stage"]["streak_target"] == 14
-    assert d["days"][-1]["bf"] == "n/a"  # 没有打好包的旧内容：今天没得补，不算
-    assert next(c for c in d["week"]["days"] if c["state"] == "today")["bf"] == "n/a"
-    assert client.get("/api/wendy/nudge").json()["pending"].count("补发") == 0
+    assert d["out"]["cells"] == [] and d["out"]["mode"] is None  # 没有打好包的旧内容：今天没有能补的格子
+    assert d["stage"]["backlog"] == sum(len(v["missing"]) for v in sheet["videos"])  # 旧内容按格数
+    assert client.post("/api/today/cells/0/sent", json={"sent": True}).status_code == 400
+
+    # 今天排了两格（测试里直接排上；线上是每天第一次读的时候随机抽、存下来）
+    store.set_backfill_plan(today, [(old[0]["video_id"], keys[0]), (old[1]["video_id"], keys[1])])
+    d = _today(client)
+    assert [(c["slot"], c["platform"], c["sent"]) for c in d["out"]["cells"]] == [(0, keys[0], False), (1, keys[1], False)]
+    assert _today(client)["out"]["cells"] == d["out"]["cells"]  # 再读一次：还是这两格，不重抽
+    was = d["days"][-1]["ship"]
+    assert driver.now_item(d)["inputs"] == "mode"  # 还没说今天发不发新的：先问
+
+    assert client.post("/api/today/mode", json={"mode": "maybe"}).status_code == 400
+    assert client.post("/api/today/mode", json={"mode": "backfill"}).json() == {"mode": "backfill"}
+    d = _today(client)
+    now = driver.now_item(d)
+    assert d["out"]["mode"] == "backfill" and now["inputs"] == "cell" and now["slot"] == 0 and keys[0] in (now["go"] or "") + keys[0]
+
+    client.post("/api/today/cells/0/sent", json={"sent": True})
+    d = _today(client)
+    assert d["out"]["sent"] == 1 and not d["out"]["done"] and d["days"][-1]["ship"] == was  # 只发了一格：还不算
+    assert driver.now_item(d)["slot"] == 1
+    client.post("/api/today/cells/1/sent", json={"sent": True})
+    d = _today(client)
+    if was != "ok":  # 今天没发新视频：补发的格子都发完，就算出摊，连续天数接着算
+        assert d["out"]["done"] and d["days"][-1]["ship"] == "ok" and d["streak"]["kind"] == "ok"
+        assert next(c for c in d["week"]["days"] if c["state"] == "today")["backfilled"] is True
+        assert "补发的 2 格都发完了" in client.get("/api/wendy/brief").json()["text"]
+    # 点错了撤回：这一天又不算了
+    client.post("/api/today/cells/1/sent", json={"sent": False})
+    d = _today(client)
+    assert d["out"]["sent"] == 1 and not d["out"]["done"] and d["days"][-1]["ship"] == was
+
+
+def test_three_new_videos_a_week_is_only_charged_after_the_week_ends_and_never_backdated(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    store = client.app.state.store
+    d = _today(client)
+    week = d["week"]
+    assert (week["new_videos"], week["new_target"], week["new_short"]) == (0, 3, 0)  # 这一周还没过完：只看进度，不扣
+    prev = client.get("/api/today/week", params={"start": week["prev"]}).json()
+    assert prev["new_short"] == 0 and not prev["new_counts"]  # 定规矩之前的周：不倒扣
+    cur = store.settings()["kpi"]
+    store.update_settings({"kpi": {**cur, "new_weekly_started": "2000-01-03"}})
+    prev = client.get("/api/today/week", params={"start": week["prev"]}).json()
+    assert prev["new_counts"] and prev["new_short"] == 3 and prev["demerits"] == sum(c["demerits"] for c in prev["days"]) + 3
+    assert client.get("/api/today/week", params={"start": week["start"]}).json()["new_short"] == 0
     brief = client.get("/api/wendy/brief").json()["text"]
-    assert "[现在在哪个阶段] 追平" in brief and "连续出摊 0/14 天" in brief
+    assert "[本周新视频] 0/3 条，周日前还差 3 条" in brief and "[现在在哪个阶段] 追平" in brief

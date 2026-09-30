@@ -213,6 +213,14 @@ class ShootBody(BaseModel):
     planned_day: str | None = None  # 周历：排在哪天拍（YYYY-MM-DD）；传空字符串 = 不排了
 
 
+class ModeBody(BaseModel):
+    mode: str
+
+
+class CellSentBody(BaseModel):
+    sent: bool = True
+
+
 class WendyBody(BaseModel):
     message: str = ""
 
@@ -1182,10 +1190,13 @@ def create_app(
             ok = read_state(d)[1] if d.isoformat() >= cfg["read_started"] else None
             if ok is not None:
                 reads[d.isoformat()] = ok
-        days = driver.kpi_days(today, posted=posted_days(), dms=store.dm_entries(since), started=cfg["started"],
+        days = driver.kpi_days(today, posted=shipped_days(), dms=store.dm_entries(since), started=cfg["started"],
                                x_replies=store.kpi_counts(since, "x_replies"), x_target=int(cfg["x_replies_daily"]),
-                               reads=reads, read_started=cfg["read_started"], **_bf_kwargs(today.isoformat()))
+                               reads=reads, read_started=cfg["read_started"])
+        week = _week(driver.week_start(today), today)
         return {
+            # 这一周（周一起）发了几条新视频、每周下限、周过完以后少了几条（少一条减 1 分，已经算进 week_demerits）
+            "new_videos": week["new_videos"], "new_target": week["new_target"], "new_short": week["new_short"], "week_demerits": week["demerits"],
             "read_missed": sum(d["rd"] == "miss" for d in days),
             "x_missed": sum(d["xr"] == "miss" for d in days),
             "posted": sum(d["ship"] == "ok" for d in days),
@@ -3447,7 +3458,7 @@ def create_app(
                     out.setdefault(day, []).append(" ".join((v.get("title") or "").split())[:40] or "（没有标题）")
         return out
 
-    def _week(start: date, today: date, bf: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _week(start: date, today: date) -> dict[str, Any]:
         """周历的一周（周一到周日）：过去每天算分的几项做没做到、减几分、发了哪条；今天和以后排了拍哪条、别的事。
         分数的规则和「今天」是同一套（driver.kpi_range）；排哪天拍哪条只读他自己排的，不自动排。"""
         from . import driver
@@ -3463,10 +3474,10 @@ def create_app(
                 ok = read_state(d)[1]
                 if ok is not None:
                     reads[d.isoformat()] = ok
-        days = driver.kpi_range(start, end, today, posted=set(titles), dms=store.dm_entries(since), started=kpi["started"],
+        filled = backfilled_days()
+        days = driver.kpi_range(start, end, today, posted=set(titles) | filled, dms=store.dm_entries(since), started=kpi["started"],
                                 x_replies=store.kpi_counts(since, "x_replies"), x_target=int(kpi["x_replies_daily"]),
-                                reads=reads, read_started=kpi["read_started"], ship_started=min(titles) if titles else "9999",
-                                **(bf or _bf_kwargs(tkey)))
+                                reads=reads, read_started=kpi["read_started"], ship_started=min(titles) if titles else "9999")
         notes = [n for n in store.shoot_list(include_done=True) if since <= (n.get("planned_day") or "") <= until]
         items = store.plan_items(since, until)
         skips = [r for r in store.driver_log(since, "skip") if r["day"] <= until]
@@ -3475,13 +3486,19 @@ def create_app(
             d["state"] = "today" if key == tkey else "past" if key < tkey else "future"
             d["demerits"] = driver.demerits([d])
             d["shipped"] = titles.get(key, [])
+            d["backfilled"] = key in filled and not d["shipped"]  # 这天没发新的，补发了当天那几格
             d["planned"] = [{"id": n["id"], "text": n["text"], "topic_id": n["topic_id"], "done": bool(n["done_at"])} for n in notes if n["planned_day"] == key]
             d["items"] = [{"id": it["id"], "text": it["text"], "done": bool(it["done_at"])} for it in items if it["day"] == key]
             d["skips"] = [{"what": r["key"], "reason": r["reason"]} for r in skips if r["day"] == key]
         counted = [d for d in days if d["ship"] in ("ok", "miss")]
+        # 每周下限：一周至少这么多条新视频，少一条减 1 分。周过完才扣；定规矩之前的周不倒扣。
+        new_videos, new_target = sum(len(titles.get(d["day"], [])) for d in days), int(kpi["new_weekly"])
+        counts = since >= kpi["new_weekly_started"]
+        new_short = max(0, new_target - new_videos) if counts and end < today else 0
         return {"start": since, "end": until, "prev": (start - timedelta(days=7)).isoformat(), "next": (start + timedelta(days=7)).isoformat(),
                 "current": start == driver.week_start(today), "days": days,
-                "shipped": sum(d["ship"] == "ok" for d in days), "ship_days": len(counted), "demerits": driver.demerits(days),
+                "shipped": sum(d["ship"] == "ok" for d in days), "ship_days": len(counted), "demerits": driver.demerits(days) + new_short,
+                "new_videos": new_videos, "new_target": new_target, "new_short": new_short, "new_counts": counts,
                 "x_target": int(kpi["x_replies_daily"])}
 
     def read_state(day: date) -> tuple[list[dict[str, Any]], bool | None]:
@@ -3508,19 +3525,70 @@ def create_app(
 
         return {**DEFAULT_SETTINGS["kpi"], **(store.settings().get("kpi") or {})}
 
-    def _bf_kwargs(today_key: str, state: dict[str, Any] | None = None) -> dict[str, Any]:
-        """补发算分要的三样：哪些天补完了一条、从哪天起算、哪些天没有旧内容可补。
-        今天的结果在这里顺手记下来（补完了 / 没得补），过了今天才知道那天算什么。"""
-        kpi = kpi_config()
-        if today_key >= kpi["bf_started"]:
-            state = state or backfill_state(today_key)
-            picked = state.get("today")
-            if picked and not picked["missing"]:
-                store.driver_mark(today_key, "bf", "bfdone")
-            elif not picked and not state["ready_count"]:
-                store.driver_mark(today_key, "bf", "bfnone")
-        return {"backfilled": {r["day"] for r in store.driver_log("", "bfdone")}, "bf_started": kpi["bf_started"],
-                "bf_none": {r["day"] for r in store.driver_log("", "bfnone")}}
+    # -- 今天出摊的两条路（9/30 Park）：发一条新视频，或者补发当天那几格旧内容 ------------------
+    OUT_KEY = "out"
+
+    def backfilled_days() -> set[str]:
+        """没发新视频、但把当天排的补发格子都发完了的日子：也算出摊。"""
+        return {r["day"] for r in store.driver_log("", "bfday")}
+
+    def shipped_days() -> set[str]:
+        """出摊了的日子 = 发了新视频的 ∪ 补发完成的。只给算分和连续天数用；
+        「今天抖音发没发」「这一周几条新视频」还是只看 posted_days()。"""
+        return posted_days() | backfilled_days()
+
+    def _open_cells(sheet: dict[str, Any]) -> list[dict[str, Any]]:
+        """现在就能发的格子（一条内容 × 一个平台）。不算：不补发的、发过的、还没打好包的、视频平台上没有成片的。"""
+        from . import backfill, reach
+
+        labels = {p["key"]: p["label"] for p in sheet["platforms"]}
+        cells = []
+        for r in sheet["videos"]:
+            if r.get("cancelled") or not r["topic_id"] or not r["missing"]:
+                continue
+            try:
+                if not _pack_view(r)["ready"]:
+                    continue
+            except StoreError:
+                continue
+            for k in r["missing"]:
+                if backfill.KIND.get(k) == "视频" and not r.get("video"):
+                    continue
+                cells.append({"video_id": r["video_id"], "topic_id": r["topic_id"], "platform": k, "label": labels.get(k, k),
+                              "tier": "major" if k in reach.CORE else "minor", "title": r["headline"] or r["title"][:40]})
+        return cells
+
+    def _out_state(today_key: str, sheet: dict[str, Any]) -> dict[str, Any]:
+        """今天不发新视频的话补哪几格：每天第一次读的时候抽好、存下来，当天不再变（换一格只换那一格）。
+        一格发没发直接看全平台追踪（发布台发的有发布记录，外面发的他点「发了」）。都发完，这一天记成出摊。"""
+        import random
+
+        from . import driver as driver_mod, reach
+
+        labels = {p["key"]: p["label"] for p in sheet["platforms"]}
+        rows = {r["video_id"]: r for r in sheet["videos"]}
+        plan = store.backfill_plan(today_key)
+        if not plan and today_key == date.today().isoformat():
+            picked = driver_mod.pick_cells(_open_cells(sheet), random.Random(today_key), need=int(kpi_config()["backfill_cells"]))
+            if picked:
+                store.set_backfill_plan(today_key, [(c["video_id"], c["platform"]) for c in picked])
+                plan = store.backfill_plan(today_key)
+        cells = []
+        for row in plan:
+            r = rows.get(row["video_id"])
+            if r is None or r.get("cancelled"):
+                continue
+            cells.append({"slot": row["slot"], "video_id": row["video_id"], "topic_id": r["topic_id"], "platform": row["platform"],
+                          "label": labels.get(row["platform"], row["platform"]), "tier": "major" if row["platform"] in reach.CORE else "minor",
+                          "title": r["headline"] or r["title"][:40], "sent": row["platform"] not in r["missing"]})
+        done = bool(cells) and all(c["sent"] for c in cells)
+        if done:
+            store.driver_mark(today_key, OUT_KEY, "bfday")
+        else:
+            store.driver_unmark(today_key, OUT_KEY, "bfday")
+        modes = [r for r in store.driver_log(today_key, "mode") if r["day"] == today_key]
+        return {"mode": modes[-1]["reason"] if modes else None, "cells": cells, "sent": sum(c["sent"] for c in cells), "done": done,
+                "left": sum(len(r["missing"]) for r in sheet["videos"])}
 
     def _ship_action(cards: list[dict[str, Any]], desk: dict[str, Any], notes: list[dict[str, Any]], rung: str) -> dict[str, Any] | None:
         """出摊这一格现在该做什么：手上快发出去的先做完，然后是他清单里的第一条，再是正在做的那条。"""
@@ -3614,10 +3682,12 @@ def create_app(
                 ok = read_state(d)[1]
                 if ok is not None:
                     reads[d.isoformat()] = ok
-        backfill = backfill_state(tkey)
-        bf = _bf_kwargs(tkey, backfill)
-        days = driver.kpi_days(today, posted=posted, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]),
-                               reads=reads, read_started=kpi["read_started"], **bf)
+        sheet = get_backfill()
+        backfill = backfill_state(tkey, sheet)
+        out = _out_state(tkey, sheet)  # 先算：补发完成的话，今天也算出摊
+        shipped = shipped_days()
+        days = driver.kpi_days(today, posted=shipped, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]),
+                               reads=reads, read_started=kpi["read_started"])
         reach = get_reach(14)
         # 清单里那条的选题发出去了，这条就划掉
         for note in store.shoot_list():
@@ -3685,12 +3755,56 @@ def create_app(
             "backfill": backfill,
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
             # 周历：这一周（周一到周日）和他现在连着几天出摊 / 没出摊。上面的 days、demerits 还是最近 7 天，含义不变。
-            "week": _week(driver.week_start(today), today, bf),
-            "streak": driver.ship_streak(today, posted),
-            # 现在在哪个阶段（追平）：旧内容还剩几条、连续出摊几天、出关没有
-            "stage": driver.stage(backlog=backfill["ready_count"] + backfill["waiting_count"] + (1 if backfill["today"] and backfill["today"]["missing"] else 0),
-                                  streak=driver.ship_streak(today, posted), streak_target=int(kpi["ship_streak_target"])),
+            "week": _week(driver.week_start(today), today),
+            "streak": driver.ship_streak(today, shipped),
+            # 今天出摊的两条路：发新视频，或者补发这几格（mode 是他早上选的，只决定卡片先给他看哪条路；算分只看结果）
+            "out": out,
+            # 现在在哪个阶段（追平）：旧内容还剩几格、连续出摊几天、出关没有
+            "stage": driver.stage(backlog=out["left"], streak=driver.ship_streak(today, shipped), streak_target=int(kpi["ship_streak_target"])),
         }
+
+    @app.post("/api/today/mode")
+    def set_today_mode(body: ModeBody) -> dict[str, Any]:
+        """早上那个问题的回答：今天发新视频，还是补发。只决定卡片先给他看哪条路，随时能改；算分只看结果。"""
+        if body.mode not in ("new", "backfill"):
+            raise ValueError("只能选「发新视频」或「补发」")
+        store.driver_mark(date.today().isoformat(), "mode", "mode", body.mode)
+        return {"mode": body.mode}
+
+    def _plan_cell(slot: int) -> dict[str, Any]:
+        row = next((r for r in store.backfill_plan(date.today().isoformat()) if r["slot"] == slot), None)
+        if row is None:
+            raise ValueError("今天没有排这一格")
+        return row
+
+    @app.post("/api/today/cells/{slot}/sent")
+    def cell_sent(slot: int, body: CellSentBody) -> dict[str, Any]:
+        """这一格他在外面发了（或者点错了撤回）：记在全平台追踪里，和那边的「标已发」是同一笔。"""
+        row = _plan_cell(slot)
+        store.set_backfill_mark(row["video_id"], row["platform"], body.sent)
+        return {"ok": True}
+
+    @app.post("/api/today/cells/{slot}/swap")
+    def cell_swap(slot: int) -> dict[str, Any]:
+        """这一格今天不想发：随机换一格同一档平台的（没有就换另一档）。只换这一格，别的不动。"""
+        import random
+
+        from . import reach
+
+        tkey = date.today().isoformat()
+        row = _plan_cell(slot)
+        plan = store.backfill_plan(tkey)
+        taken = {(r["video_id"], r["platform"]) for r in plan}
+        tier = "major" if row["platform"] in reach.CORE else "minor"
+        pool = [c for c in _open_cells(get_backfill()) if (c["video_id"], c["platform"]) not in taken]
+        same = [c for c in pool if c["tier"] == tier] or pool
+        if not same:
+            raise ValueError("没有别的格子可换了")
+        # 先换到今天别的格子没用到的平台（今天尽量发到不同的平台），没有再随便换
+        used = {r["platform"] for r in plan if r["slot"] != slot}
+        pick = random.choice([c for c in same if c["platform"] not in used] or same)
+        store.replace_backfill_cell(tkey, slot, pick["video_id"], pick["platform"])
+        return {"ok": True}
 
     @app.get("/api/today/week")
     def get_week(start: str | None = None) -> dict[str, Any]:
@@ -3698,7 +3812,7 @@ def create_app(
         from . import driver
 
         today = date.today()
-        return {**_week(driver.week_start(parse_day(start)), today), "streak": driver.ship_streak(today, posted_days())}
+        return {**_week(driver.week_start(parse_day(start)), today), "streak": driver.ship_streak(today, shipped_days())}
 
     # -- Wendy：「今天」页最上面那张卡片（wendy.py）-------------------------------------
     wendy_state: dict[str, Any] = {"busy": False, "error": None}
@@ -3988,8 +4102,8 @@ def create_app(
                 "machine": any(ap[k].get("by") == "machine" for k in need if ap[k]["approved"]),
                 "cover": (rel.get("cover_urls") or {}).get("portrait")}
 
-    def backfill_state(today_key: str) -> dict[str, Any]:
-        sheet = get_backfill()
+    def backfill_state(today_key: str, sheet: dict[str, Any] | None = None) -> dict[str, Any]:
+        sheet = sheet or get_backfill()
         labels = {p["key"]: p["label"] for p in sheet["platforms"]}
         picks = [r for r in store.driver_log(today_key, "pick") if r["day"] == today_key]
         pick_id = int(picks[-1]["key"].split(":")[1]) if picks else None
