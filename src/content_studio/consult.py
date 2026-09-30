@@ -459,6 +459,8 @@ def note_path(folder: Path, day: date) -> Path:
 # 后续方案和报价存在文件夹里的「客户档案.md」frontmatter：Obsidian 里也能直接看、直接改。
 
 PROFILE = "客户档案.md"
+# 做咨询时照着过的那一页：010_咨询/诊断流程.md。Park 在 Obsidian 里改，工作台只读出来给他看。
+PLAYBOOK = "诊断流程.md"
 PROFILE_FIELDS = ("来源", "首次咨询收费", "画像", "微信名", "后续方案", "报价")
 
 
@@ -529,6 +531,13 @@ def client_files(home: Path) -> list[dict[str, Any]]:
         sent = sorted(e["sent"].values(), key=lambda d: (d["label"] != "会议纪要", d["label"]))
         out.append({"day": day, "sent": sent, "mine": e["mine"]})
     return out
+
+
+def playbook(vault: Path) -> dict[str, Any]:
+    """诊断流程那一页的原文；还没写就是空的，页面上提示去 Obsidian 建。"""
+    path = vault / FOLDER / PLAYBOOK
+    markdown = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return {"path": str(path), "markdown": markdown}
 
 
 def clients(vault: Path) -> list[dict[str, Any]]:

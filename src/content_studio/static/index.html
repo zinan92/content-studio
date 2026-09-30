@@ -180,7 +180,7 @@
     <section class="view wide" id="v-consults" data-stage="set">
       <header class="page-h">
         <div><div class="stage-eyebrow">咨询客户</div><h1>客户</h1><p>一个客户一行。来源、收费、微信名、后续方案和报价你来填；定位从录音里自动提一句；右边是每一场的两份 summary。</p></div>
-        <button class="btn primary" type="button" id="consultUpload">上传咨询录音</button>
+        <div class="page-h-actions"><button class="btn" type="button" id="playbookOpen">诊断流程</button><button class="btn primary" type="button" id="consultUpload">上传咨询录音</button></div>
       </header>
       <div id="clientsBody"></div>
     </section>
@@ -232,6 +232,10 @@
     <div class="detect" id="csMsg"></div>
     <div class="dlg-actions"><button type="button" class="btn" id="csCancel">关闭</button><button class="btn primary" type="submit" id="csSubmit">上传并开始</button></div>
   </form>
+</dialog>
+<dialog id="playbookDlg" class="playbook-dlg" aria-label="诊断流程">
+  <div class="playbook-bar"><b>诊断流程</b><span><a class="btn small" id="playbookEdit" href="#">在 Obsidian 里改</a><button type="button" class="btn small" id="playbookClose">关闭</button></span></div>
+  <article class="md playbook-md" id="playbookBody"></article>
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>

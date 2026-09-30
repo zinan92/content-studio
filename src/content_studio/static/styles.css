@@ -1906,3 +1906,12 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .sw-col{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--ink-3)}
 .sw-col select{font:inherit;font-size:13px;padding:5px 6px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink)}
 .sw-body > .btn{align-self:flex-start;margin-top:2px}
+/* 咨询客户 · 诊断流程：做咨询时照着过的那一页，字大一点、一屏能扫完一类问题 */
+.page-h-actions{display:flex;gap:8px;align-items:center}
+.playbook-dlg{width:min(820px,96vw);max-width:none;max-height:92vh;border-radius:16px;overflow:hidden}
+.playbook-dlg[open]{display:flex;flex-direction:column}
+.playbook-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line)}
+.playbook-bar span{display:flex;gap:8px}
+.playbook-md{overflow-y:auto;max-width:none;padding:6px 28px 32px;font-size:16px}
+.playbook-md h3{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-size:18px}
+.playbook-md li{margin:4px 0}
