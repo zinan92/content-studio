@@ -165,6 +165,12 @@ def test_backfill_desk_lists_every_open_cell_and_says_why_the_others_cannot_go(c
     assert client.post("/api/backfill/desk/drop", json={"video_id": row["video_id"], "platform": plats[0]}).status_code == 400
     client.post(f"/api/backfill/{row['video_id']}/mark", json={"platform": plats[1], "done": True})
     assert client.post("/api/backfill/desk/drop", json={"video_id": row["video_id"], "platform": plats[1]}).status_code == 400  # 发出去的拿不掉
+    # 他点「发了」记的那一格标着 marked：审核没过可以撤回（页面上给「撤回」）
+    item = client.get("/api/backfill/desk").json()["run"]["items"][0]
+    assert item["sent"] and item["marked"] and _today(client)["out"]["cells"][0]["marked"]
+    client.post(f"/api/backfill/{row['video_id']}/mark", json={"platform": plats[1], "done": False})
+    item = client.get("/api/backfill/desk").json()["run"]["items"][0]
+    assert not item["sent"] and not item["marked"]
 
 
 def test_backfill_preview_shows_what_would_go_out(client: TestClient, tmp_path) -> None:

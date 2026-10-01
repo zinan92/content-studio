@@ -1,5 +1,5 @@
 /* 04 发布 · 全平台追踪（9/29 以前叫「补发队列」）：每条内容发在了哪些平台，一张表看全貌，每格能点开链接。
- * 没发齐的可以「拿去补发」；真正发布走打包 → 发布台，每个平台照旧要 Park 点确认。
+ * 没发齐的点「补发」：打开和「今天」同一个补发工作台（10/1 Park：不要两个页面做同一件事），包还没定稿的格子在那里点一下去打包。
  * 发布台上的这一条发完了，就回到这张表（Park：「finished the current item, then I should see the full tracking sheet」）。 */
 window.VIEWS = window.VIEWS || {};
 
@@ -30,7 +30,7 @@ function bfCell(v, p) {
   return `<button class="bf-dot" type="button" data-bfmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：还没发。在工作台外面发过的，点一下标成已发">·</button>`;
 }
 
-/* 每条只有一个按钮，永远是下一步：没有成片 → 先下成片；正在下 → 等；有了 → 拿去补发。 */
+/* 每条只有一个按钮，永远是下一步：没有成片 → 先下成片；正在下 → 等；有了 → 补发。 */
 function bfNext(v) {
   // 9/30 Park：没有时效性的旧内容不补发了。划掉，能点回来。
   if (v.cancelled) return `<span class="bf-file">不补发了</span><button class="linklike" type="button" data-bfcancel="${esc(v.video_id)}" data-on="0">恢复</button>`;
@@ -43,7 +43,7 @@ function bfNext(v) {
   // 没有成片：原片在另一台电脑上。拷进作品库里这条的「1 成片」（或 SSD 视频目录的任何地方），点顶上「在本机再找一遍」。
   if (!has) return '<span class="bf-file" title="原片在另一台电脑上：拷进作品库这条的「1 成片」，再点顶上「在本机再找一遍」">作品库缺成片 · 在另一台电脑上</span>' + drop;
   const note = v.video === 'master' ? '有成片' : '作品库里有成片';
-  return `<span class="bf-file ok">${note}</span><button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>拿去补发</button>${drop}`;
+  return `<span class="bf-file ok">${note}</span><button class="btn small primary" type="button" data-bftake="${esc(v.video_id)}" ${BF.busy[v.video_id] ? 'disabled' : ''}>补发</button>${drop}`;
 }
 
 window.VIEWS.backfill = {
@@ -76,7 +76,7 @@ window.VIEWS.backfill = {
       <small>按时长和日期在本机找原片，不从抖音下。以后每次同步发现新视频，也只在本机找。</small>`;
     body.innerHTML = `
       <div class="panel bf-archive">${strip}</div>
-      <p class="in-note">${esc(d.order)}。↗ 点开就是那个平台上的这一条；· 是还没发，在工作台外面发过的点一下标成已发。没发齐、作品库里有成片的，点「拿去补发」，先进打包定稿，再到发布台发。</p>
+      <p class="in-note">${esc(d.order)}。↗ 点开就是那个平台上的这一条；· 是还没发，在工作台外面发过的点一下标成已发。没发齐、作品库里有成片的，点「补发」：打开补发工作台挑平台、预览、现场发。</p>
       <div class="panel bf-tbl"><table><colgroup><col>${cols.map(() => '<col class="bf-pcol">').join('')}</colgroup><thead>${head}</thead><tbody>${d.videos.map(row).join('')}</tbody></table></div>`;
     const csvBtn = $('#bfCsv');
     if (csvBtn) csvBtn.onclick = () => {
@@ -93,13 +93,13 @@ window.VIEWS.backfill = {
     }));
     $$('[data-bfopen]', body).forEach((b) => (b.onclick = () => { S.publishId = Number(b.dataset.bfopen); go('publish'); }));
     // 9/29 起发布台要打包定稿过才发（文字平台）：补发接上以后先进打包，定稿了再去发
+    // 10/1 Park：补发只走一个窗口。先接上选题（种文案、接成片），然后打开补发工作台，滚到这一条
     $$('[data-bftake]', body).forEach((b) => (b.onclick = async () => {
       const vid = b.dataset.bftake;
       BF.busy[vid] = true; renderView();
       try {
-        const r = await api(`/api/backfill/${vid}/take`, { method: 'POST' });
-        toast(r.has_video ? '接上了，先在打包里定稿' : '接上了。还没有成片，先在这里点「从抖音下成片」');
-        if (r.has_video) { S.packId = r.topic_id; if (window.invalidatePack) window.invalidatePack(); go('pack'); return; }
+        await api(`/api/backfill/${vid}/take`, { method: 'POST' });
+        if (window.openBackfillDesk) window.openBackfillDesk(vid);
       } catch (err) { toast(err.message); }
       BF.busy[vid] = false; await loadBackfill(); renderView();
     }));

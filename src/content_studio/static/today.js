@@ -246,12 +246,12 @@ function shipRow(d) {
       ${mode ? '' : '<small>先选一条路。两条都算今天出摊。</small>'}</div>` : '';
   const cells = o.cells.map((c) => `<div class="td-cell ${c.sent ? 'sent' : ''}">
       <span class="tier ${c.tier}">${c.tier === 'major' ? '重要' : '次要'}</span><b>${esc(c.label)}</b><span class="t">《${esc(c.title)}》</span>
-      ${c.sent ? '<span class="ok">✓ 发了</span>' : '<span class="td-note">还没发出去</span>'}
+      ${c.sent ? `<span class="ok">✓ 发了</span>${c.marked ? `<button class="linklike" type="button" data-cell-sent="${c.slot}" data-on="0" title="审核没过、点错了：撤回成没发出去">撤回</button>` : ''}` : '<span class="td-note">还没发出去</span>'}
     </div>`).join('');
   const short = Math.max(0, o.need - o.cells.length);
   const fill = `<div class="td-cells"><p class="td-note">${o.cells.length ? `今天挑了 ${o.cells.length} 格，已发 ${o.sent} 格${short ? `，还要再挑 ${short} 格才算出摊` : ''}。` : `看今天大家的情绪，在补发工作台挑 ${o.need} 格，确认后现场发。`}全平台追踪里一共还剩 ${o.left} 格。</p>${cells}
     <div class="btns"><button class="btn go" type="button" data-bw-open>打开补发工作台</button>${o.running ? '<span class="td-note"><span class="spin"></span> 正在一格一格发</span>' : ''}</div></div>`;
-  const state = done ? rowState(true, s.done ? (s.topic ? `《${esc(s.topic.title.slice(0, 18))}》` : '发了新视频') : `补发的 ${o.cells.length} 格都发完了`) : rowState(false);
+  const state = done ? rowState(true, s.done ? (s.topic ? `《${esc(s.topic.title.slice(0, 18))}》` : '发了新视频') : `补发 ${o.cells.map((c) => esc(c.label)).join('、')} 都发完了`) : rowState(false);
   return tdRow('ship', 'B', '出摊', done, state, `
     ${pick}
     ${mode === 'backfill' ? fill : `<div class="td-plats">${s.topic ? `<span class="td-topic">《${esc(s.topic.title)}》</span>` : ''}${groups.map(([f, ps]) => `<span class="td-form">${FORM[f]}</span>${ps.map(plat).join('')}`).join('')}</div>
@@ -259,7 +259,7 @@ function shipRow(d) {
     <details class="td-notes" ${s.notes.length || mode === 'backfill' ? '' : 'open'}><summary>接下来要拍的 · 你定${s.notes.length ? ` <span class="num">${s.notes.length}</span>` : ''}</summary>
       ${notes ? `<ol>${notes}</ol>` : '<p class="td-note">还没写。想好要拍什么就写在这里。排了日子的那天拍；没排的，最上面那条就是下一次出摊要拍的。</p>'}
       <form class="td-add" id="tdAdd"><input id="tdAddText" maxlength="200" placeholder="写一条要拍的，回车加到最后" autocomplete="off"></form>
-      ${sug}</details>`);
+      ${sug}</details>`, done && !s.done && o.cells.length ? true : undefined);  // 10/1：补发完了别收起来，审核没过要能看到、能撤回
 }
 
 /* A 读日报（9/30 Park：「每天最重要的事就是我要去读每日的日报，要不然日报存在的意义就没了」）。
@@ -394,6 +394,11 @@ window.VIEWS.today = {
       if (b.dataset.outMode === 'backfill' && window.openBackfillDesk && confirm('今天补发。现在打开补发工作台，挑今天发哪几格？')) window.openBackfillDesk();
     })));
     $$('[data-bw-open]', body).forEach((b) => (b.onclick = () => { if (window.openBackfillDesk) window.openBackfillDesk(); }));
+    // 今天挑的格子「发了 / 撤回」（#347 搬月历时这一行也丢了，10/1 补回来）
+    $$('[data-cell-sent]', body).forEach((b) => (b.onclick = () => {
+      if (b.dataset.on === '0' && !confirm('这一格撤回成「没发出去」？（审核没过、点错了）')) return;
+      tdAct(() => api(`/api/today/cells/${b.dataset.cellSent}/sent`, { method: 'POST', body: { sent: b.dataset.on === '1' } }));
+    }));
     const sugBtn = $('#tdSuggest');
     if (sugBtn) sugBtn.onclick = () => tdAct(() => api('/api/today/suggest', { method: 'POST' }));
     const take = $('#tdTake');

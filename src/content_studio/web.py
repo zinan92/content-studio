@@ -3652,7 +3652,8 @@ def create_app(
                 continue
             cells.append({"slot": row["slot"], "video_id": row["video_id"], "topic_id": r["topic_id"], "platform": row["platform"],
                           "label": labels.get(row["platform"], row["platform"]), "tier": "major" if row["platform"] in reach.CORE else "minor",
-                          "title": r["headline"] or r["title"][:40], "sent": row["platform"] not in r["missing"]})
+                          "title": r["headline"] or r["title"][:40], "sent": row["platform"] not in r["missing"],
+                          "marked": (r.get("done") or {}).get(row["platform"]) == "mark"})
         if len(cells) < need:
             # 追平到最后剩下的不够 4 格：有几格算几格，不能让他把能发的都发了还减分
             planned = {(c["video_id"], c["platform"]) for c in cells}
@@ -3921,6 +3922,7 @@ def create_app(
                 bw_run.update(day=today_key, items=[], running=False)
             live = {(it["video_id"], it["platform"]): dict(it) for it in bw_run["items"]}
             running = bw_run["running"]
+        rows = {r["video_id"]: r for r in sheet["videos"]}
         items = []
         for c in out["cells"]:
             it = live.get((c["video_id"], c["platform"]))
@@ -3932,6 +3934,8 @@ def create_app(
                 if job and job["state"] == "running" and not c["sent"]:
                     it.update(state="stuck", message="上次发到一半被打断了：先去平台后台看一眼有没有发出去")
             it["sent"] = c["sent"]
+            # 他点「发了」记下的（不是工作台自己发出去的）：审核没过、发错了可以撤回
+            it["marked"] = ((rows.get(c["video_id"]) or {}).get("done") or {}).get(c["platform"]) == "mark"
             items.append(it)
         return {"items": items, "running": running, "need": out["need"]}
 

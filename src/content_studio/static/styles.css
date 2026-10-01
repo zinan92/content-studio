@@ -2133,7 +2133,9 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .bw-c{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:30px;border-radius:8px;font:inherit;font-size:13px;font-weight:600;text-decoration:none}
 .bw-c.sent{color:var(--out)}
 .bw-c.planned{font-size:11px;color:var(--ink-3);background:var(--sunk);padding:0 6px}
-.bw-c.blocked{color:var(--ink-3);cursor:help}
+.bw-c.blocked{color:var(--ink-3);cursor:help;background:transparent;border:0;font:inherit}
+button.bw-c.blocked{cursor:pointer}
+.bw-tbl tr.bw-focus td{background:var(--accent-soft)}
 .bw-c.open{border:1px dashed var(--line);background:transparent;color:var(--ink-3);cursor:pointer}
 .bw-c.open:hover{border-color:var(--accent);color:var(--accent)}
 .bw-c.open.on{border:1px solid var(--accent);background:var(--accent);color:var(--surface);font-family:var(--mono)}
