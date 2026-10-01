@@ -18,6 +18,7 @@ PARK_VALUES = {
     "paths.publish_toolkit": "~/content-toolkit/capabilities/publish",
     "paths.secrets": "~/.config/park/secrets.yaml",
     "paths.youtube_token": "~/.config/park/youtube-token.json",
+    "paths.portraits": "~/park-hands/000_park-os/形象照",
     "skills.koubo": "~/.agents/skills/ask-park-video",
     "skills.gzh_design": "~/.claude/skills/gzh-design",
     "skills.shots": "~/.agents/skills/video-shotcraft/references/shots",

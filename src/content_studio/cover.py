@@ -6,6 +6,7 @@
 「不要运行 Pillow 封面脚本代替图像生成」。所以这里不再排字、抠像、拼 SVG，只做三件事：
   1. 从本期最清楚的那份视频（通常是 4K 粗剪，比成片清楚）里取帧、按人脸质量挑一张；
   2. 把这一帧 + 预设的两张风格参考 + 逐字标题交给 `codex exec`，让它用 image_gen 出两张；
+     10/1 起再加上 vault「形象照」里的几张自拍：视频那一帧是普通版，自拍是好看版，合起来出封面上的人；
   3. 核对两张图在、比例对，放进 final/covers/（旧的挪进 _old/），发布台按最新的认。
 标题换行由这里定（只在词之间断，见 split_title），橙色关键词让 Codex 从标题里挑。
 """
@@ -214,11 +215,36 @@ def style_refs() -> dict[str, Path]:
     return refs
 
 
-def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
+# 形象照里只当脸型参考、不上封面的（README 里写着），出封面时不给
+LOOK_SKIP = ("旧照",)
+LOOK_SUFFIXES = (".jpg", ".jpeg", ".png", ".heic", ".webp")
+MAX_LOOKS = 4
+
+
+def portraits() -> list[Path]:
+    """形象照文件夹里的「好看版」照片，按文件名顺序，最多 4 张。没有这个文件夹就是空的，封面照旧只用视频那一帧。"""
+    root = conf.path("paths.portraits")
+    if not root.is_dir():
+        return []
+    found = [p for p in sorted(root.iterdir()) if p.suffix.lower() in LOOK_SUFFIXES and not any(k in p.name for k in LOOK_SKIP)]
+    return found[:MAX_LOOKS]
+
+
+def _person_block(looks: list[str]) -> str:
+    if not looks:
+        return "- person.jpg — SOLE PERSON SOURCE：本期视频里的真人截图。封面上的人必须就是他：同一张脸、同样发型、同样的衣服和配饰、同样的手势。不要换脸、不要美颜成另一个人、不要换衣服。原图里如果有烧进去的字幕框，封面上必须去掉，一个字都不能留；背景的杂物（灯、椅子、桌子）也不要。\n"
+    # 10/1 Park：「一个是帅版的我，一个是普通版的我，这样的话，他永远都会像我」，脸可以瘦一点
+    return (f"- person.jpg — 本期视频里的真人截图，是「普通版的他」：衣服、发型、配饰以它为准（领口的小麦克风可以去掉）。原图里如果有烧进去的字幕框、画中画、窗口、背景杂物，封面上一律不要。\n"
+            f"- {'、'.join(looks)} — 同一个人（Park）状态好的时候的自拍，是「好看版的他」：五官、脸型、笑容以这几张为准。\n\n"
+            "人物要求（最重要）：封面上的人必须一眼就是 Park 本人——把普通版和好看版合起来：五官、眼型、眉毛、发型和这几张照片一致；"
+            "状态取好看版：精神、自信、带一点笑，皮肤干净、光线好；脸型比视频截图稍微瘦一点、下颌线清楚一点，但不要瘦到像另一个人，"
+            "不要大眼、不要网红脸、不要换五官。高清抠图，边缘干净，没有照片卡片、没有圆角框。\n")
+
+
+def prompt(title: str, portrait: list[str], landscape: list[str], looks: list[str] | None = None) -> str:
     return f"""用 image_gen 生成三张视频封面（竖、横、宽），直接生成，不用等我确认。当前目录里有：
 
-- person.jpg — SOLE PERSON SOURCE：本期视频里的真人截图。封面上的人必须就是他：同一张脸、同样发型、同样的衣服和配饰、同样的手势。不要换脸、不要美颜成另一个人、不要换衣服。原图里如果有烧进去的字幕框，封面上必须去掉，一个字都不能留；背景的杂物（灯、椅子、桌子）也不要。
-- style-3x4.png（竖版）和 style-4x3.png（横版）— STYLE REFERENCE ONLY：只学视觉语言，不要用里面的人、衣服、手势或文字。
+{_person_block(looks or [])}- style-3x4.png（竖版）和 style-4x3.png（横版）— STYLE REFERENCE ONLY：只学视觉语言，不要用里面的人、衣服、手势或文字。
 
 视觉语言（照参考图做到同样精致）：暖米白纸张底色，带克制的纹理和一点斜向光影；左上、右下橙红色斜角条；标题用超大、超粗、向右倾斜的紧凑黑体，黑字带一点白色描边感；标题下面一道干笔刷橙红下划线；人物是高清抠图，边缘干净，没有照片卡片、没有圆角框。
 
@@ -232,7 +258,7 @@ def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
 
 3) 宽版 16:9（1920×1080，给 YouTube 和 B 站）：和横版同一套——同样的标题断行、橙色关键词、底色、斜角条、笔刷下划线；标题压左边约 50% 宽，人物压右边、占满右侧高度。精确 16:9，不要拉伸。保存为 out/cover-16x9.png。
 
-生成后自己看一遍：字是否逐字一致、有没有残留字幕、人是不是 person.jpg 里那个人、缩到 360 像素宽时标题是否还能一眼读清。不合格就重生成，最多各试 3 次。最后只保留最好的三张在 out/ 里，另写 out/receipt.json：{{"prompt": 你实际用的完整提示词, "checks": {{"text": ..., "person": ..., "no_caption": ..., "thumbnail": ...}}}}。不要改当前目录里的其他文件。
+生成后自己看一遍：字是否逐字一致、有没有残留字幕、人是不是 {'照片里的 Park（拿 ' + looks[0] + ' 对比）' if looks else 'person.jpg 里那个人'}、缩到 360 像素宽时标题是否还能一眼读清。不合格就重生成，最多各试 3 次。最后只保留最好的三张在 out/ 里，另写 out/receipt.json：{{"prompt": 你实际用的完整提示词, "checks": {{"text": ..., "person": ..., "no_caption": ..., "thumbnail": ...}}}}。不要改当前目录里的其他文件。
 """
 
 
@@ -274,7 +300,12 @@ def generate(base: Path, source: Path, *, at: float, title: str, runner: Runner 
     _run(["ffmpeg", "-v", "error", "-y", "-ss", str(at), "-i", str(source), "-frames:v", "1", "-q:v", "2", str(work / "person.jpg")], "取帧")
     for key, ref in refs.items():
         shutil.copyfile(ref, work / f"style-{key}.png")
-    text = prompt(title, split_title(title), split_title(title, per_line=5.5))
+    looks = []
+    for i, src in enumerate(portraits(), 1):
+        name = f"look-{i}{src.suffix.lower()}"
+        shutil.copyfile(src, work / name)
+        looks.append(name)
+    text = prompt(title, split_title(title), split_title(title, per_line=5.5), looks)
     (work / "prompt.md").write_text(text, encoding="utf-8")
     runner(text, work)
     made = {label: work / "out" / name for label, name, _ in SHAPES}

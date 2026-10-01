@@ -30,6 +30,8 @@ ENV_MAP: dict[str, tuple[str, str]] = {
     "paths.publish_toolkit": ("CONTENT_STUDIO_PUBLISH_TOOLKIT", "~/content-toolkit/capabilities/publish"),
     "paths.secrets": ("PARK_SECRETS", "~/.config/park/secrets.yaml"),
     "paths.youtube_token": ("CONTENT_STUDIO_YOUTUBE_TOKEN", "~/.config/park/youtube-token.json"),
+    # 形象照：出封面时「好看版的他」（10/1 Park：视频那一帧是普通版，和这几张合起来出封面上的人）
+    "paths.portraits": ("CONTENT_STUDIO_PORTRAITS", "~/park-hands/000_park-os/形象照"),
     "skills.koubo": ("CONTENT_STUDIO_KOUBO_SKILL", "~/.agents/skills/ask-park-video"),
     "skills.gzh_design": ("CONTENT_STUDIO_GZH_SKILL", "~/.claude/skills/gzh-design"),
     "skills.shots": ("CONTENT_STUDIO_SHOTS", "~/.agents/skills/video-shotcraft/references/shots"),
