@@ -4,7 +4,7 @@
 我一定要 comply。」「我只需要一件事，就是 just keep uploading，准时出摊。」
 
 - 9/30 Park：「每天最重要的事就是我要去读每日的日报，要不然日报存在的意义就没了。」读日报排第一（A），
-  其余往后错：A 读日报、B 出摊、C 回私信、D X 互动、E 补发。
+  其余往后错：A 读日报、B 出摊、C 回私信、D X 互动。（E「整条补发」10/1 拿掉了，补发全走补发工作台。）
 - KPI 分两类。**他的**：读日报（AI 日报、K 线日报，出了的都读完）、出摊（每天抖音发 1 条）、回私信（当天收到的当天回完）、X 互动（每天在别人的帖子下回
   20 条，9/29 定）——做不到当天各减 1 分。页面就是这 ABC 三件事（9/29 Park：「你只需要告诉我，我今天要做的 ABC
   三件事就好了……感觉今天这个页面太散了」）。
@@ -15,8 +15,8 @@
 - 跳过可以，但要写一句为什么，记进 driver_log，周复盘把重复的借口摆出来。
 - 9/30 Park 定了阶段：现在是「追平」——把发送连贯起来，把过去没发的都发出去。
   **每天要么发一条新视频，要么补发 4 格旧内容**（一条内容发到一个平台算一格）：两种都算当天出摊，都不减分，
-  连续天数都接着算。早上先问他今天发不发新的；不发，就补当天抽好的 4 格（`pick_cells`：2 格重要平台 + 2 格次要平台，
-  随机，不按点赞）。算分只看结果：发了新视频，或者当天的格子都发完。再加一条每周下限：一周至少 3 条新视频，
+  连续天数都接着算。早上先问他今天发不发新的；不发，就在补发工作台自己挑格子（10/1 Park：「我要每天看大家的情绪和
+  mood……自己想好今天最适合发什么」，原来是每天随机抽 4 格）。算分只看结果：发了新视频，或者当天挑够 4 格并且都发完。再加一条每周下限：一周至少 3 条新视频，
   少一条减 1 分（周过完才扣，不倒扣）。出关：旧内容清完，并且连续出摊 14 天（`stage`）。
   之后的阶段是客户（每周两三个）、成交，那时再改算分的项，现在不拿来打分。
 - 不推荐选题、不往选题池加东西：拍什么看他自己写的「接下来要拍的」清单；只有他点
@@ -107,15 +107,22 @@ def now_item(t: dict[str, Any]) -> dict[str, Any] | None:
     ship = t.get("ship") or {}
     cell = (t.get("days") or [{}])[-1]
     out = t.get("out") or {}
-    if cell.get("ship") != "ok":  # 今天还没发出去：新视频，或者补发当天那几格
-        left = [c for c in out.get("cells") or [] if not c["sent"]]
-        if out.get("mode") is None and left:
-            return {**item("ship", "mode", "今天发不发新视频？", why=f"发，就去拍；不发，今天补发 {len(out['cells'])} 格旧内容。两种都算今天出摊。", inputs="mode"), "row": "ship"}
-        if out.get("mode") == "backfill" and left:
-            c = left[0]
-            return {**item("ship", f"cell:{c['slot']}", f"补发：《{c['title'][:24]}》发到{c['label']}",
-                           why=f"今天补发 {len(out['cells'])} 格，已发 {len(out['cells']) - len(left)} 格。发完回来点「发了」。",
-                           go=f"publish/{c['topic_id']}", button="去发布台", inputs="cell"), "slot": c["slot"], "row": "ship"}
+    if cell.get("ship") != "ok":  # 今天还没发出去：新视频，或者补发
+        cells = out.get("cells") or []
+        left = [c for c in cells if not c["sent"]]
+        need = int(out.get("need") or 4)
+        if out.get("mode") is None and (cells or out.get("left")):
+            return {**item("ship", "mode", "今天发不发新视频？", why=f"发，就去拍；不发，就在补发工作台挑 {need} 格旧内容现场发。两种都算今天出摊。", inputs="mode"), "row": "ship"}
+        if out.get("mode") == "backfill":
+            if out.get("running"):
+                return {**item("ship", "bw", "补发工作台正在一格一格发", why=f"今天排了 {len(cells)} 格，已发 {len(cells) - len(left)} 格。", inputs="bw"), "row": "ship"}
+            if left:
+                hands = "、".join(dict.fromkeys(c["label"] for c in left))
+                return {**item("ship", "bw", f"补发：还有 {len(left)} 格没发出去（{hands}）",
+                               why="在补发工作台看每一格到哪一步了：B 站、YouTube、X 工作台自己发；视频号、小红书要你传，公众号要你群发，发完点「发了」。", inputs="bw"), "row": "ship"}
+            if len(cells) < need:
+                more = f"再挑 {need - len(cells)} 格" if cells else f"挑 {need} 格"
+                return {**item("ship", "bw", f"打开补发工作台，{more}", why=f"看今天大家的情绪，自己挑发哪条、发到哪。挑够 {need} 格、都发出去，今天就算出摊。", inputs="bw"), "row": "ship"}
         if ship.get("next"):
             return {**ship["next"], "row": "ship"}
     if cell.get("dm") == "pending":
@@ -131,30 +138,6 @@ def now_item(t: dict[str, Any]) -> dict[str, Any] | None:
     for it in t.get("wrap") or []:
         return {**it, "row": "wrap"}
     return None
-
-
-def pick_cells(cells: list[dict[str, Any]], rng: Any, *, need: int = 4, important: int = 2, taken: set[tuple[str, str]] | None = None) -> list[dict[str, Any]]:
-    """当天补发哪几格（9/30 Park：「纯 random，不按点赞倍数」「两个重要平台、两个不重要的平台，也不一定非得发同一个内容」）。
-    cells 是现在就能发的格子，每格 {video_id, platform, tier: "major"|"minor", ...}；rng 是 random.Random。
-    默认 2 格重要平台 + 2 格次要平台；哪一档不够，用另一档补齐。taken 是今天已经排了的，不重复排。
-    抽格子是代码的事，不交给模型；抽完存下来，当天不再变（调用的人负责存）。"""
-    pool = [c for c in cells if (c["video_id"], c["platform"]) not in (taken or set())]
-    rng.shuffle(pool)
-
-    def spread(group: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """同一档里先每个平台各来一格（今天尽量发到不同的平台），再轮到同一个平台的第二格。"""
-        seen: set[str] = set()
-        first, again = [], []
-        for c in group:
-            (again if c["platform"] in seen else first).append(c)
-            seen.add(c["platform"])
-        return first + again
-
-    major = spread([c for c in pool if c["tier"] == "major"])
-    minor = spread([c for c in pool if c["tier"] != "major"])
-    picked = major[:important] + minor[:need - important]
-    rest = major[important:] + minor[need - important:]
-    return (picked + rest[:need - len(picked)])[:need]
 
 
 def stage(*, backlog: int, streak: dict[str, Any], streak_target: int) -> dict[str, Any]:
