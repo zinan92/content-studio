@@ -35,6 +35,14 @@ def codex_bin() -> str:
     raise IllustrateError("这台机器上找不到 codex，配不了图")
 
 
+def codex_exec(text: str) -> list[str]:
+    """出图都走这一条命令：模型写死在 profile 的 codex.model（默认 gpt-6.1-sol），不吃本机 Codex 的默认值。
+    10/1：本机默认被改成了一个 ChatGPT 账号用不了的模型，出封面、配插图全挂了。"""
+    from . import conf
+
+    return [codex_bin(), "exec", "-m", conf.value("codex.model"), "--skip-git-repo-check", "-s", "workspace-write", text]
+
+
 def prompt(article: Path) -> str:
     return f"""用 ${SKILL} 给这篇中文文章配图，并直接生成（不用等我确认）。
 
@@ -52,8 +60,8 @@ def prompt(article: Path) -> str:
 
 def codex_runner(text: str, cwd: Path) -> None:
     try:
-        done = subprocess.run([codex_bin(), "exec", "--skip-git-repo-check", "-s", "workspace-write", text],
-                              cwd=str(cwd), capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+        # stdin 关掉：codex exec 看到 stdin 开着会一直等输入（封面那边 9/29 卡过）
+        done = subprocess.run(codex_exec(text), cwd=str(cwd), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise IllustrateError(f"配图超过 {TIMEOUT_SECONDS // 60} 分钟还没画完，停了") from exc
     if done.returncode != 0:
