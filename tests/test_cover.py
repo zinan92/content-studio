@@ -20,6 +20,7 @@ def test_generate_hands_codex_the_frame_refs_and_title_and_files_the_two_covers(
         (skill / rel).parent.mkdir(parents=True, exist_ok=True)
         (skill / rel).write_bytes(b"png")
     monkeypatch.setenv("CONTENT_STUDIO_KOUBO_SKILL", str(skill))
+    monkeypatch.setenv("CONTENT_STUDIO_PORTRAITS", str(tmp_path / "没有形象照"))
     base = tmp_path / "proj"
     (base / "final" / "covers").mkdir(parents=True)
     (base / "final" / "covers" / "旧-竖封面.jpg").write_bytes(b"old")
@@ -42,6 +43,33 @@ def test_generate_hands_codex_the_frame_refs_and_title_and_files_the_two_covers(
     assert seen["files"] == ["out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
     assert "做自媒体没有大流量如何月入10个" in seen["text"] and "SOLE PERSON SOURCE" in seen["text"] and "STYLE REFERENCE ONLY" in seen["text"]
     assert (base / "final" / "covers" / "_old" / "旧-竖封面.jpg").is_file()
+
+
+def test_portraits_join_the_video_frame_so_the_cover_person_is_the_better_looking_park(tmp_path: Path, monkeypatch) -> None:
+    """10/1 Park：视频那一帧是普通版，形象照是好看版，合起来出封面上的人；旧照只当脸型参考，不给。"""
+    skill = tmp_path / "skill"
+    for rel in cover.STYLE_REFS.values():
+        (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+        (skill / rel).write_bytes(b"png")
+    monkeypatch.setenv("CONTENT_STUDIO_KOUBO_SKILL", str(skill))
+    looks = tmp_path / "形象照"
+    looks.mkdir()
+    for name in ("01 电梯间 正脸.jpg", "03 浴室 笑.jpg", "05 旧照 光膀子.jpg", "README.md"):
+        (looks / name).write_bytes(b"x")
+    monkeypatch.setenv("CONTENT_STUDIO_PORTRAITS", str(looks))
+    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: Path(args[-1]).write_bytes(b"jpg") if what == "取帧" else "")
+    monkeypatch.setattr(cover, "_ratio_ok", lambda path, want: True)
+    monkeypatch.setattr(cover, "word_breaks", lambda text: set(range(1, len(text))))
+    seen = {}
+
+    def runner(text: str, cwd: Path) -> None:
+        seen["text"], seen["files"] = text, sorted(p.name for p in cwd.iterdir())
+        for name in ("cover-3x4.png", "cover-4x3.png", "cover-16x9.png"):
+            (cwd / "out" / name).write_bytes(b"p")
+
+    cover.generate(tmp_path / "proj", tmp_path / "raw.mov", at=1.0, title="明牌机会，AI时代普通人仅有的三条路", runner=runner)
+    assert seen["files"] == ["look-1.jpg", "look-2.jpg", "out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
+    assert "普通版" in seen["text"] and "好看版" in seen["text"] and "look-1.jpg、look-2.jpg" in seen["text"] and "SOLE PERSON SOURCE" not in seen["text"]
 
 
 def test_generate_says_so_when_a_cover_is_missing(tmp_path: Path, monkeypatch) -> None:
