@@ -108,14 +108,32 @@ function streakText(s) {
 
 const PF_SHORT = { channels: '视', xiaohongshu: '红', x: 'X', bilibili: 'B', youtube: 'Y', wechat_mp: '公', miniprogram: '程', xiaoyuzhou: '宙' };
 
+/* 平台的小图标：和左下角那排同一套（字和品牌色从 S.platforms 来） */
+function platIcon(key, size = 'sm') {
+  const p = ((typeof S !== 'undefined' && S.platforms) || []).find((x) => x.key === key) || {};
+  return `<span class="plat ${size}" style="--plat:${esc(p.hue || '#3A3F47')}" title="${esc(p.label || key)}"><i>${esc(p.mark || PF_SHORT[key] || key.slice(0, 1))}</i></span>`;
+}
+
+/* 那天发出去的：同一条内容只写一次标题，后面跟发到的平台图标（10/1 Park：「不要占这么大的 space」） */
+function sentByTitle(sent) {
+  const groups = [];
+  for (const x of sent || []) {
+    let g = groups.find((y) => y.title === x.title);
+    if (!g) groups.push((g = { title: x.title, keys: [] }));
+    if (!g.keys.includes(x.platform)) g.keys.push(x.platform);
+  }
+  return groups.map((g) => `<p class="wk-sent"><span class="t" title="${esc(g.title)}">《${esc(g.title)}》</span><span class="ic">${g.keys.map((k) => platIcon(k)).join('')}</span></p>`).join('');
+}
+const headline = (t) => String(t || '').split(/\s+/)[0].slice(0, 28);
+
 /* 月历的一格：过去的日子——四项做没做到、减几分、发了什么、发到了哪些平台；以后的日子——排了拍哪条 */
 function monthCell(c) {
   const marks = c.state === 'future' ? '' : `<span class="mo-marks">${KPI_MARK.map(([f, ch, name]) => `<i class="${c[f] === 'n/a' ? 'na' : c[f]}" title="${name}：${MARK_TIP[c[f]]}">${ch}</i>`).join('')}</span>`;
   const score = c.state === 'today' ? '<span class="wk-score now">今天</span>' : c.demerits ? `<span class="wk-score bad">−${c.demerits}</span>` : c.state === 'past' && KPI_MARK.some(([f]) => c[f] === 'ok') ? '<span class="wk-score ok">✓</span>' : '';
   const where = [...new Set(c.sent.map((x) => x.platform))];
   const lines = [
-    ...c.shipped.slice(0, 1).map((t) => `<span class="wk-l out" title="${esc(c.shipped.join('；'))}">新：${esc(t)}</span>`),
-    ...(where.length ? [`<span class="mo-sent" title="${esc(c.sent.map((x) => `${x.label}：${x.title}`).join('\n'))}">${c.backfilled ? '补' : '发'} ${where.map((k) => `<i>${PF_SHORT[k] || k.slice(0, 1)}</i>`).join('')}</span>`] : c.backfilled ? ['<span class="wk-l out">补发完成</span>'] : []),
+    ...c.shipped.slice(0, 1).map((t) => `<span class="wk-l out" title="${esc(c.shipped.join('；'))}">新：${esc(headline(t))}</span>`),
+    ...(where.length ? [`<span class="mo-sent" title="${esc(c.sent.map((x) => `${x.label}：${x.title}`).join('\n'))}">${where.map((k) => platIcon(k, 'xs')).join('')}</span>`] : c.backfilled ? ['<span class="wk-l out">补发完成</span>'] : []),
     ...c.planned.filter((n) => !n.done).slice(0, 1).map((n) => `<span class="wk-l ${c.state === 'past' ? 'late' : 'plan'}" title="${esc(n.text)}">${c.state === 'past' ? '没拍' : '拍'}：${esc(n.text)}</span>`),
     ...(c.items.some((it) => !it.done) ? [`<span class="wk-l item">· ${c.items.filter((it) => !it.done).length} 件别的事</span>`] : []),
   ];
@@ -131,19 +149,19 @@ function dayPanel(c, notes) {
       <form class="td-add" data-wk-item="${c.day}"><input maxlength="200" placeholder="这天还要做什么，回车加上（比如：约两个博主诊断）" autocomplete="off"></form></div>`;
   if (c.state === 'past') {
     const RES = { ok: '做到', miss: '没做到，减 1 分', 'n/a': '那天还不算分' };
-    const det = { rd: '', ship: c.backfilled ? '：没发新的，补发的格子都发完了' : c.shipped.length ? `：${c.shipped.map((t) => `《${esc(t)}》`).join('、')}` : '',
+    const det = { rd: '', ship: c.backfilled ? '：没发新的，补发的格子都发完了' : c.shipped.length ? `：${c.shipped.map((t) => `《${esc(headline(t))}》`).join('、')}` : '',
       dm: c.dm_entry ? `：收到 ${c.dm_entry.received}，回了 ${c.dm_entry.replied}` : c.dm === 'miss' ? '（没填数）' : '',
       xr: c.xr_count != null ? `：${c.xr_count} 条` : c.xr === 'miss' ? '（没填数）' : '' };
     return `<div class="wk-panel"><div class="wk-ph">${title}<span class="wk-score ${c.demerits ? 'bad' : 'ok'}">${c.demerits ? `这天减 ${c.demerits} 分` : '这天没减分'}</span></div>
       <div class="wk-cols"><div class="wk-col"><h4>那天的账</h4>${KPI_MARK.map(([f, , name]) => `<p class="wk-res ${c[f] === 'n/a' ? 'na' : c[f]}"><b>${name}</b>${RES[c[f]]}${det[f]}</p>`).join('')}
-        ${(c.sent || []).map((x) => `<p class="wk-res ok"><b>${esc(x.label)}</b>《${esc(x.title)}》${x.marked ? '（标的已发）' : ''}</p>`).join('')}
+        ${(c.sent || []).length ? `<h4 class="wk-sub">发到了</h4>${sentByTitle(c.sent)}` : ''}
         ${c.planned.filter((n) => !n.done).map((n) => `<p class="wk-res miss"><b>排了没拍</b>${esc(n.text)}</p>`).join('')}
         ${c.skips.map((k) => `<p class="wk-res na"><b>跳过</b>${esc(k.what)}：${esc(k.reason || '')}</p>`).join('')}</div>${items}</div></div>`;
   }
   const free = notes.filter((n) => !n.planned_day);
   const planned = c.planned.map((n) => `<span class="wk-chip ${n.done ? 'done' : ''}">${esc(n.text)}${n.done ? '' : `<button type="button" class="linklike" data-wk-unplan="${n.id}" aria-label="不排在这天">×</button>`}</span>`).join('');
   return `<div class="wk-panel"><div class="wk-ph">${title}<span class="td-note">${c.state === 'today' ? '今天' : '排这一天'}</span></div>
-    <div class="wk-cols"><div class="wk-col"><h4>这天拍哪条 <small>你定</small></h4>${planned || '<p class="td-note">还没排。</p>'}${(c.sent || []).length ? `<p class="td-note">这天已经发出去：${c.sent.map((x) => `${esc(x.label)}《${esc(x.title)}》`).join('、')}</p>` : ''}
+    <div class="wk-cols"><div class="wk-col"><h4>这天拍哪条 <small>你定</small></h4>${planned || '<p class="td-note">还没排。</p>'}${(c.sent || []).length ? `<h4 class="wk-sub">这天已经发出去</h4>${sentByTitle(c.sent)}` : ''}
       <form class="td-add" data-wk-plan="${c.day}"><input list="wkNotes" maxlength="200" placeholder="从「接下来要拍的」里挑一条，或者直接写一条新的，回车" autocomplete="off">
         <datalist id="wkNotes">${free.map((n) => `<option value="${esc(n.text)}"></option>`).join('')}</datalist></form></div>${items}</div></div>`;
 }
