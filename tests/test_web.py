@@ -431,6 +431,15 @@ def test_upload_folder_holds_the_video_and_both_covers(client: TestClient, tmp_p
     assert folder.name == "上传-抖音" and sorted(got["files"]) == ["竖封面.png", "视频.mp4"] and got["missing"] == ["横封面"]
     assert (folder / "视频.mp4").stat().st_ino == (base / "final" / "成片.mp4").stat().st_ino
     assert client.post(f"/api/topics/{topic['id']}/upload-folder", json={"platform": "x"}).status_code == 400
+    # 10/1：小红书的封面框跟视频比例走——竖屏给竖封面，横屏（3 月那批旧视频）给 4:3 横封面
+    from content_studio import cover
+
+    (base / "final" / "covers" / "t-横封面.png").write_bytes(b"l")
+    monkeypatch.setattr(cover, "_dimensions", lambda v: (1080, 1920))
+    assert "竖封面.png" in client.post(f"/api/topics/{topic['id']}/upload-folder", json={"platform": "xiaohongshu"}).json()["files"]
+    monkeypatch.setattr(cover, "_dimensions", lambda v: (1920, 1080))
+    files = client.post(f"/api/topics/{topic['id']}/upload-folder", json={"platform": "xiaohongshu"}).json()["files"]
+    assert "横封面.png" in files and "竖封面.png" not in files
 
 
 def test_article_line_write_edit_download_handoff(client: TestClient, tmp_path: Path) -> None:
