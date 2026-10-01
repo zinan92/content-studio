@@ -149,3 +149,14 @@ def test_the_board_layout_class_is_defined_once() -> None:
     css = (Path(__file__).resolve().parents[1] / "src/content_studio/static/styles.css").read_text(encoding="utf-8")
     top = [line for line in css.splitlines() if line.startswith(".wk-grid{")]
     assert top == [".wk-grid{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;align-items:start}"]
+
+
+def test_past_days_are_green_or_red_by_demerits() -> None:
+    """10/1 Park：减 0–1 分合格（绿），减 2 分及以上不合格（红）。"""
+    static = Path(__file__).resolve().parents[1] / "src/content_studio/static"
+    js = (static / "today.js").read_text(encoding="utf-8")
+    css = (static / "styles.css").read_text(encoding="utf-8")
+    assert "c.demerits >= 2 ? 'mo-fail' : 'mo-pass'" in js
+    assert ".mo-day.mo-pass{" in css and ".mo-day.mo-fail{" in css
+    # 选中那一天的描边要压在红绿之上
+    assert css.index(".mo-day.mo-fail{") < css.index(".mo-day.sel{")
