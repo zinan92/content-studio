@@ -91,11 +91,11 @@ function annaActionButton(a, scope) {
   if ((a.kind === 'outline' || a.kind === 'qa' || a.kind === 'memo') && kind !== 'work') return '';
   if (a.kind === 'take' && !['input', 'board'].includes(kind)) return '';
   // 记进标准 has no topic and a lesson can come from any page, so it is not gated by scope.
-  const text = a.kind === 'memo' ? `存进备注：${a.arg}` : a.kind === 'take' ? `拿来做：${a.arg}` : a.kind === 'standard' ? `记进标准：${a.arg}` : a.kind === 'positioning' ? `记进定位：${a.arg}` : a.label;
-  return `<button class="btn small an-act" type="button" data-an-kind="${a.kind}" data-an-arg="${esc(a.arg || '')}">${esc(text)}</button>`;
+  const text = a.kind === 'memo' ? `存进备注：${a.arg}` : a.kind === 'take' ? `拿来做：${a.arg}` : a.kind === 'standard' ? `记进标准：${a.arg}` : a.kind === 'positioning' ? `记进定位：${a.arg}` : a.kind === 'raw' ? `写进原始输出：${a.arg}` : a.label;
+  return `<button class="btn small an-act" type="button" data-an-kind="${a.kind}" data-an-arg="${esc(a.arg || '')}"${a.body ? ` data-an-body="${esc(a.body)}"` : ''}>${esc(text)}</button>`;
 }
 
-async function runAnnaAction(kind, arg, scope) {
+async function runAnnaAction(kind, arg, scope, body) {
   const id = annaKind(scope) === 'work' ? Number(scope.split(':')[1]) : null;
   try {
     if (kind === 'memo' && id) {
@@ -123,6 +123,11 @@ async function runAnnaAction(kind, arg, scope) {
       await api('/api/positioning', { method: 'POST', body: { text: arg, source: 'Anna' } });
       if (window.reloadPositioning) await window.reloadPositioning();
       toast('已记进待拍板');
+    } else if (kind === 'raw') {
+      // 10/1：Anna 整理好的一篇，写进 vault 的 003_park原始输出（不覆盖已有文件）
+      if (!confirm(`把 Anna 整理的这一篇写进 003_park原始输出/${arg}.md？`)) return;
+      const r = await api('/api/anna/raw', { method: 'POST', body: { target: arg, body: body || '' } });
+      toast(`已写进 ${r.folder}/${r.name}`);
     } else if (kind === 'take') {
       await api('/api/topics', { method: 'POST', body: { title: arg, formats: 'both', account_id: S.mine && S.mine.account ? S.mine.account.id : null } });
       toast('已放进看板');
@@ -181,7 +186,7 @@ async function renderAnna() {
     try { await api(`/api/anna?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' }); AN.data = null; renderAnna(); } catch (err) { toast(err.message); }
   };
   $$('[data-an-prompt]', box).forEach((b) => (b.onclick = () => { $('#anIn').value = b.dataset.anPrompt; $('#anIn').focus(); }));
-  $$('[data-an-kind]', box).forEach((b) => (b.onclick = () => { b.disabled = true; runAnnaAction(b.dataset.anKind, b.dataset.anArg, b.closest('[data-an-scope]').dataset.anScope); }));
+  $$('[data-an-kind]', box).forEach((b) => (b.onclick = () => { b.disabled = true; runAnnaAction(b.dataset.anKind, b.dataset.anArg, b.closest('[data-an-scope]').dataset.anScope, b.dataset.anBody); }));
   const input = $('#anIn');
   input.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#anForm').requestSubmit(); } };
   $('#anForm').onsubmit = async (e) => {
