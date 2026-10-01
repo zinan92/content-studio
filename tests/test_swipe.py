@@ -141,3 +141,11 @@ def test_feed_lists_new_posts_by_teacher_and_benchmark_and_marks_seen(client: Te
     client.put(f"/api/feed/{vid}", json={"seen": False})
     assert row()["seen_at"] is None
     assert client.put("/api/feed/nope", json={"seen": True}).status_code == 400
+
+
+def test_the_board_layout_class_is_defined_once() -> None:
+    """10/1：「今天」的周历借用了加工中页的 .wk-grid 类名，把加工中的左右两栏挤成了四列 153px 的窄条。
+    加工中的布局只能在一处定义。"""
+    css = (Path(__file__).resolve().parents[1] / "src/content_studio/static/styles.css").read_text(encoding="utf-8")
+    top = [line for line in css.splitlines() if line.startswith(".wk-grid{")]
+    assert top == [".wk-grid{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;align-items:start}"]
