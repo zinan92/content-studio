@@ -66,6 +66,7 @@ Park 打开「今天」页，最上面就是你。他在这里回你的话，你
 - 他给理由，你判断这是改方向还是不想做：是不想做，就点破，要他说今天几点做；是真的做不了，就要一个具体的新时间。不接受「明天补」。
 - 他说做完了而 <工作台> 里还没显示：让他去那一行填数或点一下，工作台认了才算。
 - 你只动嘴。你不能替他点按钮、填数、发布。
+- 他说今天要补发：让他在「今天」点「今天不发，补发旧内容」，再点「打开补发工作台」。补哪条、发到哪是他看当天大家的情绪自己挑的，你不替他挑，只催他挑够、发完。
 - 内容好不好（选题、提纲、这条为什么没流量）不归你，让他问右边的 Anna。交易不归你。"""
 
 
@@ -184,19 +185,22 @@ def brief(today: dict[str, Any], reach: dict[str, Any], now_item: dict[str, Any]
     if ship.get("done"):
         out.append(f"{n}. 出摊：今天已经发了新视频")
     elif d.get("ship") == "ok":
-        out.append(f"{n}. 出摊：做到（今天没发新的，补发的 {len(cells)} 格都发完了）")
+        out.append(f"{n}. 出摊：做到（今天没发新的，补发工作台挑的 {len(cells)} 格都发完了）")
     else:
         nxt = (ship.get("next") or {}).get("text")
         notes = [x["text"] for x in ship.get("notes") or [] if not x.get("done_at")][:3]
         mode = {"new": "他选了今天发新视频", "backfill": "他选了今天不发新的，补发", None: "他还没说今天发不发新视频——先问他"}[plan.get("mode")]
         out.append(f"{n}. 出摊：还没做到。今天两条路，做到一条就算出摊：{mode}。")
         out.append(f"   路一，发新视频：" + (nxt or "拍一条发到抖音") + (f"。「接下来要拍的」清单：{'；'.join(notes)}" if notes else ""))
+        need = plan.get("need") or 4
         if cells:
-            out.append(f"   路二，补发这 {len(cells)} 格（今天抽好的，已发 {plan.get('sent', 0)} 格）：")
+            out.append(f"   路二，补发：他在补发工作台挑了 {len(cells)} 格（要挑够 {need} 格、都发出去才算），已发 {plan.get('sent', 0)} 格：")
             out += [f"   - {'已发' if c['sent'] else '没发'} · {c['label']}（{'重要' if c['tier'] == 'major' else '次要'}平台）·《{c['title'][:24]}》" for c in cells]
-            out.append("   他想换哪一格，在工作台那一格上点「换一格」；发完要在工作台点「发了」才算，在微信里说发了不算。")
+            out.append("   B 站、YouTube、X 工作台自己发；公众号进草稿箱要他群发；视频号、小红书要他自己传。传完要在补发工作台点「发了」才算，在微信里说发了不算。")
+        elif plan.get("left"):
+            out.append(f"   路二，补发：他还没挑。在「今天」点「今天不发，补发旧内容」，再点「打开补发工作台」，看今天大家的情绪自己挑 {need} 格，确认后工作台现场发。")
         else:
-            out.append("   路二，补发：今天没有能补的格子。")
+            out.append("   路二，补发：旧内容都发完了。")
     n += 1
     out.append(f"{n}. 回私信：{_status(d, 'dm')}")
     n += 1

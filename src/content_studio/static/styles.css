@@ -2110,3 +2110,46 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .wk-sent .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wk-sent .ic{display:flex;gap:3px;flex:0 0 auto}
 .mo-sent{gap:2px}
+
+/* 补发工作台（backfilldesk.js，10/1）：和全平台追踪一样的表，点格子挑今天发什么，数字是发的顺序 */
+.bw-dlg{width:min(1180px,97vw);max-width:none;max-height:94vh;border-radius:16px;overflow:hidden;padding:0}
+.bw-dlg[open]{display:flex;flex-direction:column}
+.bw-dlg .playbook-bar small{font-weight:400;color:var(--ink-3);margin-left:8px;font-size:13px}
+.bw-body{overflow-y:auto;padding:12px 20px 0;display:flex;flex-direction:column;gap:12px}
+.bw-tbl{overflow-x:auto;border:1px solid var(--line-soft);border-radius:10px}
+.bw-tbl table{width:100%;border-collapse:collapse;font-size:14px}
+.bw-tbl th,.bw-tbl td{padding:7px 8px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:middle}
+.bw-tbl th{font-size:12.5px;color:var(--ink-2);font-weight:600;background:var(--sunk);position:sticky;top:0}
+.bw-tbl th.c,.bw-tbl td.c{text-align:center;width:68px;padding:7px 4px}
+.bw-tbl th small{display:block;font-weight:400;font-size:11px}
+.bw-how.auto{color:var(--out)}.bw-how.draft{color:var(--accent)}.bw-how.hand{color:var(--ink-3)}
+.bw-t b{display:block;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bw-t small{font-size:12px;color:var(--ink-3)}
+.bw-c{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:30px;border-radius:8px;font:inherit;font-size:13px;font-weight:600;text-decoration:none}
+.bw-c.sent{color:var(--out)}
+.bw-c.planned{font-size:11px;color:var(--ink-3);background:var(--sunk);padding:0 6px}
+.bw-c.blocked{color:var(--ink-3);cursor:help}
+.bw-c.open{border:1px dashed var(--line);background:transparent;color:var(--ink-3);cursor:pointer}
+.bw-c.open:hover{border-color:var(--accent);color:var(--accent)}
+.bw-c.open.on{border:1px solid var(--accent);background:var(--accent);color:var(--surface);font-family:var(--mono)}
+.bw-bar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0 14px;background:var(--surface);border-top:1px solid var(--line-soft);font-size:14px}
+.bw-bar .btns{display:flex;gap:8px}
+.bw-run{border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.bw-run h3{margin:0;font-size:15px}.bw-run h3 small{font-weight:400;color:var(--ink-3);font-size:12px;margin-left:6px}
+.bw-run-i{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line-soft)}
+.bw-run-i .t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bw-run-i .t small{font-size:12px;color:var(--ink-3)}
+.bw-run-i.failed .t small{color:var(--warn)}
+.bw-run-i .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.bw-run-i .acts a.btn{text-decoration:none;color:inherit}
+.bw-ok{color:var(--out);font-weight:600;font-size:13px}
+.bw-n{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--surface);font-family:var(--mono);font-size:12px;font-weight:600}
+.bw-pvs{display:flex;flex-direction:column;gap:10px}
+.bw-pv{display:grid;grid-template-columns:24px 72px minmax(0,1fr);gap:12px;align-items:start;border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px}
+.bw-pv img,.bw-nocover{width:72px;height:96px;object-fit:cover;border-radius:6px;background:var(--sunk)}
+.bw-pv-b h4{margin:0 0 4px;font-size:15px}
+.bw-pv-b p{margin:2px 0;font-size:13.5px;line-height:1.55}
+.bw-dim{color:var(--ink-2)}
+.bw-how-line{font-size:12.5px !important;font-weight:600}
+.bw-how-line.auto{color:var(--out)}.bw-how-line.draft{color:var(--accent)}.bw-how-line.hand{color:var(--warn)}
+@media (max-width:760px){.bw-body{padding:10px 12px 0}.bw-t b{max-width:180px}.bw-pv{grid-template-columns:24px minmax(0,1fr)}.bw-pv img,.bw-pv .bw-nocover{display:none}}

@@ -127,8 +127,14 @@ def test_card_asks_first_then_walks_him_through_the_path_he_chose() -> None:
          "days": [{"ship": "pending", "dm": "ok", "xr": "ok"}], "dm": {}, "xr": {}, "wrap": [], "out": {"mode": None, "cells": cells}}
     ask = driver.now_item(t)
     assert ask["inputs"] == "mode" and "发不发新视频" in ask["text"]  # 早上先问
-    fill = driver.now_item({**t, "out": {"mode": "backfill", "cells": cells}})
-    assert fill["inputs"] == "cell" and fill["slot"] == 1 and "考公" in fill["text"] and "X" in fill["text"] and fill["go"] == "publish/37"
+    fill = driver.now_item({**t, "out": {"mode": "backfill", "cells": cells, "need": 4}})
+    assert fill["inputs"] == "bw" and "1 格没发出去" in fill["text"] and "X" in fill["text"]  # 去补发工作台
+    sent = [{**c, "sent": True} for c in cells]
+    assert "再挑 2 格" in driver.now_item({**t, "out": {"mode": "backfill", "cells": sent, "need": 4}})["text"]
+    assert "挑 4 格" in driver.now_item({**t, "out": {"mode": "backfill", "cells": [], "need": 4, "left": 71}})["text"]
+    assert driver.now_item({**t, "out": {"mode": "backfill", "cells": cells, "running": True}})["text"] == "补发工作台正在一格一格发"
+    # 还没挑也先问：旧内容还有，就有补发这条路
+    assert driver.now_item({**t, "out": {"mode": None, "cells": [], "left": 71}})["inputs"] == "mode"
     assert driver.now_item({**t, "out": {"mode": "new", "cells": cells}})["text"] == "拍「接了一单咨询」"
     assert driver.now_item({**t, "out": {"mode": None, "cells": []}})["text"] == "拍「接了一单咨询」"  # 没有能补的：只有一条路
     # 补发的格子都发完了：今天算出摊，不再让他去拍

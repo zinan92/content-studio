@@ -2,14 +2,15 @@
 /* 今天：最上面是月历（10/1 起，原来是周历）（9/30 Park：「plan not just for one day, I can plan for the whole week」「每天扣了多少分，
  * I'm not even keeping count」），下面是 ABC 几件事（逻辑在 driver.py）。
  * 周历：过去的日子看算分的几项做没做到、减几分、发了哪条；今天和以后排哪天拍哪条、加不算分的事。排哪条只由他定。
- * 做完的行收成一行，补发默认收起；每行原来那串 7 天小圆点拿掉了，周历里有。
- * A 读日报（9/30）；B 出摊：抖音、视频号、小红书发视频，X、公众号发文字；C 回私信；D X 互动，回 20 条；E 补发。
+ * 做完的行收成一行；每行原来那串 7 天小圆点拿掉了，周历里有。
+ * A 读日报（9/30）；B 出摊：抖音、视频号、小红书发视频，X、公众号发文字；C 回私信；D X 互动，回 20 条。
+ * E「整条补发」10/1 拿掉了：补发全走补发工作台（backfilldesk.js），他看当天的情绪自己挑格子。
  * 没做到当天各减 1 分，左边栏一直显示。触达是结果，不在这一页看（在「已发出」）。
  * 9/29 Park：「你只需要告诉我，我今天要做的 ABC 三件事就好了……感觉今天这个页面太散了。」
  * 拍什么他定：「接下来要拍的」收在 A 里面；只有他点「我今天不知道拍什么」才建议。 */
 window.VIEWS = window.VIEWS || {};
 
-const TD = { data: null, poll: null, skipOpen: false, bfOpen: null, prev: null, bfAll: false, month: null, monthStart: null, sel: null, openRows: new Set(), wendy: null, wdOlder: false };
+const TD = { data: null, poll: null, skipOpen: false, month: null, monthStart: null, sel: null, openRows: new Set(), wendy: null, wdOlder: false };
 
 async function loadToday() { TD.data = await api('/api/today'); return TD.data; }
 window.refreshTodayBadge = async () => { try { await loadToday(); } catch (_) { /* ignore */ } paintTodayBadge(); };
@@ -203,8 +204,8 @@ function actionButtons(it) {
   let action = '';
   // 早上那个问题：今天发不发新视频。两条路都算今天出摊。
   if (it.inputs === 'mode') return '<div class="btns"><button class="btn go" type="button" data-out-mode="new">今天发新视频</button><button class="btn go" type="button" data-out-mode="backfill">今天不发，补发旧内容</button></div>';
-  // 补发的一格：去发布台发；在外面发了就点「发了」；不想发这一格就换
-  if (it.inputs === 'cell') return `<div class="btns"><button class="btn go" type="button" data-td-go="${esc(it.go)}">去发布台 →</button><button class="btn" type="button" data-cell-sent="${it.slot}" data-on="1">发了</button><button class="btn quiet" type="button" data-cell-swap="${it.slot}">换一格</button></div>`;
+  // 补发：挑格子、看发到哪了、传完点「发了」，都在补发工作台
+  if (it.inputs === 'bw') return '<div class="btns"><button class="btn go" type="button" data-bw-open>打开补发工作台</button></div>';
   if (it.inputs === 'start_note') action = `<button class="btn go" type="button" data-td-start="${esc(it.key.split(':')[1])}">开始做</button>`;
   else if (it.inputs === 'focus_notes') action = '<button class="btn go" type="button" data-td-focusnotes>写一条</button>';
   else if (it.url) action = `<a class="btn go" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.button)} ↗</a>`;
@@ -235,25 +236,26 @@ function shipRow(d) {
   if (sg && sg.running) sug = '<span class="td-note"><span class="spin"></span> 在你的选题池里挑一条…</span>';
   else if (sg && sg.error) sug = `<span class="td-note warn">${esc(sg.error)}</span> <button class="btn small" type="button" id="tdSuggest">再挑一次</button>`;
   else if (sg && sg.topic_id) sug = `<div class="td-sug"><b>建议拍：${esc(sg.title)}</b><span>${esc(sg.why)}</span><div class="btns"><button class="btn go" type="button" id="tdTake">就拍这条</button><button class="btn quiet" type="button" id="tdSuggest">换一条</button></div></div>`;
-  /* 9/30 Park：每天要么发一条新视频，要么补发当天那几格旧内容，两条路都算出摊。
-     早上先选（随时能改）；算分只看结果。补发的格子是早上随机抽好的，当天不变，不想发哪一格就换一格。 */
+  /* 9/30 Park：每天要么发一条新视频，要么补发几格旧内容，两条路都算出摊。早上先选（随时能改）；算分只看结果。
+     10/1 Park：补哪几格不再随机抽，他在补发工作台看当天的情绪自己挑，确认后现场按顺序发。 */
   const o = d.out, done = d.days[d.days.length - 1].ship === 'ok';
   const mode = s.done ? 'new' : o.mode;
-  const pick = o.cells.length && !s.done ? `<div class="td-mode" role="group" aria-label="今天怎么出摊">
+  const pick = (o.cells.length || o.left) && !s.done ? `<div class="td-mode" role="group" aria-label="今天怎么出摊">
       <button type="button" class="${mode === 'new' ? 'on' : ''}" data-out-mode="new">今天发新视频</button>
-      <button type="button" class="${mode === 'backfill' ? 'on' : ''}" data-out-mode="backfill">今天不发，补发 ${o.cells.length} 格</button>
+      <button type="button" class="${mode === 'backfill' ? 'on' : ''}" data-out-mode="backfill">今天不发，补发旧内容</button>
       ${mode ? '' : '<small>先选一条路。两条都算今天出摊。</small>'}</div>` : '';
   const cells = o.cells.map((c) => `<div class="td-cell ${c.sent ? 'sent' : ''}">
       <span class="tier ${c.tier}">${c.tier === 'major' ? '重要' : '次要'}</span><b>${esc(c.label)}</b><span class="t">《${esc(c.title)}》</span>
-      ${c.sent ? `<span class="ok">✓ 发了</span><button class="linklike" type="button" data-cell-sent="${c.slot}" data-on="0" title="点错了，撤回">撤回</button>`
-        : `<button class="btn small go" type="button" data-td-go="publish/${c.topic_id}">去发布台 →</button><button class="btn small" type="button" data-cell-sent="${c.slot}" data-on="1" title="在工作台外面发了，点一下">发了</button><button class="linklike" type="button" data-cell-swap="${c.slot}" title="今天不想发这一格，随机换一格">换一格</button>`}
+      ${c.sent ? '<span class="ok">✓ 发了</span>' : '<span class="td-note">还没发出去</span>'}
     </div>`).join('');
-  const fill = `<div class="td-cells"><p class="td-note">今天补发这 ${o.cells.length} 格（随机抽的，已发 ${o.sent} 格）。全平台追踪里一共还剩 ${o.left} 格。</p>${cells}</div>`;
+  const short = Math.max(0, o.need - o.cells.length);
+  const fill = `<div class="td-cells"><p class="td-note">${o.cells.length ? `今天挑了 ${o.cells.length} 格，已发 ${o.sent} 格${short ? `，还要再挑 ${short} 格才算出摊` : ''}。` : `看今天大家的情绪，在补发工作台挑 ${o.need} 格，确认后现场发。`}全平台追踪里一共还剩 ${o.left} 格。</p>${cells}
+    <div class="btns"><button class="btn go" type="button" data-bw-open>打开补发工作台</button>${o.running ? '<span class="td-note"><span class="spin"></span> 正在一格一格发</span>' : ''}</div></div>`;
   const state = done ? rowState(true, s.done ? (s.topic ? `《${esc(s.topic.title.slice(0, 18))}》` : '发了新视频') : `补发的 ${o.cells.length} 格都发完了`) : rowState(false);
   return tdRow('ship', 'B', '出摊', done, state, `
     ${pick}
     ${mode === 'backfill' ? fill : `<div class="td-plats">${s.topic ? `<span class="td-topic">《${esc(s.topic.title)}》</span>` : ''}${groups.map(([f, ps]) => `<span class="td-form">${FORM[f]}</span>${ps.map(plat).join('')}`).join('')}</div>
-    ${mode === 'new' || !o.cells.length ? nextLine(s.next) : ''}`}
+    ${nextLine(s.next)}`}
     <details class="td-notes" ${s.notes.length || mode === 'backfill' ? '' : 'open'}><summary>接下来要拍的 · 你定${s.notes.length ? ` <span class="num">${s.notes.length}</span>` : ''}</summary>
       ${notes ? `<ol>${notes}</ol>` : '<p class="td-note">还没写。想好要拍什么就写在这里。排了日子的那天拍；没排的，最上面那条就是下一次出摊要拍的。</p>'}
       <form class="td-add" id="tdAdd"><input id="tdAddText" maxlength="200" placeholder="写一条要拍的，回车加到最后" autocomplete="off"></form>
@@ -297,67 +299,6 @@ function xrRow(d) {
       <button class="btn ${done ? '' : 'go'}" type="submit">${n != null ? '改' : '记下'}</button>${n != null && !done ? `<small class="td-note">还差 ${t - n} 条</small>` : ''}</form>`);
 }
 
-/* D 补发：提前打好的包，今天挑一条发到剩下的平台。数据还是记在全平台追踪。
- * 看 → 就地展开（封面、文案、文章开头、插图、完整排版另开一页）；改 → 去打包页；发 → 一声令下。 */
-const PF = { channels: '视频号', xiaohongshu: '小红书', bilibili: 'B 站', youtube: 'YouTube', x: 'X', wechat_mp: '公众号' };
-const AUTO = ['bilibili', 'youtube', 'x'];
-const STEP_LABEL = { copy: '文案', cover: '封面', article: '文章', figs: '插图', wx: '排版' };
-
-function packRow(p) {
-  const open = TD.bfOpen === p.topic_id;
-  const steps = Object.entries(p.steps).map(([k, v]) => `<span class="td-step ${v}">${STEP_LABEL[k]}</span>`).join('');
-  return `<div class="td-pack ${open ? 'open' : ''}">
-    <button type="button" class="td-pack-h" data-bf-open="${p.topic_id}">
-      ${p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : '<span class="td-nocover"></span>'}
-      <span class="t"><b>${esc(p.title)}</b><small>${p.multiple != null ? `${p.multiple}× · ` : ''}${esc((p.published_at || '').slice(0, 10))} · 差 ${p.missing_labels.join('、')}</small>
-        <span class="td-steps">${steps}${p.machine ? '<i>机器定稿，你没看过</i>' : ''}</span></span>
-      <span class="chev">${open ? '收起' : '看一眼'}</span>
-    </button>
-    ${open ? `<div class="td-preview" id="tdPrev">${TD.prev && TD.prev.topic_id === p.topic_id ? previewHtml(TD.prev, p) : '<p class="td-note"><span class="spin"></span> 读包里的东西…</p>'}</div>` : ''}
-  </div>`;
-}
-
-function previewHtml(v, p) {
-  const auto = p.missing.filter((k) => AUTO.includes(k)).map((k) => PF[k]);
-  const hand = p.missing.filter((k) => !AUTO.includes(k)).map((k) => PF[k]);
-  return `<div class="td-pv-covers">${['portrait', 'landscape', 'wide'].filter((k) => v.covers[k]).map((k) => `<a href="${esc(v.covers[k])}" target="_blank" rel="noopener"><img class="${k}" src="${esc(v.covers[k])}" alt=""></a>`).join('')}</div>
-    <div class="td-pv-copy"><b>${esc(v.title)}</b>${v.body ? `<p>${esc(v.body)}</p>` : ''}${v.tags.length ? `<small>${v.tags.map((t) => '#' + esc(t)).join(' ')}</small>` : ''}</div>
-    ${v.article_title ? `<div class="td-pv-art"><h4>${esc(v.article_title)}</h4>${v.article_head.map((x) => `<p>${esc(x)}</p>`).join('')}
-      ${v.figs.length ? `<div class="td-pv-figs">${v.figs.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" loading="lazy"></a>`).join('')}</div>` : ''}
-      ${v.layout_url ? `<a class="btn" href="${esc(v.layout_url)}" target="_blank" rel="noopener">看完整公众号排版 ↗</a>` : ''}</div>` : ''}
-    <div class="td-pv-go">
-      <p class="td-note">点「发这条」就是你的确认：${auto.length ? `<b>${auto.join('、')}</b> 自己发出去` : ''}${auto.length && hand.length ? '；' : ''}${hand.length ? `<b>${hand.join('、')}</b> 备好，你来点（公众号群发、视频号和小红书扫码上传）` : ''}。</p>
-      <div class="btns"><button class="btn go" type="button" data-bf-go="${p.topic_id}">发这条</button><button class="btn" type="button" data-td-go="pack/${p.topic_id}">去改 →</button></div>
-    </div>`;
-}
-
-function todayPack(t) {
-  const JOB = { running: '发送中…', done: '已发出', failed: '失败了', awaiting_confirm: '等确认' };
-  const cells = t.missing.concat(Object.keys(PF).filter((k) => !t.missing.includes(k) && k in PF)).filter((k, i, a) => a.indexOf(k) === i);
-  const cell = (k) => {
-    const shipped = !t.missing.includes(k);
-    const j = (t.jobs || {})[k];
-    const state = shipped ? '✓ 发了' : j ? (j.draft ? '草稿好了，去点发布' : JOB[j.state] || j.state) : AUTO.includes(k) ? '—' : '等你';
-    return `<span class="td-plat ${shipped ? 'on' : j && j.state === 'failed' ? 'bad' : ''}" title="${esc((j && j.message) || '')}">${PF[k]} · ${state}</span>`;
-  };
-  return `<div class="td-next"><b>今天补发《${esc(t.title)}》：${t.done_count}/${t.total}</b>
-      <div class="td-plats">${cells.map(cell).join('')}</div>
-      <small>剩下的去发布台：公众号群发，视频号、小红书的上传文件夹里视频、封面、文案都齐了。</small>
-      <div class="btns"><button class="btn go" type="button" data-td-go="publish/${t.topic_id}">去发布台 →</button><button class="btn quiet" type="button" data-bf-unpick>换一条</button></div></div>`;
-}
-
-function backfillRow(d) {
-  const b = d.backfill;
-  const done = b.today && b.today.missing.length === 0;
-  const list = b.ready.slice(0, TD.bfAll ? 50 : 3).map(packRow).join('');
-  const state = `<span class="td-state ${done ? 'ok' : ''}">${done ? '✓ 今天补完了' : b.today ? '今天在补' : `整条一起发 · 包打好 ${b.ready_count} 条${b.waiting_count ? ` · 还在打 ${b.waiting_count} 条` : ''}`}</span>`;
-  return tdRow('bf', 'E', '整条补发', done, state, `
-    <p class="td-why">每天补哪几格在上面「出摊」那一行。这里是另一种发法：把一条旧的一次发到它剩下的所有平台——B 站、YouTube、X 自己发出去；公众号、视频号、小红书你来点。发出去的格子照样算数。</p>
-    ${b.today ? todayPack(b.today) : ''}
-    ${!b.today || done ? `<div class="td-packs">${list || '<p class="td-note">还没有打好的包。</p>'}</div>
-      ${b.ready.length > 3 ? `<button class="btn quiet" type="button" data-bf-all>${TD.bfAll ? '只看前三条' : `看全部 ${b.ready.length} 条`}</button>` : ''}` : ''}`, !!(b.today && !done) || TD.bfOpen != null);
-}
-
 function wrapBlock(d) {
   const rows = d.wrap.map((it) => `<div class="td-next small"><b>${esc(it.text)}</b>${actionButtons(it)}</div>`).join('');
   const skipped = d.skipped.map((s) => `<div class="td-q skip"><span class="n">跳</span><b>${esc(s.key)}</b><small>${esc(s.reason || '')}</small></div>`).join('');
@@ -386,10 +327,10 @@ window.VIEWS.today = {
     $('#todayScore').textContent = '';  // 本周出摊几天、减几分、连续几天：都在周历右上角，这里不再重复
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox])')) return;
     if (month) TD.month = month;
-    const sig = JSON.stringify([d, TD.wendy, TD.wdOlder, TD.month, TD.sel, [...TD.openRows], TD.skipOpen, TD.bfOpen, TD.prev && TD.prev.topic_id, TD.bfAll]);
+    const sig = JSON.stringify([d, TD.wendy, TD.wdOlder, TD.month, TD.sel, [...TD.openRows], TD.skipOpen]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
-    body.innerHTML = `${TD.month ? monthBlock(TD.month, d.week, d.streak, d.ship.notes) : ''}${wendyCard(TD.wendy)}${firstBlock(d.first)}${readRow(d)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${backfillRow(d)}${wrapBlock(d)}
+    body.innerHTML = `${TD.month ? monthBlock(TD.month, d.week, d.streak, d.ship.notes) : ''}${wendyCard(TD.wendy)}${firstBlock(d.first)}${readRow(d)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${wrapBlock(d)}
       <p class="td-note td-foot">触达是结果，不算你的分，在「已发出」里看：7 天平均 ${fmt(d.reach.avg7 || 0)} / 目标 ${fmt(d.reach.target)}（${esc(d.reach.by.slice(5).replace('-', '/'))} 前）。</p>`;
 
     $$('[data-td-go]', body).forEach((b) => (b.onclick = () => goHash(b.dataset.tdGo)));
@@ -401,7 +342,7 @@ window.VIEWS.today = {
     $$('[data-skip-form]', body).forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); tdAct(() => api('/api/today/skip', { method: 'POST', body: { key: f.dataset.skipForm, reason: $('input', f).value } })); }));
     const again = () => { body.dataset.sig = ''; this.render(); };
     $$('[data-row-toggle]', body).forEach((h) => {
-      const flip = (e) => { if (e.target.closest('button, a, input, form')) return; const k = h.dataset.rowToggle; if (TD.openRows.has(k)) TD.openRows.delete(k); else TD.openRows.add(k); if (k === 'bf') TD.bfOpen = null; again(); };
+      const flip = (e) => { if (e.target.closest('button, a, input, form')) return; const k = h.dataset.rowToggle; if (TD.openRows.has(k)) TD.openRows.delete(k); else TD.openRows.add(k); again(); };
       h.onclick = flip;
       h.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(e); } };
     });
@@ -447,34 +388,19 @@ window.VIEWS.today = {
     const check = (key, checked) => api('/api/today/checks', { method: 'PUT', body: { day: d.day, key, checked } });
     $$('[data-rd-done]', body).forEach((b) => (b.onclick = () => tdAct(() => check(b.dataset.rdDone, true))));
     $$('[data-rd-undo]', body).forEach((b) => (b.onclick = () => tdAct(() => check(b.dataset.rdUndo, false))));
-    $$('[data-bf-open]', body).forEach((b) => (b.onclick = async () => {
-      const id = Number(b.dataset.bfOpen);
-      TD.bfOpen = TD.bfOpen === id ? null : id;
-      body.dataset.sig = '';
-      this.render();
-      if (TD.bfOpen && !(TD.prev && TD.prev.topic_id === id)) {
-        try { TD.prev = await api(`/api/today/backfill/${id}/preview`); } catch (err) { toast(err.message); }
-        body.dataset.sig = '';
-        this.render();
-      }
-    }));
-    $$('[data-bf-go]', body).forEach((b) => (b.onclick = () => tdAct(async () => {
-      b.disabled = true;
-      const r = await api(`/api/today/backfill/${b.dataset.bfGo}/go`, { method: 'POST' });
-      TD.bfOpen = null;
-      toast(r.errors.length ? `有 ${r.errors.length} 个没起来：${r.errors[0]}` : '发出去了的在发，剩下的备好了');
+    // 早上那个问题（卡片上和「出摊」行里都有）：今天发新视频还是补发。#347 搬月历时把这两行弄丢了，10/1 补回来。
+    $$('[data-out-mode]', body).forEach((b) => (b.onclick = () => tdAct(async () => {
+      await api('/api/today/mode', { method: 'POST', body: { mode: b.dataset.outMode } });
+      if (b.dataset.outMode === 'backfill' && window.openBackfillDesk && confirm('今天补发。现在打开补发工作台，挑今天发哪几格？')) window.openBackfillDesk();
     })));
-    const unpick = $('[data-bf-unpick]', body);
-    if (unpick) unpick.onclick = () => tdAct(() => api('/api/today/backfill', { method: 'DELETE' }));
-    const all = $('[data-bf-all]', body);
-    if (all) all.onclick = () => { TD.bfAll = !TD.bfAll; body.dataset.sig = ''; this.render(); };
+    $$('[data-bw-open]', body).forEach((b) => (b.onclick = () => { if (window.openBackfillDesk) window.openBackfillDesk(); }));
     const sugBtn = $('#tdSuggest');
     if (sugBtn) sugBtn.onclick = () => tdAct(() => api('/api/today/suggest', { method: 'POST' }));
     const take = $('#tdTake');
     if (take) take.onclick = () => tdAct(() => api('/api/today/suggest/take', { method: 'POST' }));
 
     clearTimeout(TD.poll);
-    const sending = d.backfill.today && Object.values(d.backfill.today.jobs || {}).some((j) => j.state === 'running');
+    const sending = d.out.running;  // 补发工作台在一格一格发：隔一会儿看一眼
     const thinking = TD.wendy && TD.wendy.busy;
     if ((d.ship.suggest && d.ship.suggest.running) || sending || thinking) TD.poll = setTimeout(() => { if (S.view === 'today') this.render(); }, sending && !thinking ? 8000 : 3000);
   },

@@ -1209,7 +1209,7 @@ class StudioStore:
         with self.tx() as conn:
             conn.execute("DELETE FROM driver_log WHERE day = ? AND key = ? AND kind = ?", (day, key, kind))
 
-    # -- 当天补发哪几格：早上抽一次存下来，当天不再变（换一格只换那一格）--------------------
+    # -- 当天补发哪几格：Park 在补发工作台挑的，按他点的顺序存（10/1 起；原来是早上随机抽）--------------------
 
     def backfill_plan(self, day: str) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM backfill_plan WHERE day = ? ORDER BY slot", (day,))
@@ -1219,10 +1219,6 @@ class StudioStore:
             conn.execute("DELETE FROM backfill_plan WHERE day = ?", (day,))
             conn.executemany("INSERT INTO backfill_plan(day, slot, video_id, platform) VALUES (?, ?, ?, ?)",
                              [(day, i, v, p) for i, (v, p) in enumerate(cells)])
-
-    def replace_backfill_cell(self, day: str, slot: int, video_id: str, platform: str) -> None:
-        with self.tx() as conn:
-            conn.execute("UPDATE backfill_plan SET video_id = ?, platform = ? WHERE day = ? AND slot = ?", (video_id, platform, day, slot))
 
     def driver_log(self, since_day: str = "", kind: str | None = None) -> list[dict[str, Any]]:
         if kind:

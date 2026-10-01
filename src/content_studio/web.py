@@ -3571,6 +3571,8 @@ def create_app(
 
     # -- 今天出摊的两条路（9/30 Park）：发一条新视频，或者补发当天那几格旧内容 ------------------
     OUT_KEY = "out"
+    bw_lock = threading.Lock()
+    bw_run: dict[str, Any] = {"day": "", "items": [], "running": False}  # 补发工作台今天这一批发到哪了
 
     def backfilled_days() -> set[str]:
         """没发新视频、但把当天排的补发格子都发完了的日子：也算出摊。"""
@@ -3603,36 +3605,36 @@ def create_app(
         return cells
 
     def _out_state(today_key: str, sheet: dict[str, Any]) -> dict[str, Any]:
-        """今天不发新视频的话补哪几格：每天第一次读的时候抽好、存下来，当天不再变（换一格只换那一格）。
-        一格发没发直接看全平台追踪（发布台发的有发布记录，外面发的他点「发了」）。都发完，这一天记成出摊。"""
-        import random
+        """今天不发新视频的话补哪几格：Park 在补发工作台自己挑（10/1 起，原来是每天随机抽 4 格）。
+        一格发没发直接看全平台追踪（发布台、补发工作台发的有发布记录，外面发的他点「发了」）。
+        挑够 4 格（kpi.backfill_cells）并且都发完，这一天记成出摊。"""
+        from . import reach
 
-        from . import driver as driver_mod, reach
-
+        need = int(kpi_config()["backfill_cells"])
         labels = {p["key"]: p["label"] for p in sheet["platforms"]}
         rows = {r["video_id"]: r for r in sheet["videos"]}
-        plan = store.backfill_plan(today_key)
-        if not plan and today_key == date.today().isoformat():
-            picked = driver_mod.pick_cells(_open_cells(sheet), random.Random(today_key), need=int(kpi_config()["backfill_cells"]))
-            if picked:
-                store.set_backfill_plan(today_key, [(c["video_id"], c["platform"]) for c in picked])
-                plan = store.backfill_plan(today_key)
         cells = []
-        for row in plan:
+        for row in store.backfill_plan(today_key):
             r = rows.get(row["video_id"])
             if r is None or r.get("cancelled"):
                 continue
             cells.append({"slot": row["slot"], "video_id": row["video_id"], "topic_id": r["topic_id"], "platform": row["platform"],
                           "label": labels.get(row["platform"], row["platform"]), "tier": "major" if row["platform"] in reach.CORE else "minor",
                           "title": r["headline"] or r["title"][:40], "sent": row["platform"] not in r["missing"]})
-        done = bool(cells) and all(c["sent"] for c in cells)
+        if len(cells) < need:
+            # 追平到最后剩下的不够 4 格：有几格算几格，不能让他把能发的都发了还减分
+            planned = {(c["video_id"], c["platform"]) for c in cells}
+            avail = len(cells) + sum(1 for c in _open_cells(sheet) if (c["video_id"], c["platform"]) not in planned)
+            need = min(need, avail) if avail else need
+        done = len(cells) >= need and all(c["sent"] for c in cells)
         if done:
             store.driver_mark(today_key, OUT_KEY, "bfday")
         else:
             store.driver_unmark(today_key, OUT_KEY, "bfday")
         modes = [r for r in store.driver_log(today_key, "mode") if r["day"] == today_key]
         return {"mode": modes[-1]["reason"] if modes else None, "cells": cells, "sent": sum(c["sent"] for c in cells), "done": done,
-                "left": sum(len(r["missing"]) for r in sheet["videos"])}
+                "need": need, "left": sum(len(r["missing"]) for r in sheet["videos"]),
+                "running": bw_run["running"] and bw_run["day"] == today_key}
 
     def _ship_action(cards: list[dict[str, Any]], desk: dict[str, Any], notes: list[dict[str, Any]], rung: str) -> dict[str, Any] | None:
         """出摊这一格现在该做什么：手上快发出去的先做完，然后是他清单里的第一条，再是正在做的那条。"""
@@ -3727,7 +3729,6 @@ def create_app(
                 if ok is not None:
                     reads[d.isoformat()] = ok
         sheet = get_backfill()
-        backfill = backfill_state(tkey, sheet)
         out = _out_state(tkey, sheet)  # 先算：补发完成的话，今天也算出摊
         shipped = shipped_days()
         days = driver.kpi_days(today, posted=shipped, dms=dms, started=kpi["started"], x_replies=xr, x_target=int(kpi["x_replies_daily"]),
@@ -3796,7 +3797,6 @@ def create_app(
             "xr": {"count": xr.get(tkey), "target": int(kpi["x_replies_daily"])},
             "reach": {"avg7": reach.get("avg7"), "target": kpi["reach_daily"], "by": kpi["reach_by"]},
             "wrap": driver.order(wrap, skipped=skipped, done=done_keys),
-            "backfill": backfill,
             "skipped": [r for r in store.driver_log(tkey, "skip") if r["day"] == tkey],
             # 周历：这一周（周一到周日）和他现在连着几天出摊 / 没出摊。上面的 days、demerits 还是最近 7 天，含义不变。
             "week": _week(driver.week_start(today), today),
@@ -3836,27 +3836,196 @@ def create_app(
         store.set_backfill_mark(row["video_id"], row["platform"], body.sent)
         return {"ok": True}
 
-    @app.post("/api/today/cells/{slot}/swap")
-    def cell_swap(slot: int) -> dict[str, Any]:
-        """这一格今天不想发：随机换一格同一档平台的（没有就换另一档）。只换这一格，别的不动。"""
-        import random
+    # -- 补发工作台（10/1 Park）-------------------------------------------------------------
+    # 「我要每天看大家的情绪和 mood……自己想好今天最适合发什么」：在一张和全平台追踪一样的表上点格子，
+    # 点的顺序就是发的顺序；换个样子再给他看一遍，他点确认，工作台按顺序一格一格现场发。
+    # B 站、YouTube、X 自己发出去；公众号进草稿箱（9/27 他定的，群发他点）；视频号（腾讯封了自动发布）、
+    # 小红书没有自动通道：上传文件夹备好，他传完点「发了」。
+    BW_HOW = {"bilibili": ("auto", "自动投稿，B 站审核后公开"), "youtube": ("auto", "自动上传，直接公开"),
+              "x": ("auto", "自动发 X 图文文章（被拒就存草稿）"), "wechat_mp": ("draft", "存进公众号草稿箱，群发你点"),
+              "channels": ("hand", "视频号不让自动发：上传文件夹备好，你传"), "xiaohongshu": ("hand", "上传文件夹备好，你传")}
+    BW_UPLOAD = {"channels": "https://channels.weixin.qq.com/platform/post/create",
+                 "xiaohongshu": "https://creator.xiaohongshu.com/publish/publish"}
 
-        from . import reach
+    def _bw_blocked(r: dict[str, Any], platform: str) -> str:
+        from . import backfill
 
-        tkey = date.today().isoformat()
-        row = _plan_cell(slot)
-        plan = store.backfill_plan(tkey)
-        taken = {(r["video_id"], r["platform"]) for r in plan}
-        tier = "major" if row["platform"] in reach.CORE else "minor"
-        pool = [c for c in _open_cells(get_backfill()) if (c["video_id"], c["platform"]) not in taken]
-        same = [c for c in pool if c["tier"] == tier] or pool
-        if not same:
-            raise ValueError("没有别的格子可换了")
-        # 先换到今天别的格子没用到的平台（今天尽量发到不同的平台），没有再随便换
-        used = {r["platform"] for r in plan if r["slot"] != slot}
-        pick = random.choice([c for c in same if c["platform"] not in used] or same)
-        store.replace_backfill_cell(tkey, slot, pick["video_id"], pick["platform"])
+        if not r["topic_id"]:
+            return "还没接上选题：在全平台追踪点「拿去补发」"
+        if backfill.KIND.get(platform) == "视频" and not r.get("video"):
+            return "作品库里没有成片"
+        return "包还没定稿：去打包页定稿"
+
+    def _bw_pick(cells: list[dict[str, Any]], sheet: dict[str, Any], *, again: bool = False) -> list[dict[str, Any]]:
+        """他点的格子，按点的顺序；每一格都得是现在就能发的、今天还没排的（again：今天排了还没发出去的，再发一次）。"""
+        ready = {(c["video_id"], c["platform"]): c for c in _open_cells(sheet)}
+        planned = {(r["video_id"], r["platform"]) for r in store.backfill_plan(date.today().isoformat())}
+        out, seen = [], set()
+        for c in cells:
+            key = (str(c.get("video_id") or ""), str(c.get("platform") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            if key in planned and not again:
+                raise ValueError(f"{ready.get(key, {}).get('title', '这一条')}·{key[1]} 今天已经排上了")
+            if key not in ready:
+                raise ValueError("有一格现在发不了（发过了，或者包还没定稿），刷新一下再挑")
+            out.append(ready[key])
+        if not out:
+            raise ValueError("先在表里点几格")
+        return out
+
+    def _bw_item(c: dict[str, Any]) -> dict[str, Any]:
+        return {"video_id": c["video_id"], "topic_id": c["topic_id"], "platform": c["platform"], "label": c["label"], "title": c["title"],
+                "how": BW_HOW.get(c["platform"], ("hand", ""))[0], "upload_url": BW_UPLOAD.get(c["platform"]), "state": "waiting", "message": ""}
+
+    def _bw_snapshot(sheet: dict[str, Any]) -> dict[str, Any]:
+        """今天排上的每一格发到哪一步了。排了哪几格存在库里（重启也在）；正在发的进度只在内存里，
+        重启以后没进度的格子显示「还没发出去」，能再点一次发。"""
+        today_key = date.today().isoformat()
+        out = _out_state(today_key, sheet)
+        with bw_lock:
+            if bw_run["day"] != today_key:
+                bw_run.update(day=today_key, items=[], running=False)
+            live = {(it["video_id"], it["platform"]): dict(it) for it in bw_run["items"]}
+            running = bw_run["running"]
+        items = []
+        for c in out["cells"]:
+            it = live.get((c["video_id"], c["platform"]))
+            if it is None:
+                it = {**_bw_item(c), "state": "idle"}
+                # 没有进度（服务重启过）：库里这一格最近一次发布还挂在「在发」，说明上次发到一半被打断——
+                # 不给「现在发」，免得同一条发两遍（9/27 YouTube 上传被重启打断过）
+                job = next((j for j in store.publish_jobs(c["topic_id"]) if j["platform"] == c["platform"]), None) if c["topic_id"] else None
+                if job and job["state"] == "running" and not c["sent"]:
+                    it.update(state="stuck", message="上次发到一半被打断了：先去平台后台看一眼有没有发出去")
+            it["sent"] = c["sent"]
+            items.append(it)
+        return {"items": items, "running": running, "need": out["need"]}
+
+    @app.get("/api/backfill/desk")
+    def backfill_desk() -> dict[str, Any]:
+        """补发工作台那张表：一行一条还有平台没发的内容，一格一个平台——发过了 / 今天排上了 / 能挑 / 发不了（为什么）。"""
+        sheet = get_backfill()
+        today_key = date.today().isoformat()
+        ready = {(c["video_id"], c["platform"]) for c in _open_cells(sheet)}
+        planned = {(r["video_id"], r["platform"]) for r in store.backfill_plan(today_key)}
+        cols = [p for p in sheet["platforms"] if p["key"] != "douyin"]
+        rows = []
+        for r in sheet["videos"]:
+            if r.get("cancelled") or not r["missing"]:
+                continue
+            cells = {}
+            for p in cols:
+                k, key = p["key"], (r["video_id"], p["key"])
+                if k not in r["missing"]:
+                    cells[k] = {"state": "sent", "url": (r.get("links") or {}).get(k)}
+                elif key in planned:
+                    cells[k] = {"state": "planned"}
+                elif key in ready:
+                    cells[k] = {"state": "open"}
+                else:
+                    cells[k] = {"state": "blocked", "why": _bw_blocked(r, k)}
+            rows.append({"video_id": r["video_id"], "topic_id": r["topic_id"], "title": r["headline"] or r["title"][:40],
+                         "published_at": r["published_at"], "likes": r.get("likes"), "multiple": r.get("multiple"), "cells": cells})
+        run = _bw_snapshot(sheet)
+        need = run.pop("need")
+        return {"platforms": [{**p, "how": BW_HOW.get(p["key"], ("hand", ""))[0], "how_text": BW_HOW.get(p["key"], ("hand", ""))[1]} for p in cols],
+                "rows": rows, "need": need, "planned": len(planned), "run": run}
+
+    @app.post("/api/backfill/desk/preview")
+    def backfill_desk_preview(body: dict[str, Any]) -> dict[str, Any]:
+        """确认之前换个样子再看一遍：按他点的顺序，每格发出去是什么样、怎么发。"""
+        from . import copypack, publish_desk
+
+        sheet = get_backfill()
+        picked = _bw_pick(body.get("cells") or [], sheet)
+        items = []
+        for i, c in enumerate(picked, 1):
+            topic = store.topic(c["topic_id"])
+            rel = _release_for(topic) or {}
+            urls = rel.get("cover_urls") or {}
+            copy = copypack.read_copy(drafts_root, c["topic_id"]) or {}
+            entry = publish_desk.own_entry(copy.get("platforms"), c["platform"], publish_desk.shared_entry(copy))
+            how, how_text = BW_HOW.get(c["platform"], ("hand", ""))
+            article = None
+            if c["platform"] in ("x", "wechat_mp"):
+                pv = backfill_preview(c["topic_id"])
+                article = {"title": pv["article_title"], "head": pv["article_head"][:2], "layout_url": pv["layout_url"]}
+            cover = urls.get("wide") or urls.get("landscape") if c["platform"] in ("youtube", "bilibili", "wechat_mp", "x") else urls.get("portrait")
+            items.append({"n": i, "video_id": c["video_id"], "topic_id": c["topic_id"], "platform": c["platform"], "label": c["label"],
+                          "title": c["title"], "how": how, "how_text": how_text, "cover": cover or urls.get("portrait") or urls.get("landscape"),
+                          "copy": entry, "article": article})
+        out = _out_state(date.today().isoformat(), sheet)
+        short = max(0, out["need"] - len(out["cells"]) - len(items))
+        return {"items": items, "need": out["need"], "short": short}
+
+    def _bw_run(items: list[dict[str, Any]]) -> None:
+        """一格一格按顺序发：前一格发完才发下一格（一次只开一个浏览器）。"""
+        modes = {**BACKFILL_AUTO, **BACKFILL_DRAFT}
+        for it in items:
+            with bw_lock:
+                it["state"] = "running"
+            try:
+                if it["platform"] in modes:
+                    job = prepare_publish(it["topic_id"], PublishJobBody(platform=it["platform"], mode=modes[it["platform"]], auto=True))["job"]
+                    store.update_publish_job(job["id"], state="running", confirmed_at=now_iso())
+                    _run_publish(job["id"])
+                    job = store.publish_job(job["id"])
+                    draft = (job.get("result") or {}).get("published") is False
+                    state = "failed" if job["state"] != "done" else "draft" if draft else "done"
+                    msg = job.get("message") or ("进了草稿箱，去后台点发布" if draft else "")
+                else:
+                    upload_folder(it["topic_id"], {"platform": it["platform"], "open": False})
+                    state, msg = "hand", "文件夹备好了：视频、封面、文案.txt"
+            except HTTPException as exc:
+                state, msg = "failed", str(exc.detail)
+            except Exception as exc:  # noqa: BLE001 - shown on the item
+                state, msg = "failed", str(exc)
+            with bw_lock:
+                it.update(state=state, message=msg)
+        with bw_lock:
+            bw_run["running"] = False
+
+    @app.post("/api/backfill/desk/drop")
+    def backfill_desk_drop(body: dict[str, Any]) -> dict[str, Any]:
+        """今天排了、还没发出去的一格，不发了：从今天的格子里拿掉（发出去的拿不掉）。"""
+        today_key = date.today().isoformat()
+        key = (str(body.get("video_id") or ""), str(body.get("platform") or ""))
+        sheet = get_backfill()
+        cell = next((c for c in _out_state(today_key, sheet)["cells"] if (c["video_id"], c["platform"]) == key), None)
+        if cell is None:
+            raise ValueError("今天没有排这一格")
+        if cell["sent"]:
+            raise ValueError("这一格已经发出去了")
+        with bw_lock:
+            if any((it["video_id"], it["platform"]) == key and it["state"] in ("waiting", "running") for it in bw_run["items"]):
+                raise ValueError("这一格正在发")
+            bw_run["items"] = [it for it in bw_run["items"] if (it["video_id"], it["platform"]) != key]
+            store.set_backfill_plan(today_key, [(r["video_id"], r["platform"]) for r in store.backfill_plan(today_key) if (r["video_id"], r["platform"]) != key])
         return {"ok": True}
+
+    @app.post("/api/backfill/desk/go")
+    def backfill_desk_go(body: dict[str, Any]) -> dict[str, Any]:
+        """他点了确认：这几格排进今天，马上按顺序发。"""
+        today_key = date.today().isoformat()
+        sheet = get_backfill()
+        picked = _bw_pick(body.get("cells") or [], sheet, again=True)
+        with bw_lock:
+            if bw_run["running"] and bw_run["day"] == today_key:
+                raise ValueError("上一批还在发，等它发完")
+            if bw_run["day"] != today_key:
+                bw_run.update(day=today_key, items=[])
+            plan = [(r["video_id"], r["platform"]) for r in store.backfill_plan(today_key)]
+            store.set_backfill_plan(today_key, plan + [(c["video_id"], c["platform"]) for c in picked if (c["video_id"], c["platform"]) not in plan])
+            store.driver_mark(today_key, "mode", "mode", "backfill")
+            items = [_bw_item(c) for c in picked]
+            keys = {(c["video_id"], c["platform"]) for c in picked}
+            bw_run["items"] = [it for it in bw_run["items"] if (it["video_id"], it["platform"]) not in keys] + items
+            bw_run["running"] = True
+        store.log_event("publish", "补发工作台：" + "、".join(f"《{c['title'][:16]}》→{c['label']}" for c in picked))
+        threading.Thread(target=_bw_run, args=(items,), name="backfill-desk", daemon=True).start()
+        return {"started": len(items)}
 
     @app.get("/api/today/week")
     def get_week(start: str | None = None) -> dict[str, Any]:
@@ -4137,7 +4306,7 @@ def create_app(
     def swipe_video_file(swipe_id: int) -> FileResponse:
         return FileResponse(_swipe_file(swipe_id, "video"), media_type="video/mp4")
 
-    # -- D 补发：提前打好的包，一声令下发一条（9/29 Park） -------------------------
+    # -- 补发用到的：哪些平台自己发、哪些进草稿、哪些备文件夹（9/29 Park；10/1 起由补发工作台一格一格发） -------------------------
     # 自己发出去的：B 站（投稿，审核后公开）、YouTube（直接公开）、X（直接发，被拒就存草稿）。
     # 要 Park 点的：公众号（草稿，他群发才推送）、视频号、小红书（上传文件夹备好，他扫码传）。
     BACKFILL_AUTO = {"bilibili": "upload", "youtube": "public", "x": "article_publish"}
@@ -4159,26 +4328,6 @@ def create_app(
                 "ready": all(v == "lock" for v in steps.values()), "steps": steps,
                 "machine": any(ap[k].get("by") == "machine" for k in need if ap[k]["approved"]),
                 "cover": (rel.get("cover_urls") or {}).get("portrait")}
-
-    def backfill_state(today_key: str, sheet: dict[str, Any] | None = None) -> dict[str, Any]:
-        sheet = sheet or get_backfill()
-        labels = {p["key"]: p["label"] for p in sheet["platforms"]}
-        picks = [r for r in store.driver_log(today_key, "pick") if r["day"] == today_key]
-        pick_id = int(picks[-1]["key"].split(":")[1]) if picks else None
-        rows = [r for r in sheet["videos"] if r["topic_id"] and (r["missing"] or r["topic_id"] == pick_id)]
-        packs = [_pack_view(r) for r in rows]
-        for pk in packs:
-            pk["missing_labels"] = [labels.get(k, k) for k in pk["missing"]]
-        ready = sorted([p for p in packs if p["ready"] and p["topic_id"] != pick_id], key=lambda p: -(p["multiple"] or 0))
-        today = next((p for p in packs if p["topic_id"] == pick_id), None)
-        if today:
-            total = len([k for k in sheet["platforms"] if k["key"] != "douyin"])
-            today["done_count"] = total - len(today["missing"])
-            today["total"] = total
-            today["jobs"] = {j["platform"]: {"state": j["state"], "message": j.get("message"), "draft": bool((j.get("result") or {}).get("published") is False and j["state"] == "done")}
-                             for j in reversed(store.publish_jobs(pick_id)) if (j.get("payload") or {}).get("auto")}
-        waiting = len([p for p in packs if not p["ready"]])
-        return {"today": today, "ready": ready, "ready_count": len(ready), "waiting_count": waiting}
 
     @app.get("/api/today/backfill/{topic_id}/preview")
     def backfill_preview(topic_id: int) -> dict[str, Any]:
@@ -4211,44 +4360,6 @@ def create_app(
             "figs": [f"/api/topics/{topic_id}/article-file/{il.FOLDER}/{quote(f['file'])}" for f in figs],
             "layout_url": f"/api/topics/{topic_id}/wechat-preview.html" if art else None,
         }
-
-    @app.post("/api/today/backfill/{topic_id}/go")
-    def backfill_go(topic_id: int) -> dict[str, Any]:
-        """Park 说「发这条」。这一下就是他的确认：B 站、YouTube、X 直接发；公众号存草稿；视频号、小红书备好文件夹。"""
-        from . import publisher
-
-        today_key = date.today().isoformat()
-        row = next((r for r in get_backfill()["videos"] if r["topic_id"] == topic_id), None)
-        if row is None:
-            raise ValueError("这条不在全平台追踪里")
-        store.driver_mark(today_key, f"backfill:{topic_id}", "pick")
-        store.log_event("publish", f"今天补发《{row['headline'][:24]}》", topic_id)
-        started, folders, errors = [], [], []
-        for platform, mode in {**BACKFILL_AUTO, **BACKFILL_DRAFT}.items():
-            if platform not in row["missing"]:
-                continue
-            try:
-                job = prepare_publish(topic_id, PublishJobBody(platform=platform, mode=mode, auto=True))["job"]
-                confirm_publish(job["id"])
-                started.append(platform)
-            except (publisher.PublishError, ValueError, StoreError) as exc:
-                errors.append(f"{platform}：{exc}")
-        for platform in BACKFILL_FOLDER:
-            if platform in row["missing"]:
-                try:
-                    upload_folder(topic_id, {"platform": platform, "open": False})
-                    folders.append(platform)
-                except HTTPException as exc:
-                    errors.append(f"{platform}：{exc.detail}")
-        return {"started": started, "folders": folders, "errors": errors}
-
-    @app.delete("/api/today/backfill")
-    def backfill_unpick() -> dict[str, Any]:
-        """今天不补这条了（已经发出去的不会撤回）。"""
-        today_key = date.today().isoformat()
-        with store.tx() as conn:
-            conn.execute("DELETE FROM driver_log WHERE day = ? AND kind = 'pick'", (today_key,))
-        return {"ok": True}
 
     @app.put("/api/today/x-replies")
     def put_x_replies(body: CountBody) -> dict[str, Any]:

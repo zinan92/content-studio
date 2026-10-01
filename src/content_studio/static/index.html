@@ -235,6 +235,10 @@
     <div class="dlg-actions"><button type="button" class="btn" id="csCancel">关闭</button><button class="btn primary" type="submit" id="csSubmit">上传并开始</button></div>
   </form>
 </dialog>
+<dialog id="bwDlg" class="bw-dlg" aria-label="补发工作台">
+  <div class="playbook-bar"><b>补发工作台 <small id="bwStep"></small></b><span><button type="button" class="btn small" id="bwClose">关闭</button></span></div>
+  <div class="bw-body" id="bwBody"></div>
+</dialog>
 <dialog id="playbookDlg" class="playbook-dlg" aria-label="诊断流程">
   <div class="playbook-bar"><b>诊断流程</b><span><a class="btn small" id="playbookEdit" href="#">在 Obsidian 里改</a><button type="button" class="btn small" id="playbookClose">关闭</button></span></div>
   <article class="md playbook-md" id="playbookBody"></article>
@@ -255,6 +259,7 @@
 <script src="/static/publishdesk.js"></script>
 <script src="/static/pack.js"></script>
 <script src="/static/backfill.js"></script>
+<script src="/static/backfilldesk.js"></script>
 <script src="/static/article.js"></script>
 <script src="/static/output.js"></script>
 <script src="/static/skills.js"></script>
