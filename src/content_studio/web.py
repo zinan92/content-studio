@@ -3621,6 +3621,11 @@ def create_app(
             cells.append({"slot": row["slot"], "video_id": row["video_id"], "topic_id": r["topic_id"], "platform": row["platform"],
                           "label": labels.get(row["platform"], row["platform"]), "tier": "major" if row["platform"] in reach.CORE else "minor",
                           "title": r["headline"] or r["title"][:40], "sent": row["platform"] not in r["missing"]})
+        if len(cells) < need:
+            # 追平到最后剩下的不够 4 格：有几格算几格，不能让他把能发的都发了还减分
+            planned = {(c["video_id"], c["platform"]) for c in cells}
+            avail = len(cells) + sum(1 for c in _open_cells(sheet) if (c["video_id"], c["platform"]) not in planned)
+            need = min(need, avail) if avail else need
         done = len(cells) >= need and all(c["sent"] for c in cells)
         if done:
             store.driver_mark(today_key, OUT_KEY, "bfday")
@@ -3886,10 +3891,17 @@ def create_app(
             running = bw_run["running"]
         items = []
         for c in out["cells"]:
-            it = live.get((c["video_id"], c["platform"])) or {**_bw_item(c), "state": "idle"}
+            it = live.get((c["video_id"], c["platform"]))
+            if it is None:
+                it = {**_bw_item(c), "state": "idle"}
+                # 没有进度（服务重启过）：库里这一格最近一次发布还挂在「在发」，说明上次发到一半被打断——
+                # 不给「现在发」，免得同一条发两遍（9/27 YouTube 上传被重启打断过）
+                job = next((j for j in store.publish_jobs(c["topic_id"]) if j["platform"] == c["platform"]), None) if c["topic_id"] else None
+                if job and job["state"] == "running" and not c["sent"]:
+                    it.update(state="stuck", message="上次发到一半被打断了：先去平台后台看一眼有没有发出去")
             it["sent"] = c["sent"]
             items.append(it)
-        return {"items": items, "running": running}
+        return {"items": items, "running": running, "need": out["need"]}
 
     @app.get("/api/backfill/desk")
     def backfill_desk() -> dict[str, Any]:
@@ -3916,9 +3928,10 @@ def create_app(
                     cells[k] = {"state": "blocked", "why": _bw_blocked(r, k)}
             rows.append({"video_id": r["video_id"], "topic_id": r["topic_id"], "title": r["headline"] or r["title"][:40],
                          "published_at": r["published_at"], "likes": r.get("likes"), "multiple": r.get("multiple"), "cells": cells})
-        need = int(kpi_config()["backfill_cells"])
+        run = _bw_snapshot(sheet)
+        need = run.pop("need")
         return {"platforms": [{**p, "how": BW_HOW.get(p["key"], ("hand", ""))[0], "how_text": BW_HOW.get(p["key"], ("hand", ""))[1]} for p in cols],
-                "rows": rows, "need": need, "planned": len(planned), "run": _bw_snapshot(sheet)}
+                "rows": rows, "need": need, "planned": len(planned), "run": run}
 
     @app.post("/api/backfill/desk/preview")
     def backfill_desk_preview(body: dict[str, Any]) -> dict[str, Any]:
@@ -3943,10 +3956,9 @@ def create_app(
             items.append({"n": i, "video_id": c["video_id"], "topic_id": c["topic_id"], "platform": c["platform"], "label": c["label"],
                           "title": c["title"], "how": how, "how_text": how_text, "cover": cover or urls.get("portrait") or urls.get("landscape"),
                           "copy": entry, "article": article})
-        need = int(kpi_config()["backfill_cells"])
-        have = len(store.backfill_plan(date.today().isoformat()))
-        short = max(0, need - have - len(items))
-        return {"items": items, "need": need, "short": short}
+        out = _out_state(date.today().isoformat(), sheet)
+        short = max(0, out["need"] - len(out["cells"]) - len(items))
+        return {"items": items, "need": out["need"], "short": short}
 
     def _bw_run(items: list[dict[str, Any]]) -> None:
         """一格一格按顺序发：前一格发完才发下一格（一次只开一个浏览器）。"""

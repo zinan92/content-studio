@@ -367,13 +367,8 @@ def test_todays_cells_count_only_when_enough_are_picked_and_all_sent(client: Tes
     assert d["out"]["sent"] == 1 and not d["out"]["done"] and d["days"][-1]["ship"] == was  # 只发了一格：还不算
     client.post("/api/today/cells/1/sent", json={"sent": True})
     d = _today(client)
-    # 两格都发了，但一天要挑够 4 格：还不算，Wendy 让他再去挑 2 格
-    assert d["out"]["need"] == 4 and not d["out"]["done"] and d["days"][-1]["ship"] == was
-    if was != "ok":
-        assert "再挑 2 格" in driver.now_item(d)["text"]
-    cur = store.settings()["kpi"]
-    store.update_settings({"kpi": {**cur, "backfill_cells": 2}})
-    d = _today(client)
+    # 一天要挑够 4 格；但现在能发的旧内容一共只有这 2 格（别的包都没定稿）：有几格算几格
+    assert d["out"]["need"] == 2
     if was != "ok":  # 今天没发新视频：补发的格子都发完，就算出摊，连续天数接着算
         assert d["out"]["done"] and d["days"][-1]["ship"] == "ok" and d["streak"]["kind"] == "ok"
         assert next(c for c in d["week"]["days"] if c["state"] == "today")["backfilled"] is True
@@ -437,3 +432,75 @@ def test_month_is_whole_weeks_and_shows_what_went_out_where(client: TestClient, 
     nxt = client.get("/api/today/month", params={"start": m["next"]}).json()
     assert not prev["current"] and prev["next"] == today.replace(day=1).isoformat() and nxt["prev"] == today.replace(day=1).isoformat()
     assert all(d["state"] == "future" for w in nxt["weeks"] for d in w["days"] if d["in_month"])
+
+
+def test_backfill_desk_sends_the_picked_cells_one_by_one_in_the_order_he_clicked(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """确认以后后台按他点的顺序一格一格发（假的发布脚本，不碰真平台）：X 直接发出去，公众号进草稿箱。"""
+    import json
+    import sys
+    import time
+
+    from content_studio import approvals, web as web_module
+    from tests.test_web import SEC, FakeClient, _wait_sync
+
+    monkeypatch.setenv("CONTENT_STUDIO_HOME", str(tmp_path / "cs-home"))
+    monkeypatch.setenv("CONTENT_STUDIO_HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    # 包都定稿了（打包页的定稿状态不是这条测试要测的）
+    monkeypatch.setattr(approvals, "status", lambda folder, fps: {k: {"approved": True, "valid": True, "made": True, "by": "park"}
+                                                                   for k in ("copy", "cover", "article", "figs", "wx", "xhs")})
+    log = tmp_path / "sent.txt"
+    cred = tmp_path / "secrets.yaml"
+    cred.write_text("{}")
+
+    def fake(platform: str, published: bool) -> list[str]:
+        script = (f"import json,time,pathlib; time.sleep(0.2); p=pathlib.Path({str(log)!r}); "
+                  f"p.write_text((p.read_text() if p.exists() else '') + {platform!r} + '\\n'); "
+                  f"print(json.dumps({{'ok': True, 'published': {published}, 'url': 'https://example.com/{platform}'}}))")
+        return [sys.executable, "-c", script, "{article}"]
+
+    specs = {"x": {"label": "X", "copy_key": "x", "credential": cred, "login_hint": "", "no_video": True, "needs_article": True,
+                   "modes": {"article_publish": {"label": "发", "argv": fake("x", True)}}},
+             "wechat_mp": {"label": "公众号", "copy_key": "wechat_mp", "credential": cred, "login_hint": "", "no_video": True, "needs_article": True,
+                           "modes": {"draft": {"label": "草稿", "argv": fake("wechat_mp", False)}}}}
+    cookie = tmp_path / "cookies.json"
+    cookie.write_text(json.dumps({"sessionid": "x"}))
+    cookie.chmod(0o600)
+    monkeypatch.setenv("CONTENT_STUDIO_NO_OPEN", "1")
+    app = web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
+                                downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False, drafts_dir=tmp_path / "drafts",
+                                publishers=specs)
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
+        c.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+        _wait_sync(c)
+        vid = c.get("/api/backfill").json()["videos"][0]["video_id"]
+        tid = c.post(f"/api/backfill/{vid}/take").json()["topic_id"]
+        art = tmp_path / "drafts" / f"topic-{tid}" / "article.md"
+        art.parent.mkdir(parents=True, exist_ok=True)
+        art.write_text("# 文章标题\n\n第一段。\n", encoding="utf-8")
+        app.state.store.update_topic(tid, article_path=str(art))
+
+        row = next(r for r in c.get("/api/backfill/desk").json()["rows"] if r["video_id"] == vid)
+        assert row["cells"]["x"]["state"] == "open" and row["cells"]["wechat_mp"]["state"] == "open"
+        picks = {"cells": [{"video_id": vid, "platform": "x"}, {"video_id": vid, "platform": "wechat_mp"}]}
+        pv = c.post("/api/backfill/desk/preview", json=picks).json()
+        assert [(i["n"], i["platform"], i["how"]) for i in pv["items"]] == [(1, "x", "auto"), (2, "wechat_mp", "draft")]
+        assert pv["items"][0]["article"]["title"] == "文章标题"
+        assert not log.exists()  # 预览不发
+
+        assert c.post("/api/backfill/desk/go", json=picks).json() == {"started": 2}
+        assert c.post("/api/backfill/desk/go", json=picks).status_code == 400  # 还在发：不能再起一批
+        for _ in range(200):
+            run = c.get("/api/backfill/desk").json()["run"]
+            if not run["running"]:
+                break
+            time.sleep(0.05)
+        assert log.read_text().split() == ["x", "wechat_mp"]  # 按他点的顺序
+        assert [(i["platform"], i["state"], i["sent"]) for i in run["items"]] == [("x", "done", True), ("wechat_mp", "draft", False)]
+        today = date.today().isoformat()
+        assert [(r["video_id"], r["platform"]) for r in app.state.store.backfill_plan(today)] == [(vid, "x"), (vid, "wechat_mp")]
+        # 公众号群发了，他点「发了」：今天挑的两格都发出去了
+        c.post(f"/api/backfill/{vid}/mark", json={"platform": "wechat_mp", "done": True})
+        out = c.get("/api/today").json()["out"]
+        assert out["sent"] == 2 and out["mode"] == "backfill"
+    app.state.store.close()

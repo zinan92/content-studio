@@ -7,7 +7,7 @@
 
 const BW = { data: null, picks: [], step: 'pick', preview: null, poll: null, busy: false };
 const BW_HOW = { auto: '自动发', draft: '进草稿箱', hand: '你来传' };
-const BW_STATE = { idle: '还没发出去', waiting: '排队', running: '正在发…', done: '✓ 发出去了', draft: '进了草稿箱：去后台点发布，发完点「发了」', hand: '文件夹备好了：你传，传完点「发了」', failed: '没发出去' };
+const BW_STATE = { idle: '还没发出去', stuck: '上次发到一半被打断了', waiting: '排队', running: '正在发…', done: '✓ 发出去了', draft: '进了草稿箱：去后台点发布，发完点「发了」', hand: '文件夹备好了：你传，传完点「发了」', failed: '没发出去' };
 
 window.openBackfillDesk = async () => {
   BW.picks = []; BW.step = 'pick'; BW.preview = null;
@@ -42,8 +42,8 @@ function bwRunBlock(run) {
     const hand = it.how === 'hand';
     // 还没发出去的（没起过、失败了、或者重启后没了进度）：自动发的能再点一次「现在发」；要他传的给文件夹和上传页
     const again = !hand && ['idle', 'failed'].includes(it.state) && !run.running ? `<button class="btn small" type="button" data-bw-now="${esc(it.video_id)}" data-p="${it.platform}">${it.state === 'failed' ? '再发一次' : '现在发'}</button>` : '';
-    const tail = sent ? '<span class="bw-ok">✓ 发了</span>' : ['idle', 'hand', 'draft', 'failed'].includes(it.state)
-      ? `${again}${hand ? `<button class="btn small" type="button" data-bw-folder="${it.topic_id}" data-p="${it.platform}">打开上传文件夹</button>` : ''}${it.upload_url ? `<a class="btn small" href="${esc(it.upload_url)}" target="_blank" rel="noopener">去${esc(it.label)}上传 ↗</a>` : ''}<button class="btn small go" type="button" data-bw-sent="${esc(it.video_id)}" data-p="${it.platform}">发了</button>${it.state === 'idle' || it.state === 'failed' ? `<button class="linklike" type="button" data-bw-drop="${esc(it.video_id)}" data-p="${it.platform}">不发这格</button>` : ''}` : '';
+    const tail = sent ? '<span class="bw-ok">✓ 发了</span>' : ['idle', 'stuck', 'hand', 'draft', 'failed'].includes(it.state)
+      ? `${again}${hand ? `<button class="btn small" type="button" data-bw-folder="${it.topic_id}" data-p="${it.platform}">打开上传文件夹</button>` : ''}${it.upload_url ? `<a class="btn small" href="${esc(it.upload_url)}" target="_blank" rel="noopener">去${esc(it.label)}上传 ↗</a>` : ''}<button class="btn small go" type="button" data-bw-sent="${esc(it.video_id)}" data-p="${it.platform}">发了</button>${['idle', 'failed', 'stuck'].includes(it.state) ? `<button class="linklike" type="button" data-bw-drop="${esc(it.video_id)}" data-p="${it.platform}">不发这格</button>` : ''}` : '';
     return `<div class="bw-run-i ${sent ? 'sent' : it.state}"><span class="bw-n">${i + 1}</span><span class="t"><b>《${esc(it.title)}》→ ${esc(it.label)}</b>
       <small>${it.state === 'running' ? '<span class="spin"></span> ' : ''}${sent ? '' : esc(BW_STATE[it.state] || it.state)}${it.message && !sent ? ` · ${esc(it.message)}` : ''}</small></span><span class="acts">${tail}</span></div>`;
   };
