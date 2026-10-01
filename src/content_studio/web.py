@@ -2418,13 +2418,37 @@ def create_app(
         except (ValueError, StoreError):
             return ""
 
+    def _anna_vault() -> Path | None:
+        try:
+            return vault.vault_root(vault_path())
+        except Exception:  # noqa: BLE001 - 没配 vault 就只用 <工作台> 块
+            return None
+
+    def _anna_dirs() -> dict[str, Path]:
+        """vault 之外她能查的：每条视频的拆解报告、下载下来的老师流量视频（文字稿、信息）。"""
+        return {"拆解报告：每条视频一个文件夹，report.md 是拆解": data_dir / "reports",
+                "老师的流量视频：下载的视频、文字稿和信息": data_dir / "swipe"}
+
+    @app.post("/api/anna/raw")
+    def anna_raw(body: dict[str, Any]) -> dict[str, Any]:
+        """Anna 整理的一篇，Park 点了按钮：写进 vault 的 003_park原始输出。"""
+        root = _anna_vault()
+        if root is None:
+            raise ValueError("还没设 Obsidian 库")
+        try:
+            path = anna_mod.save_raw(root, str(body.get("target") or ""), str(body.get("body") or ""))
+        except anna_mod.AnnaError as exc:
+            raise ValueError(str(exc)) from None
+        return {"path": str(path), "name": path.name, "folder": path.parent.name}
+
     def _anna_turn(scope: str, kind: str, label: str, topic_id: int | None, message: str, note_path: str | None, report_id: str | None = None) -> None:
         try:
             context = _anna_context(kind, topic_id, note_path, report_id)
             chat = store.anna_chat(ANNA_THREAD)
             if topic_id is not None:
                 label = f"{label}《{store.topic(topic_id)['title']}》"
-            reply = anna_mod.run_turn(scope=scope, scope_label=label, context=context, message=message, session_id=chat["session_id"], **({"turn_fn": anna_fn} if anna_fn else {}))
+            reply = anna_mod.run_turn(scope=scope, scope_label=label, context=context, message=message, session_id=chat["session_id"],
+                                      vault=_anna_vault(), extra_dirs=_anna_dirs(), **({"turn_fn": anna_fn} if anna_fn else {}))
             store.append_anna(ANNA_THREAD, {k: reply[k] for k in ("role", "text", "actions", "at", "scope")}, session_id=reply.get("session_id"))
         except Exception as exc:  # noqa: BLE001 - shown in the panel
             logger.warning("anna %s failed: %s", scope, exc)

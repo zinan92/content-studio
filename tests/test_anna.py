@@ -85,3 +85,41 @@ def test_soul_puts_parks_principles_before_the_rubric(tmp_path) -> None:
     assert soul["text"].index("抖音是情绪菜市场") < soul["text"].index("痛点具象度")
     assert "以这里为准" in soul["text"]
     assert [p.split("/")[-1] for p in soul["sources"]] == ["Anna.md", "principles.md", "SKILL.md"]
+
+
+def test_anna_can_look_things_up_in_the_vault_but_not_the_secrets(tmp_path: Path) -> None:
+    """10/1 Park：老师对标、日报、原始输出、clippings、咨询都能当她的上下文，但不是每轮全塞——提到了她自己去找。"""
+    vault = tmp_path / "vault"
+    for d in ("002_对标内容", "010_咨询", "_secrets", ".obsidian"):
+        (vault / d).mkdir(parents=True)
+    (vault / "010_咨询" / "诊断流程.md").write_text("x", encoding="utf-8")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    args = anna.reach_args(vault, {"拆解报告": reports, "没有的": tmp_path / "nope"})
+    assert args[:4] == ["--add-dir", str(vault), "--add-dir", str(reports)] and str(tmp_path / "nope") not in args
+    assert f"Read(/{(vault / '_secrets').resolve()}/**)" in args  # Read 规则同时管 Grep / Glob
+    note = anna.reach_note(vault, {"拆解报告": reports})
+    assert "010_咨询 （1 项）" in note and "_secrets （" not in note and ".obsidian" not in note.split("\n\n")[-1] and "拆解报告" in note
+    assert "Read / Glob / Grep" in note and "不要整个文件夹地读" in note
+    assert anna.reach_note(None) == "" and anna.reach_args(None) == []
+    # 命令本身：只读工具开着，能改东西的都关着
+    assert '--allowedTools "Read Glob Grep"' in anna.DEFAULT_ANNA_COMMAND and "Edit,Write" in anna.DEFAULT_ANNA_COMMAND and "Bash" in anna.DEFAULT_ANNA_COMMAND
+
+
+def test_raw_output_draft_becomes_a_button_and_is_saved_without_overwriting(tmp_path: Path) -> None:
+    text = "按你的诊断流程整理了一版。\n\n<原始输出>\n# 我给客户的服务流程\n\n## Section 1：原始输出\n我先跟你聊一个小时。\n\n## Section 2：处理过的输出\n三步走。\n</原始输出>\n\n[动作] 写进原始输出：自媒体/我给客户的服务流程\n[动作] 写进原始输出："
+    parsed = anna.parse_reply(text)
+    assert "<原始输出>" not in parsed["text"] and "## Section 1：原始输出" in parsed["text"]
+    assert [(a["kind"], a["arg"]) for a in parsed["actions"]] == [("raw", "自媒体/我给客户的服务流程")]
+    assert parsed["actions"][0]["body"].startswith("# 我给客户的服务流程") and "三步走" in parsed["actions"][0]["body"]
+    assert anna.parse_reply("[动作] 写进原始输出：自媒体/空的")["actions"] == []  # 没给整篇：不给按钮
+
+    vault = tmp_path / "vault"
+    (vault / anna.RAW_FOLDER / "自媒体").mkdir(parents=True)
+    first = anna.save_raw(vault, "自媒体/我给客户的服务流程", "# 正文")
+    assert first == vault / anna.RAW_FOLDER / "自媒体" / "我给客户的服务流程.md" and first.read_text(encoding="utf-8") == "# 正文\n"
+    assert anna.save_raw(vault, "自媒体/我给客户的服务流程", "# 第二版").name == "我给客户的服务流程-2.md"  # 不覆盖
+    assert anna.save_raw(vault, "没有这个目录/一篇", "x").parent == vault / anna.RAW_FOLDER  # 不存在的子目录：放根下
+    assert anna.save_raw(vault, "../../etc/passwd", "x").parent == vault / anna.RAW_FOLDER  # 跳不出去
+    with pytest.raises(anna.AnnaError):
+        anna.save_raw(vault, "自媒体/空", "  ")
