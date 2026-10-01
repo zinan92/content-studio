@@ -237,12 +237,11 @@ def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
 
 
 def codex_runner(text: str, cwd: Path) -> None:
-    from .illustrate import IllustrateError, codex_bin
+    from .illustrate import IllustrateError, codex_exec
 
     try:
         # stdin 必须关掉：codex exec 看到 stdin 开着会一直等输入（9/29 在终端里卡了 10 分钟）
-        done = subprocess.run([codex_bin(), "exec", "--skip-git-repo-check", "-s", "workspace-write", text],
-                              cwd=str(cwd), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
+        done = subprocess.run(codex_exec(text), cwd=str(cwd), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=TIMEOUT_SECONDS)
     except IllustrateError as exc:
         raise CoverError(str(exc).replace("配不了图", "出不了封面")) from exc
     except subprocess.TimeoutExpired as exc:

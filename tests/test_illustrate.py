@@ -43,3 +43,15 @@ def test_no_plan_is_an_error(tmp_path: Path) -> None:
     article.write_text(ARTICLE, encoding="utf-8")
     with pytest.raises(il.IllustrateError, match="plan.json"):
         il.illustrate(article, runner=lambda text, cwd: None)
+
+
+def test_codex_model_is_pinned_not_taken_from_the_machine_default(monkeypatch) -> None:
+    """10/1：本机 Codex 默认模型被改成账号用不了的那个，出封面、配插图全挂。命令里写死模型。"""
+    from content_studio import illustrate
+
+    monkeypatch.setattr(illustrate, "codex_bin", lambda: "/bin/codex")
+    monkeypatch.delenv("CONTENT_STUDIO_CODEX_MODEL", raising=False)
+    cmd = illustrate.codex_exec("画")
+    assert cmd[:4] == ["/bin/codex", "exec", "-m", "gpt-6.1-sol"] and cmd[-1] == "画"
+    monkeypatch.setenv("CONTENT_STUDIO_CODEX_MODEL", "gpt-6-astra")
+    assert illustrate.codex_exec("画")[3] == "gpt-6-astra"

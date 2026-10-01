@@ -33,6 +33,8 @@ ENV_MAP: dict[str, tuple[str, str]] = {
     "skills.koubo": ("CONTENT_STUDIO_KOUBO_SKILL", "~/.agents/skills/ask-park-video"),
     "skills.gzh_design": ("CONTENT_STUDIO_GZH_SKILL", "~/.claude/skills/gzh-design"),
     "skills.shots": ("CONTENT_STUDIO_SHOTS", "~/.agents/skills/video-shotcraft/references/shots"),
+    # 出封面、配插图用的 Codex 模型（10/1 Park：固定用 gpt-6.1-sol；不跟着本机 ~/.codex/config.toml 的默认值变）
+    "codex.model": ("CONTENT_STUDIO_CODEX_MODEL", "gpt-6.1-sol"),
     # 「检查更新」拉哪个分支；客户装机时填 stable（Park 挑好的版本），Park 自己是 main
     "update.branch": ("CONTENT_STUDIO_UPDATE_BRANCH", "main"),
     "update.remote": ("CONTENT_STUDIO_UPDATE_REMOTE", "origin"),
