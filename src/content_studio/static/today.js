@@ -137,7 +137,10 @@ function monthCell(c) {
     ...c.planned.filter((n) => !n.done).slice(0, 1).map((n) => `<span class="wk-l ${c.state === 'past' ? 'late' : 'plan'}" title="${esc(n.text)}">${c.state === 'past' ? '没拍' : '拍'}：${esc(n.text)}</span>`),
     ...(c.items.some((it) => !it.done) ? [`<span class="wk-l item">· ${c.items.filter((it) => !it.done).length} 件别的事</span>`] : []),
   ];
-  return `<button type="button" class="mo-day ${c.state} ${c.in_month ? '' : 'out'} ${TD.sel === c.day ? 'sel' : ''}" data-wk-day="${c.day}" aria-pressed="${TD.sel === c.day}">
+  // 10/1 Park：过去的一天整格上色——没减分或只减 1 分算合格（绿），减 2 分及以上不合格（红）。还没开始算分的日子不上色。
+  const scored = c.state === 'past' && KPI_MARK.some(([f]) => c[f] === 'ok' || c[f] === 'miss');
+  const verdict = scored ? (c.demerits >= 2 ? 'mo-fail' : 'mo-pass') : '';
+  return `<button type="button" class="mo-day ${c.state} ${verdict} ${c.in_month ? '' : 'out'} ${TD.sel === c.day ? 'sel' : ''}" data-wk-day="${c.day}" aria-pressed="${TD.sel === c.day}">
     <span class="wk-d"><b>${Number(c.day.slice(8))}</b>${score}</span>${marks}${lines.join('')}</button>`;
 }
 
@@ -177,7 +180,7 @@ function monthBlock(m, w, streak, notes) {
     <div class="wk-h"><span class="wk-nav"><button type="button" class="btn small" data-mo-go="${m.prev}" aria-label="上个月">‹</button><b>${y} 年 ${mo} 月</b><button type="button" class="btn small" data-mo-go="${m.next}" aria-label="下个月">›</button>${m.current ? '' : '<button type="button" class="btn small quiet" data-mo-go="">回到这个月</button>'}</span>
       <span class="wk-sum">${sum}</span></div>
     <div class="mo-grid">${['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((x) => `<span class="mo-dow">${x}</span>`).join('')}${days.map(monthCell).join('')}</div>
-    ${sel ? dayPanel(sel, notes) : '<p class="td-note wk-hint">点某一天：过去的看那天的账和发到了哪些平台，今天和以后的排拍哪条、加别的事。格子里的字母是平台：视频号、红（小红书）、X、B 站、Y（YouTube）、公众号。</p>'}
+    ${sel ? dayPanel(sel, notes) : '<p class="td-note wk-hint">绿色是合格（没减分或只减 1 分），红色是减了 2 分以上。点某一天：过去的看那天的账和发到了哪些平台，今天和以后的排拍哪条、加别的事。格子里的字母是平台：视频号、红（小红书）、X、B 站、Y（YouTube）、公众号。</p>'}
   </section>`;
 }
 
