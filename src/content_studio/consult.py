@@ -461,6 +461,8 @@ def note_path(folder: Path, day: date) -> Path:
 PROFILE = "客户档案.md"
 # 做咨询时照着过的那一页：010_咨询/诊断流程.md。Park 在 Obsidian 里改，工作台只读出来给他看。
 PLAYBOOK = "诊断流程.md"
+# 加微信的人问「能不能陪跑」时发的统一话术：010_咨询/统一话术.md，一条话术一个「## 标题」，工作台每条配一个复制按钮。
+SCRIPTS = "统一话术.md"
 PROFILE_FIELDS = ("来源", "首次咨询收费", "画像", "微信名", "后续方案", "报价")
 
 
@@ -533,9 +535,9 @@ def client_files(home: Path) -> list[dict[str, Any]]:
     return out
 
 
-def playbook(vault: Path) -> dict[str, Any]:
-    """诊断流程那一页的原文；还没写就是空的，页面上提示去 Obsidian 建。"""
-    path = vault / FOLDER / PLAYBOOK
+def playbook(vault: Path, name: str = PLAYBOOK) -> dict[str, Any]:
+    """诊断流程 / 统一话术那一页的原文；还没写就是空的，页面上提示去 Obsidian 建。"""
+    path = vault / FOLDER / name
     markdown = path.read_text(encoding="utf-8") if path.is_file() else ""
     return {"path": str(path), "markdown": markdown}
 

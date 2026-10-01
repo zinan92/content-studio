@@ -1557,6 +1557,17 @@ def test_consult_playbook_is_read_from_the_vault_each_time(client: TestClient, t
     assert client.get("/api/clients").json()["clients"] == []
 
 
+def test_consult_scripts_sit_next_to_the_playbook(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    assert client.get("/api/consults/scripts").json()["markdown"] == ""
+    home = tmp_path / "vault-default" / consult.FOLDER
+    home.mkdir(parents=True, exist_ok=True)
+    (home / consult.SCRIPTS).write_text("# 统一话术\n\n## 1. 有人问能不能陪跑\n\n先聊一次。\n", encoding="utf-8")
+    doc = client.get("/api/consults/scripts").json()
+    assert "能不能陪跑" in doc["markdown"] and doc["path"].endswith(f"{consult.FOLDER}/{consult.SCRIPTS}")
+    assert client.get("/api/clients").json()["clients"] == []
+
+
 def test_brand_defaults_to_park_and_logo_is_optional(client: TestClient) -> None:
     brand = client.get("/api/state").json()["brand"]
     assert brand["name"] == "帕克动手" and brand["slogan"] == "企业家的 AI 产品经理" and brand["logo"] == ""

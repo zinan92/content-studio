@@ -1830,6 +1830,16 @@ def create_app(
         doc = consult.playbook(vault.vault_root(vault_path()))
         return {**doc, "obsidian": "obsidian://open?path=" + quote(doc["path"])}
 
+    @app.get("/api/consults/scripts")
+    def consult_scripts() -> dict[str, Any]:
+        """回微信用的「统一话术」：vault 010_咨询/统一话术.md，每次打开都重新读。"""
+        from urllib.parse import quote
+
+        from . import consult
+
+        doc = consult.playbook(vault.vault_root(vault_path()), consult.SCRIPTS)
+        return {**doc, "obsidian": "obsidian://open?path=" + quote(doc["path"])}
+
     @app.post("/api/consults")
     async def post_consult(request: Request) -> dict[str, Any]:
         from . import consult

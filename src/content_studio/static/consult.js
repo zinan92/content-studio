@@ -124,12 +124,50 @@ async function openPlaybook() {
   } catch (err) { body.innerHTML = `<p class="cl-none">${esc(err.message)}</p>`; }
 }
 
+/* 统一话术：回微信用的几段固定说法（vault 010_咨询/统一话术.md）。一个「## 标题」是一条，每条一个复制按钮，
+ * 复制出来的是去掉 Markdown 记号的纯文字，直接粘进微信。 */
+function scriptSections(md) {
+  const out = [];
+  let cur = null;
+  for (const line of md.split('\n')) {
+    if (line.startsWith('## ')) { cur = { title: line.slice(3).trim(), lines: [] }; out.push(cur); }
+    else if (cur) cur.lines.push(line);
+  }
+  return out.map((x) => ({ title: x.title, md: x.lines.join('\n').trim() }));
+}
+function scriptPlain(md) {
+  return md.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n')
+    .replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[-*] /gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+async function openScripts() {
+  const body = $('#scriptsBody');
+  body.innerHTML = '<p class="cl-none">正在读…</p>';
+  $('#scriptsDlg').showModal();
+  try {
+    const d = await api('/api/consults/scripts');
+    $('#scriptsEdit').href = d.obsidian;
+    const secs = scriptSections(d.markdown || '');
+    body._secs = secs;
+    body.innerHTML = secs.length
+      ? secs.map((x, i) => `<section class="sc-item"><div class="sc-h"><h3>${esc(x.title)}</h3><button class="btn small primary" type="button" data-sc-copy="${i}">复制</button></div><div class="md">${renderMarkdown(x.md)}</div></section>`).join('')
+      : `<p class="cl-none">还没有话术。在 Obsidian 里建 ${esc(d.path)}，一条话术写一个「## 标题」。</p>`;
+    body.scrollTop = 0;
+  } catch (err) { body.innerHTML = `<p class="cl-none">${esc(err.message)}</p>`; }
+}
+
 window.VIEWS.consults = { render: renderClients };
 
 document.addEventListener('DOMContentLoaded', () => {
   $('#consultUpload').onclick = openConsult;
   $('#playbookOpen').onclick = openPlaybook;
   $('#playbookClose').onclick = () => $('#playbookDlg').close();
+  $('#scriptsOpen').onclick = openScripts;
+  $('#scriptsClose').onclick = () => $('#scriptsDlg').close();
+  $('#scriptsBody').addEventListener('click', async (e) => {
+    const i = e.target.dataset && e.target.dataset.scCopy;
+    if (i === undefined) return;
+    try { await navigator.clipboard.writeText(scriptPlain($('#scriptsBody')._secs[+i].md)); toast('已复制，粘进微信就行'); } catch (err) { toast('复制失败：' + err.message); }
+  });
   $('#csCancel').onclick = () => $('#consultDlg').close();
   $('#clientsBody').addEventListener('change', (e) => { if (e.target.matches('.cl-in')) saveClientField(e.target); });
   $('#clientsBody').addEventListener('click', async (e) => {
