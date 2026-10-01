@@ -144,18 +144,73 @@ function annaMessage(m, scope) {
   return `<div class="an-msg from-anna"><div class="an-bubble md">${renderMarkdown(m.text || '')}</div>${acts ? `<div class="an-acts" data-an-scope="${esc(at)}">${acts}</div>` : ''}<small>Anna · ${annaTime(m.at)}${where}</small></div>`;
 }
 
+/* ---- Wendy：「今天」和「我是谁」两页，右边这个窗口是她（10/1 Park：「Wendy 是否能也像 Anna 一样放在右边」）。
+ *      和 Anna 同一个窗口、同一套拖动和大小；按页面换人，不同时出现两个。「现在做这一件」留在「今天」页最上面。 ---- */
+const WDP = { open: (() => { try { const saved = localStorage.getItem('cs-wendy'); return saved ? saved === 'open' : window.innerWidth > 900; } catch (_) { return window.innerWidth > 900; } })(), data: null, poll: null, draft: '' };
+
+async function renderWendyPanel(box) {
+  const page = S.view === 'positioning' ? 'positioning' : 'today';
+  try { WDP.data = await api('/api/wendy'); } catch (err) { box.innerHTML = `<div class="an-h"><b>Wendy</b></div><div class="an-empty bad">${esc(err.message)}</div>`; return; }
+  if (document.activeElement && box.contains(document.activeElement) && document.activeElement.matches('textarea') && !WDP.data.busy && !WDP.pending) return;
+  const w = WDP.data;
+  const pos = page === 'positioning';
+  const wasScrolled = $('#wdList') && $('#wdList').scrollTop + $('#wdList').clientHeight >= $('#wdList').scrollHeight - 40;
+  const draft = $('#wdIn') ? $('#wdIn').value : WDP.draft;
+  const list = w.messages.length ? w.messages.map((m) => wdMsg(m, false)).join('')
+    : '<div class="an-empty"><p>我是 Wendy，你的老板。早上 9:45 和晚上 22:30 我会来；三小时没动静我去微信找你。现在想说什么就说。</p></div>';
+  box.innerHTML = `<div class="an-h"><div><b>Wendy</b><span class="an-role wd-role">你的老板</span></div><small class="an-where">${pos ? '在「我是谁」：聊方向，你拍板，她提案、守住' : '在「今天」：盯你做没做到'}${w.nudges.length ? ` · 今天在微信催过你 ${w.nudges.length} 次` : ''}</small>
+      <div class="an-tools"><button class="btn small" type="button" id="wdClose" title="收起窗口，需要时再叫她">去忙吧</button></div></div>
+    <div class="an-list" id="wdList">${list}${w.busy ? '<div class="an-msg from-anna"><div class="an-bubble an-wait"><span class="spin"></span>Wendy 在看工作台…</div></div>' : ''}${w.error && !w.busy ? `<div class="an-msg from-anna"><div class="an-bubble bad">${esc(w.error)}</div></div>` : ''}</div>
+    <form class="an-form" id="wdForm"><textarea id="wdIn" rows="2" placeholder="${pos ? '跟她聊方向：三问里哪一问还不够窄、我到底该卖什么…' : '回她一句：几点做、为什么没做、做完了…'}（回车发送）">${esc(draft)}</textarea>
+      <div class="wd-send"><button class="btn primary" type="submit" ${w.busy ? 'disabled' : ''}>${pos ? '问她' : '回她'}</button><button class="linklike" type="button" id="wdLook" ${w.busy ? 'disabled' : ''}>${pos ? '让她看一眼这一页' : '让她看一眼现在'}</button></div></form>
+    <i class="an-edge w" data-an-edge="w"></i><i class="an-edge e" data-an-edge="e"></i><i class="an-edge n" data-an-edge="n"></i><i class="an-edge s" data-an-edge="s"></i>
+    <i class="an-edge nw" data-an-edge="nw"></i><i class="an-edge sw" data-an-edge="sw"></i><i class="an-edge ne" data-an-edge="ne"></i><i class="an-edge se" data-an-edge="se"></i>`;
+  bindAnnaWindow(box);
+  const listEl = $('#wdList');
+  if (wasScrolled || !WDP.rendered) listEl.scrollTop = listEl.scrollHeight;
+  WDP.rendered = true;
+  $('#wdClose').onclick = () => { WDP.open = false; try { localStorage.setItem('cs-wendy', 'closed'); } catch (_) { /* ignore */ } renderAnna(); };
+  const say = async (message) => {
+    WDP.pending = true;
+    try { const r = await api('/api/wendy', { method: 'POST', body: { message, page } }); if (!r.started) toast(r.message); } catch (err) { toast(err.message); }
+    WDP.pending = false;
+    renderAnna();
+    if (page === 'today' && window.VIEWS.today) { const tb = $('#todayBody'); if (tb) tb.dataset.sig = ''; window.VIEWS.today.render(); }
+  };
+  const input = $('#wdIn');
+  input.oninput = () => { WDP.draft = input.value; };
+  input.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#wdForm').requestSubmit(); } };
+  $('#wdForm').onsubmit = (e) => { e.preventDefault(); const text = input.value.trim(); if (!text || w.busy) return; input.value = ''; WDP.draft = ''; say(text); };
+  $('#wdLook').onclick = () => say('');
+  clearTimeout(WDP.poll);
+  if (w.busy) WDP.poll = setTimeout(() => { if (WDP.open && ['today', 'positioning'].includes(S.view)) renderAnna(); }, 3000);
+}
+
+window.openWendy = (prefill) => {
+  WDP.open = true;
+  try { localStorage.setItem('cs-wendy', 'open'); } catch (_) { /* ignore */ }
+  renderAnna();
+  setTimeout(() => { const i = $('#wdIn'); if (i) { if (prefill && !i.value) i.value = prefill; i.focus(); } }, 300);
+};
+
 async function renderAnna() {
   const box = $('#anna');
   if (!box) return;
-  // 10/1 Park：「今天」和「我是谁、找到谁、卖什么」是 Wendy 的页，Anna 不出现；她在进项到发布那几页。
+  // 10/1 Park：「今天」和「我是谁、找到谁、卖什么」是 Wendy 的页，Anna 不出现；她在进项到发布那几页。右边的窗口按页面换人。
   const wendyPage = ['today', 'positioning'].includes(S.view);
   const railW = $('#railWendy');
   $('#railAnna').hidden = wendyPage;
-  if (railW) railW.hidden = !wendyPage;
-  document.body.classList.toggle('anna-open', AN.open && !wendyPage);
+  if (railW) { railW.hidden = !wendyPage; railW.classList.toggle('on', WDP.open); }
+  const open = wendyPage ? WDP.open : AN.open;
+  document.body.classList.toggle('anna-open', open);
   $('#railAnna').classList.toggle('on', AN.open);
-  box.hidden = !AN.open || wendyPage;
-  if (!AN.open || wendyPage) { clearTimeout(AN.poll); return; }
+  box.hidden = !open;
+  box.classList.toggle('wd-panel', wendyPage);
+  box.setAttribute('aria-label', wendyPage ? 'Wendy' : 'Anna');
+  if (wendyPage) { clearTimeout(AN.poll); AN.rendered = false; AN.scope = null; if (open) await renderWendyPanel(box); else clearTimeout(WDP.poll); return; }
+  clearTimeout(WDP.poll);
+  WDP.rendered = false;
+  if (!AN.open) { clearTimeout(AN.poll); return; }
   const scope = annaScope();
   if (AN.scope !== scope || !AN.data) {
     if ($('#anIn')) AN.draft.main = $('#anIn').value;
@@ -220,7 +275,7 @@ window.openAnna = (prefill) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   const wendy = $('#railWendy');
-  if (wendy) wendy.onclick = () => { const card = $('.view.on .wd') || $('.wd'); if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); const i = $('input', card); if (i) i.focus({ preventScroll: true }); } };
+  if (wendy) wendy.onclick = () => { WDP.open = !WDP.open; try { localStorage.setItem('cs-wendy', WDP.open ? 'open' : 'closed'); } catch (_) { /* ignore */ } renderAnna(); if (WDP.open) setTimeout(() => { const i = $('#wdIn'); if (i) i.focus(); }, 300); };
   const btn = $('#railAnna');
   if (btn) btn.onclick = () => { AN.open = !AN.open; try { localStorage.setItem('cs-anna', AN.open ? 'open' : 'closed'); } catch (_) { /* ignore */ } renderAnna(); if (AN.open) setTimeout(() => { const i = $('#anIn'); if (i) i.focus(); }, 50); };
 });
