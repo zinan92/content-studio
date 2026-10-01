@@ -133,3 +133,22 @@ def test_card_asks_first_then_walks_him_through_the_path_he_chose() -> None:
     assert driver.now_item({**t, "out": {"mode": None, "cells": []}})["text"] == "拍「接了一单咨询」"  # 没有能补的：只有一条路
     # 补发的格子都发完了：今天算出摊，不再让他去拍
     assert driver.now_item({**t, "days": [{"ship": "ok", "dm": "ok", "xr": "ok"}], "out": {"mode": "backfill", "cells": cells}}) is None
+
+
+def test_on_the_positioning_page_she_gets_his_positioning_and_talks_direction() -> None:
+    today_talk = wendy.compose("今天的账", [], "今晚不拍了")
+    assert "<定位>" not in today_talk and "Park：今晚不拍了" in today_talk
+    north_talk = wendy.compose("今天的账", [], "我到底卖什么", north="## 三、我卖给客户什么\n商业诊断，然后由我做出来。")
+    assert north_talk.index("<定位>") < north_talk.index("<工作台>") and "商业诊断" in north_talk and "定方向模式" in north_talk
+    assert "哪一问现在最不清楚" in wendy.compose("账", [], "", north="三问")  # 没说话点「让她看一眼」：说定位，不说今天做哪件
+
+
+def test_a_reply_from_the_positioning_page_reaches_her_with_the_page(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    assert client.post("/api/wendy", json={"message": "我到底卖什么", "page": "positioning"}).json()["started"]
+    for _ in range(50):
+        card = client.get("/api/wendy").json()
+        if not card["busy"]:
+            break
+        time.sleep(0.05)
+    assert card["error"] is None and [m["who"] for m in card["messages"][-2:]] == ["park", "wendy"]

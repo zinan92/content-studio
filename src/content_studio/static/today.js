@@ -1,5 +1,5 @@
 'use strict';
-/* 今天：最上面是周历（9/30 Park：「plan not just for one day, I can plan for the whole week」「每天扣了多少分，
+/* 今天：最上面是月历（10/1 起，原来是周历）（9/30 Park：「plan not just for one day, I can plan for the whole week」「每天扣了多少分，
  * I'm not even keeping count」），下面是 ABC 几件事（逻辑在 driver.py）。
  * 周历：过去的日子看算分的几项做没做到、减几分、发了哪条；今天和以后排哪天拍哪条、加不算分的事。排哪条只由他定。
  * 做完的行收成一行，补发默认收起；每行原来那串 7 天小圆点拿掉了，周历里有。
@@ -9,7 +9,7 @@
  * 拍什么他定：「接下来要拍的」收在 A 里面；只有他点「我今天不知道拍什么」才建议。 */
 window.VIEWS = window.VIEWS || {};
 
-const TD = { data: null, poll: null, skipOpen: false, bfOpen: null, prev: null, bfAll: false, week: null, weekStart: null, sel: null, openRows: new Set(), wendy: null, wdOlder: false };
+const TD = { data: null, poll: null, skipOpen: false, bfOpen: null, prev: null, bfAll: false, month: null, monthStart: null, sel: null, openRows: new Set(), wendy: null, wdOlder: false };
 
 async function loadToday() { TD.data = await api('/api/today'); return TD.data; }
 window.refreshTodayBadge = async () => { try { await loadToday(); } catch (_) { /* ignore */ } paintTodayBadge(); };
@@ -43,26 +43,55 @@ function wdMsg(m, clip) {
   return `<div class="wd-m ${m.who === 'park' ? 'me' : ''} ${clip ? 'clip' : ''}"><small>${where} · ${wdWhen(m.at)}</small><p>${esc(m.text)}</p></div>`;
 }
 
+/* 卡片上的回复框、「让她看一眼」、「看之前的」：今天页和定位页共用。page 告诉她你在哪一页回的她。 */
+function bindWendy(root, page, redraw) {
+  const say = async (message) => {
+    try { const r = await api('/api/wendy', { method: 'POST', body: { message, page } }); if (!r.started) toast(r.message); } catch (err) { toast(err.message); }
+    redraw();
+  };
+  const form = $('[data-wd-form]', root);
+  if (form) {
+    form.onsubmit = (e) => { e.preventDefault(); const i = $('input', form); const text = i.value.trim(); if (!text) return; i.value = ''; i.blur(); say(text); };
+    $('[data-wd-look]', root).onclick = () => say('');
+  }
+  $$('[data-wd-older]', root).forEach((b) => (b.onclick = () => { TD.wdOlder = !TD.wdOlder; redraw(); }));
+}
+
+/* 定位页最上面也放她（10/1 Park：Wendy 在「今天」和「我是谁、找到谁、卖什么」；Anna 在进项到发布那几页） */
+window.mountWendy = async (el, page) => {
+  if (!el) return;
+  const draw = async () => {
+    if (document.activeElement && el.contains(document.activeElement) && document.activeElement.matches('input')) return;
+    let w;
+    try { w = await api('/api/wendy'); } catch (err) { el.innerHTML = ''; return; }
+    el.innerHTML = wendyCard(w, page);
+    bindWendy(el, page, draw);
+    if (w.busy) setTimeout(() => { if (document.body.contains(el)) draw(); }, 3000);
+  };
+  draw();
+};
+
 /* 现在在哪个阶段（9/30 Park：追平——发送连贯起来，过去没发的都发出去） */
 function stageLine(st) {
   if (!st) return '';
   return `<span class="wd-stage ${st.done ? 'done' : ''}" title="出关：旧内容清完，并且连续出摊 ${st.streak_target} 天。下一阶段：${esc(st.next)}">${esc(st.label)}阶段 · 旧内容还剩 <b>${st.backlog}</b> 格 · 连续出摊 <b>${st.streak}</b>/${st.streak_target} 天${st.done ? ' · 可以出关了' : ''}</span>`;
 }
 
-function wendyCard(w) {
+function wendyCard(w, page = 'today') {
   if (!w) return '';
+  const pos = page === 'positioning';  // 定位页：聊方向，不放「现在做这一件」
   const n = w.now;
   let act = '';
   if (n) act = ['rd', 'dm', 'xr'].includes(n.row) ? `<div class="btns"><button class="btn go" type="button" data-wd-row="${n.row}">去做 ↓</button></div>` : actionButtons(n);
   const msgs = w.messages, shown = TD.wdOlder ? msgs : msgs.slice(-2);  // 平时只看最近两条，最新那条完整显示
   return `<section class="wd">
-    <div class="wd-h"><span class="wd-av">W</span><b>Wendy</b><small>你的老板 · 盯你做没做到</small>${stageLine(TD.data && TD.data.stage)}${w.nudges.length ? `<span class="wd-nudged">今天在微信催过你 ${w.nudges.length} 次</span>` : ''}</div>
-    <div class="wd-now"><span class="k">现在做这一件</span>${n ? `<b>${esc(n.text)}</b>${n.why ? `<small>${esc(n.why)}</small>` : ''}${act}` : '<b>今天算分的事都做完了。</b><small>明天拍哪条，在下面的周历里排上。</small>'}</div>
+    <div class="wd-h"><span class="wd-av">W</span><b>Wendy</b><small>${pos ? '你的老板 · 方向你拍板，她提案、守住' : '你的老板 · 盯你做没做到'}</small>${pos ? '' : stageLine(TD.data && TD.data.stage)}${!pos && w.nudges.length ? `<span class="wd-nudged">今天在微信催过你 ${w.nudges.length} 次</span>` : ''}</div>
+    ${pos ? '' : `<div class="wd-now"><span class="k">现在做这一件</span>${n ? `<b>${esc(n.text)}</b>${n.why ? `<small>${esc(n.why)}</small>` : ''}${act}` : '<b>今天算分的事都做完了。</b><small>明天拍哪条，在上面的月历里排上。</small>'}</div>`}
     <div class="wd-thread">${msgs.length > 2 ? `<button type="button" class="linklike wd-older" data-wd-older>${TD.wdOlder ? '只看最近两条' : `看之前的 ${msgs.length - 2} 条`}</button>` : ''}
       ${shown.map((m, i) => wdMsg(m, !TD.wdOlder && i < shown.length - 1)).join('') || '<p class="td-note">她还没说过话。早上 9:45 和晚上 22:30 她会来；你也可以现在让她看一眼。</p>'}
       ${w.busy ? '<p class="td-note"><span class="spin"></span> Wendy 在看工作台…不到一分钟</p>' : ''}${w.error ? `<p class="td-note warn">${esc(w.error)}</p>` : ''}</div>
-    <form class="wd-form" id="wdForm"><input id="wdText" maxlength="2000" placeholder="回她一句：几点做、为什么没做、做完了…" autocomplete="off" ${w.busy ? 'disabled' : ''}>
-      <button class="btn go" type="submit" ${w.busy ? 'disabled' : ''}>回她</button><button class="btn quiet" type="button" id="wdLook" ${w.busy ? 'disabled' : ''}>让她看一眼现在</button></form>
+    <form class="wd-form" data-wd-form><input maxlength="2000" placeholder="${pos ? '跟她聊方向：三问里哪一问还不够窄、我到底该做什么…' : '回她一句：几点做、为什么没做、做完了…'}" autocomplete="off" ${w.busy ? 'disabled' : ''}>
+      <button class="btn go" type="submit" ${w.busy ? 'disabled' : ''}>${pos ? '问她' : '回她'}</button><button class="btn quiet" type="button" data-wd-look ${w.busy ? 'disabled' : ''}>${pos ? '让她看一眼这一页' : '让她看一眼现在'}</button></form>
   </section>`;
 }
 
@@ -77,18 +106,21 @@ function streakText(s) {
   return s.kind === 'ok' ? `连续出摊 <b class="ok">${s.days}</b> 天` : `连续 <b>${s.days}</b> 天没出摊`;
 }
 
-function weekCell(c) {
-  const marks = c.state === 'future' ? '' : `<span class="wk-marks">${KPI_MARK.map(([f, ch, name]) => `<i class="${c[f] === 'n/a' ? 'na' : c[f]}" title="${name}：${MARK_TIP[c[f]]}">${ch}</i>`).join('')}</span>`;
+const PF_SHORT = { channels: '视', xiaohongshu: '红', x: 'X', bilibili: 'B', youtube: 'Y', wechat_mp: '公', miniprogram: '程', xiaoyuzhou: '宙' };
+
+/* 月历的一格：过去的日子——四项做没做到、减几分、发了什么、发到了哪些平台；以后的日子——排了拍哪条 */
+function monthCell(c) {
+  const marks = c.state === 'future' ? '' : `<span class="mo-marks">${KPI_MARK.map(([f, ch, name]) => `<i class="${c[f] === 'n/a' ? 'na' : c[f]}" title="${name}：${MARK_TIP[c[f]]}">${ch}</i>`).join('')}</span>`;
   const score = c.state === 'today' ? '<span class="wk-score now">今天</span>' : c.demerits ? `<span class="wk-score bad">−${c.demerits}</span>` : c.state === 'past' && KPI_MARK.some(([f]) => c[f] === 'ok') ? '<span class="wk-score ok">✓</span>' : '';
+  const where = [...new Set(c.sent.map((x) => x.platform))];
   const lines = [
-    ...c.shipped.map((t) => `<span class="wk-l out" title="${esc(t)}">发了：${esc(t)}</span>`),
-    ...(c.backfilled ? ['<span class="wk-l out">补发完成</span>'] : []),
-    ...c.planned.filter((n) => !n.done).map((n) => `<span class="wk-l ${c.state === 'past' ? 'late' : 'plan'}" title="${esc(n.text)}">${c.state === 'past' ? '排了没拍' : '拍'}：${esc(n.text)}</span>`),
-    ...c.items.map((it) => `<span class="wk-l item ${it.done ? 'done' : ''}" title="${esc(it.text)}">${it.done ? '✓' : '·'} ${esc(it.text)}</span>`),
+    ...c.shipped.slice(0, 1).map((t) => `<span class="wk-l out" title="${esc(c.shipped.join('；'))}">新：${esc(t)}</span>`),
+    ...(where.length ? [`<span class="mo-sent" title="${esc(c.sent.map((x) => `${x.label}：${x.title}`).join('\n'))}">${c.backfilled ? '补' : '发'} ${where.map((k) => `<i>${PF_SHORT[k] || k.slice(0, 1)}</i>`).join('')}</span>`] : c.backfilled ? ['<span class="wk-l out">补发完成</span>'] : []),
+    ...c.planned.filter((n) => !n.done).slice(0, 1).map((n) => `<span class="wk-l ${c.state === 'past' ? 'late' : 'plan'}" title="${esc(n.text)}">${c.state === 'past' ? '没拍' : '拍'}：${esc(n.text)}</span>`),
+    ...(c.items.some((it) => !it.done) ? [`<span class="wk-l item">· ${c.items.filter((it) => !it.done).length} 件别的事</span>`] : []),
   ];
-  if (!lines.length && c.state !== 'past') lines.push('<span class="wk-l none">还没排拍哪条</span>');
-  return `<button type="button" class="wk-day ${c.state} ${TD.sel === c.day ? 'sel' : ''}" data-wk-day="${c.day}" aria-pressed="${TD.sel === c.day}">
-    <span class="wk-d"><small>${dow(c.day)}</small><b>${Number(c.day.slice(8))}</b>${score}</span>${marks}${lines.join('')}</button>`;
+  return `<button type="button" class="mo-day ${c.state} ${c.in_month ? '' : 'out'} ${TD.sel === c.day ? 'sel' : ''}" data-wk-day="${c.day}" aria-pressed="${TD.sel === c.day}">
+    <span class="wk-d"><b>${Number(c.day.slice(8))}</b>${score}</span>${marks}${lines.join('')}</button>`;
 }
 
 /* 点开某一天：过去的日子看那天的账；今天和以后排拍哪条、加不算分的事 */
@@ -104,25 +136,30 @@ function dayPanel(c, notes) {
       xr: c.xr_count != null ? `：${c.xr_count} 条` : c.xr === 'miss' ? '（没填数）' : '' };
     return `<div class="wk-panel"><div class="wk-ph">${title}<span class="wk-score ${c.demerits ? 'bad' : 'ok'}">${c.demerits ? `这天减 ${c.demerits} 分` : '这天没减分'}</span></div>
       <div class="wk-cols"><div class="wk-col"><h4>那天的账</h4>${KPI_MARK.map(([f, , name]) => `<p class="wk-res ${c[f] === 'n/a' ? 'na' : c[f]}"><b>${name}</b>${RES[c[f]]}${det[f]}</p>`).join('')}
+        ${(c.sent || []).map((x) => `<p class="wk-res ok"><b>${esc(x.label)}</b>《${esc(x.title)}》${x.marked ? '（标的已发）' : ''}</p>`).join('')}
         ${c.planned.filter((n) => !n.done).map((n) => `<p class="wk-res miss"><b>排了没拍</b>${esc(n.text)}</p>`).join('')}
         ${c.skips.map((k) => `<p class="wk-res na"><b>跳过</b>${esc(k.what)}：${esc(k.reason || '')}</p>`).join('')}</div>${items}</div></div>`;
   }
   const free = notes.filter((n) => !n.planned_day);
   const planned = c.planned.map((n) => `<span class="wk-chip ${n.done ? 'done' : ''}">${esc(n.text)}${n.done ? '' : `<button type="button" class="linklike" data-wk-unplan="${n.id}" aria-label="不排在这天">×</button>`}</span>`).join('');
   return `<div class="wk-panel"><div class="wk-ph">${title}<span class="td-note">${c.state === 'today' ? '今天' : '排这一天'}</span></div>
-    <div class="wk-cols"><div class="wk-col"><h4>这天拍哪条 <small>你定</small></h4>${planned || '<p class="td-note">还没排。</p>'}
+    <div class="wk-cols"><div class="wk-col"><h4>这天拍哪条 <small>你定</small></h4>${planned || '<p class="td-note">还没排。</p>'}${(c.sent || []).length ? `<p class="td-note">这天已经发出去：${c.sent.map((x) => `${esc(x.label)}《${esc(x.title)}》`).join('、')}</p>` : ''}
       <form class="td-add" data-wk-plan="${c.day}"><input list="wkNotes" maxlength="200" placeholder="从「接下来要拍的」里挑一条，或者直接写一条新的，回车" autocomplete="off">
         <datalist id="wkNotes">${free.map((n) => `<option value="${esc(n.text)}"></option>`).join('')}</datalist></form></div>${items}</div></div>`;
 }
 
-function weekBlock(w, streak, notes) {
-  const sel = w.days.find((c) => c.day === TD.sel);
-  const sum = [w.ship_days ? `出摊 <b class="${w.shipped === w.ship_days ? 'ok' : ''}">${w.shipped}/${w.ship_days}</b> 天` : '', w.demerits ? `减 <b>${w.demerits}</b> 分` : w.ship_days ? '<b class="ok">没减分</b>' : '', w.new_target ? `新视频 <b class="${w.new_videos >= w.new_target ? 'ok' : ''}">${w.new_videos}/${w.new_target}</b> 条` : '', w.current ? streakText(streak) : ''].filter(Boolean).join(' · ');
+function monthBlock(m, w, streak, notes) {
+  const days = m.weeks.flatMap((x) => x.days);
+  const sel = days.find((c) => c.day === TD.sel);
+  // 右上角是这一周的账（周一到周日）：出摊几天、减几分、新视频几条、连续几天
+  const sum = [w.ship_days ? `本周出摊 <b class="${w.shipped === w.ship_days ? 'ok' : ''}">${w.shipped}/${w.ship_days}</b> 天` : '', w.demerits ? `减 <b>${w.demerits}</b> 分` : w.ship_days ? '<b class="ok">没减分</b>' : '',
+    w.new_target ? `新视频 <b class="${w.new_videos >= w.new_target ? 'ok' : ''}">${w.new_videos}/${w.new_target}</b> 条` : '', streakText(streak)].filter(Boolean).join(' · ');
+  const [y, mo] = m.month.split('-').map(Number);
   return `<section class="wk">
-    <div class="wk-h"><span class="wk-nav"><button type="button" class="btn small" data-wk-go="${w.prev}" aria-label="上一周">‹</button><b>${w.current ? '本周' : ''} ${md(w.start)} – ${md(w.end)}</b><button type="button" class="btn small" data-wk-go="${w.next}" aria-label="下一周">›</button>${w.current ? '' : '<button type="button" class="btn small quiet" data-wk-go="">回到本周</button>'}</span>
-      <span class="wk-sum">${sum || '这一周还没开始'}</span></div>
-    <div class="wk-grid">${w.days.map(weekCell).join('')}</div>
-    ${sel ? dayPanel(sel, notes) : '<p class="td-note wk-hint">点某一天：过去的看那天的账，今天和以后的排拍哪条、加别的事。</p>'}
+    <div class="wk-h"><span class="wk-nav"><button type="button" class="btn small" data-mo-go="${m.prev}" aria-label="上个月">‹</button><b>${y} 年 ${mo} 月</b><button type="button" class="btn small" data-mo-go="${m.next}" aria-label="下个月">›</button>${m.current ? '' : '<button type="button" class="btn small quiet" data-mo-go="">回到这个月</button>'}</span>
+      <span class="wk-sum">${sum}</span></div>
+    <div class="mo-grid">${['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((x) => `<span class="mo-dow">${x}</span>`).join('')}${days.map(monthCell).join('')}</div>
+    ${sel ? dayPanel(sel, notes) : '<p class="td-note wk-hint">点某一天：过去的看那天的账和发到了哪些平台，今天和以后的排拍哪条、加别的事。格子里的字母是平台：视频号、红（小红书）、X、B 站、Y（YouTube）、公众号。</p>'}
   </section>`;
 }
 
@@ -320,20 +357,18 @@ window.VIEWS.today = {
   async render() {
     const body = $('#todayBody');
     let d;
-    try { [d, TD.wendy] = await Promise.all([loadToday(), api('/api/wendy').catch(() => null)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    let month;
+    try { [d, TD.wendy, month] = await Promise.all([loadToday(), api('/api/wendy').catch(() => null), api(`/api/today/month${TD.monthStart ? `?start=${TD.monthStart}` : ''}`).catch(() => null)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     paintTodayBadge();
     $('#todayDay').textContent = `今天 · ${dayTitle(d.day)}`;
     const wd = d.week;
     $('#todayScore').textContent = '';  // 本周出摊几天、减几分、连续几天：都在周历右上角，这里不再重复
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox])')) return;
-    // 周历翻到了别的周：那一周单独取；本周就用「今天」带回来的那份
-    if (TD.weekStart && TD.weekStart !== wd.start) {
-      try { TD.week = await api(`/api/today/week?start=${TD.weekStart}`); } catch (err) { toast(err.message); TD.weekStart = null; TD.week = wd; }
-    } else { TD.weekStart = null; TD.week = wd; }
-    const sig = JSON.stringify([d, TD.wendy, TD.wdOlder, TD.week, TD.sel, [...TD.openRows], TD.skipOpen, TD.bfOpen, TD.prev && TD.prev.topic_id, TD.bfAll]);
+    if (month) TD.month = month;
+    const sig = JSON.stringify([d, TD.wendy, TD.wdOlder, TD.month, TD.sel, [...TD.openRows], TD.skipOpen, TD.bfOpen, TD.prev && TD.prev.topic_id, TD.bfAll]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
-    body.innerHTML = `${wendyCard(TD.wendy)}${weekBlock(TD.week, d.streak, d.ship.notes)}${firstBlock(d.first)}${readRow(d)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${backfillRow(d)}${wrapBlock(d)}
+    body.innerHTML = `${TD.month ? monthBlock(TD.month, d.week, d.streak, d.ship.notes) : ''}${wendyCard(TD.wendy)}${firstBlock(d.first)}${readRow(d)}${shipRow(d)}${dmRow(d)}${xrRow(d)}${backfillRow(d)}${wrapBlock(d)}
       <p class="td-note td-foot">触达是结果，不算你的分，在「已发出」里看：7 天平均 ${fmt(d.reach.avg7 || 0)} / 目标 ${fmt(d.reach.target)}（${esc(d.reach.by.slice(5).replace('-', '/'))} 前）。</p>`;
 
     $$('[data-td-go]', body).forEach((b) => (b.onclick = () => goHash(b.dataset.tdGo)));
@@ -349,18 +384,9 @@ window.VIEWS.today = {
       h.onclick = flip;
       h.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(e); } };
     });
-    const say = (message) => tdAct(async () => { const r = await api('/api/wendy', { method: 'POST', body: { message } }); if (!r.started) toast(r.message); });
-    const wdForm = $('#wdForm');
-    if (wdForm) {
-      wdForm.onsubmit = (e) => { e.preventDefault(); const i = $('#wdText'); const text = i.value.trim(); if (!text) return; i.value = ''; i.blur(); say(text); };
-      $('#wdLook').onclick = () => say('');
-    }
-    $$('[data-out-mode]', body).forEach((b) => (b.onclick = () => tdAct(() => api('/api/today/mode', { method: 'POST', body: { mode: b.dataset.outMode } }))));
-    $$('[data-cell-sent]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/cells/${b.dataset.cellSent}/sent`, { method: 'POST', body: { sent: b.dataset.on === '1' } }))));
-    $$('[data-cell-swap]', body).forEach((b) => (b.onclick = () => tdAct(() => api(`/api/today/cells/${b.dataset.cellSwap}/swap`, { method: 'POST' }))));
-    $$('[data-wd-older]', body).forEach((b) => (b.onclick = () => { TD.wdOlder = !TD.wdOlder; again(); }));
+    bindWendy(body, 'today', again);
     $$('[data-wd-row]', body).forEach((b) => (b.onclick = () => { const r = $(`[data-row="${b.dataset.wdRow}"]`, body); if (r) { r.scrollIntoView({ behavior: 'smooth', block: 'center' }); const f = $('input, button.go', r); if (f) f.focus({ preventScroll: true }); } }));
-    $$('[data-wk-go]', body).forEach((b) => (b.onclick = () => { TD.weekStart = b.dataset.wkGo || null; TD.sel = null; again(); }));
+    $$('[data-mo-go]', body).forEach((b) => (b.onclick = () => { TD.monthStart = b.dataset.moGo || null; TD.sel = null; again(); }));
     $$('[data-wk-day]', body).forEach((b) => (b.onclick = () => { TD.sel = TD.sel === b.dataset.wkDay ? null : b.dataset.wkDay; again(); }));
     $$('[data-wk-plan]', body).forEach((f) => (f.onsubmit = (e) => {
       e.preventDefault();

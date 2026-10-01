@@ -625,6 +625,17 @@ class StudioStore:
         )
         return {(r["platform"], r["post_id"]): r["views"] for r in rows if r["views"] is not None}
 
+    def sent_rows(self) -> list[dict[str, Any]]:
+        """每一格是哪天发出去的（月历用）：发布台记的（选题 × 平台），和当天补发的格子里他点了「发了」的。
+        全平台追踪里补记的「以前在外面发过」不算——那不是这一天发的。抖音不算，那是新视频。"""
+        return self._rows(
+            """SELECT r.platform AS platform, r.published_at AS at, t.title AS title, 'record' AS kind
+                 FROM publish_records r JOIN topics t ON t.id = r.topic_id WHERE r.platform != 'douyin'
+               UNION ALL
+               SELECT m.platform, m.marked_at, v.title, 'mark' FROM backfill_marks m JOIN videos v ON v.video_id = m.video_id
+                WHERE EXISTS (SELECT 1 FROM backfill_plan p WHERE p.video_id = m.video_id AND p.platform = m.platform)"""
+        )
+
     def publish_records(self, topic_id: int) -> dict[str, dict[str, Any]]:
         return {r["platform"]: r for r in self._rows("SELECT * FROM publish_records WHERE topic_id = ?", (topic_id,))}
 

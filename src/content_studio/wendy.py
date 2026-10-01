@@ -175,7 +175,8 @@ def brief(today: dict[str, Any], reach: dict[str, Any], now_item: dict[str, Any]
     if reads:
         unread = [i["label"] for i in reads if i.get("exists") and not i.get("read_at")]
         n += 1
-        out.append(f"{n}. 读日报：" + ("已读完" if not unread else "还没读 " + "、".join(unread)))
+        due = [i for i in reads if i.get("exists")]
+        out.append(f"{n}. 读日报：" + ("今天的还没出" if not due else "已读完" if not unread else "还没读 " + "、".join(unread)))
     ship = today.get("ship") or {}
     n += 1
     plan = today.get("out") or {}
@@ -287,15 +288,22 @@ def nudge_due(now: datetime, *, pending: list[str], last_activity: datetime | No
 
 # -- 他在卡片里回她：工作台自己跑一轮 ---------------------------------------------------
 
-def compose(brief_text: str, thread: list[dict[str, Any]], message: str) -> str:
-    said = message.strip() or "（他没说话，点了「让她看一眼现在」。用两三句话说：他现在在哪条线上，现在该做哪一件。）"
-    return f"<工作台>\n{brief_text}\n\n{thread_brief(thread)}\n</工作台>\n\nPark：{said}"
+NORTH_RULES = """他现在在「我是谁、找到谁、卖什么」这一页找你，聊的是方向，不是今天的执行。
+这是定方向模式：你提案、摆证据、说反对意见，把他的答案逼得更窄、更具体；拍板的是他，定位文件只有他改。
+他的答案和他最近实际在做的事对不上，直接指出来。不定价、不替他写进文件。上面的 <定位> 是他现在的定位原文。"""
 
 
-def run_turn(brief_text: str, thread: list[dict[str, Any]], message: str, *, turn_fn: TurnFn | None = None) -> str:
-    """一轮对话，返回她说的话。模型所有工具都关着（用的是 Anna 那条命令）。"""
+def compose(brief_text: str, thread: list[dict[str, Any]], message: str, north: str = "") -> str:
+    said = message.strip() or ("（他没说话，点了「让她看一眼」。用两三句话说：三问里哪一问现在最不清楚，为什么。）" if north
+                               else "（他没说话，点了「让她看一眼现在」。用两三句话说：他现在在哪条线上，现在该做哪一件。）")
+    head = f"<定位>\n{north.strip()[:12000]}\n</定位>\n\n{NORTH_RULES}\n\n" if north else ""
+    return f"{head}<工作台>\n{brief_text}\n\n{thread_brief(thread)}\n</工作台>\n\nPark：{said}"
+
+
+def run_turn(brief_text: str, thread: list[dict[str, Any]], message: str, *, turn_fn: TurnFn | None = None, north: str = "") -> str:
+    """一轮对话，返回她说的话。模型所有工具都关着（用的是 Anna 那条命令）。north 是定位原文：他在定位页回她时带上。"""
     try:
-        result = (turn_fn or cli_turn)(system_prompt(), compose(brief_text, thread, message), None)
+        result = (turn_fn or cli_turn)(system_prompt(), compose(brief_text, thread, message, north), None)
     except Exception as exc:  # noqa: BLE001 - 卡片里显示
         raise WendyError(str(exc).replace("Anna", "Wendy")[:300] or type(exc).__name__) from exc
     text = str(result.get("text") or "").strip()

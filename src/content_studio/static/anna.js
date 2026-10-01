@@ -142,10 +142,15 @@ function annaMessage(m, scope) {
 async function renderAnna() {
   const box = $('#anna');
   if (!box) return;
-  document.body.classList.toggle('anna-open', AN.open);
+  // 10/1 Park：「今天」和「我是谁、找到谁、卖什么」是 Wendy 的页，Anna 不出现；她在进项到发布那几页。
+  const wendyPage = ['today', 'positioning'].includes(S.view);
+  const railW = $('#railWendy');
+  $('#railAnna').hidden = wendyPage;
+  if (railW) railW.hidden = !wendyPage;
+  document.body.classList.toggle('anna-open', AN.open && !wendyPage);
   $('#railAnna').classList.toggle('on', AN.open);
-  box.hidden = !AN.open;
-  if (!AN.open) { clearTimeout(AN.poll); return; }
+  box.hidden = !AN.open || wendyPage;
+  if (!AN.open || wendyPage) { clearTimeout(AN.poll); return; }
   const scope = annaScope();
   if (AN.scope !== scope || !AN.data) {
     if ($('#anIn')) AN.draft.main = $('#anIn').value;
@@ -209,6 +214,8 @@ window.openAnna = (prefill) => {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  const wendy = $('#railWendy');
+  if (wendy) wendy.onclick = () => { const card = $('.view.on .wd') || $('.wd'); if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); const i = $('input', card); if (i) i.focus({ preventScroll: true }); } };
   const btn = $('#railAnna');
   if (btn) btn.onclick = () => { AN.open = !AN.open; try { localStorage.setItem('cs-anna', AN.open ? 'open' : 'closed'); } catch (_) { /* ignore */ } renderAnna(); if (AN.open) setTimeout(() => { const i = $('#anIn'); if (i) i.focus(); }, 50); };
 });
