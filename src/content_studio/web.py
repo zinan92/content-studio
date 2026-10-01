@@ -3123,6 +3123,14 @@ def create_app(
         for old in folder.iterdir():
             if old.is_file() or old.is_symlink():
                 old.unlink()
+        if platform == "xiaohongshu":
+            # 10/1 Park：小红书的封面框跟着视频的比例走——横屏视频（3 月那批抖音下载版都是 1920×1080）框是 4:3 横的，
+            # 放竖封面会被裁掉一半。横屏就放 4:3 横封面。
+            from .cover import _dimensions
+
+            w, h = _dimensions(video)
+            if w > h:
+                kit = (("video", "视频"), ("landscape", "横封面"))
         placed, missing = [], []
         for kind, name in kit:
             if kind == "video":
