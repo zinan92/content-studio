@@ -12,6 +12,10 @@ agent working from a clone needs nothing outside this repository.
 - Commit subject in Chinese, imperative, says what changed for the person using it
   (see `git log`); body says why.
 - Before opening a PR: `git diff --check` and `python3 -m pytest -q` must pass; CI runs both.
+- `main` requires both CI checks (`test (3.11)`, `test (3.12)`). After `gh pr create`, run
+  `gh pr merge --auto --squash` — GitHub merges once CI passes; do not ask Park to say "merge".
+  Park's Mac pulls `main` every 5 minutes and restarts the service only when program files changed
+  (`~/.local/bin/content-studio-autodeploy`, see `docs/operations.md`). Don't hand-restart unless verifying.
 - `decision-log.md` gets an entry when a durable choice is made (format: 面对什么 / 定了什么 /
   为什么 / 怎么验证 / 踩了什么坑). `daily/` is dated progress; `REGISTRY.md` is the current snapshot.
 
