@@ -124,7 +124,7 @@ function posPage(d) {
     </section>
 
     <section class="pos-sec pos-foot">
-      <div class="pos-h"><h2>待拍板</h2><p>${pend.length ? `有 ${pend.length} 条建议，采纳的自己挪进上面正文` : '还没有建议。定位怎么写由你拍板；想不清三问的时候，在这一页最上面找 Wendy 聊。'}</p></div>
+      <div class="pos-h"><h2>待拍板</h2><p>${pend.length ? `有 ${pend.length} 条建议，采纳的自己挪进上面正文` : '还没有建议。定位怎么写由你拍板；想不清三问的时候，在右边找 Wendy 聊。'}</p></div>
       <div class="pos-pend">${pend.map((x) => `<div class="pos-chip"><span>${esc(x.text)}</span><small>${esc(x.at)}${x.source ? ' · ' + esc(x.source) : ''}</small><button class="linklike" type="button" data-pos-drop="${esc(x.id)}">不采纳</button></div>`).join('')}</div>
       <div class="pos-bar"><span class="pos-bar-meta"><code>${esc(d.path.replace(/positioning\.md$/, 'positioning.json'))}</code><button class="linklike" type="button" id="posReload">重新读</button></span></div>
     </section>
@@ -151,9 +151,7 @@ window.VIEWS.positioning = {
       return;
     }
     if (window.renderProfiles) window.renderProfiles();
-    // 10/1 Park：Wendy 在「今天」和这一页——她既管他的 North Star，也管他今天的日历；Anna 在进项到发布那几页，这两页不出现。
-    body.insertAdjacentHTML('afterbegin', '<div id="posWendy" class="pos-wendy"></div>');
-    if (window.mountWendy) window.mountWendy($('#posWendy'), 'positioning');
+    // 10/1 Park：Wendy 在这一页右边的窗口里（和 Anna 一个样子）；她管 North Star，也管今天。Anna 在进项到发布那几页。
     $('#posReload').onclick = () => window.reloadPositioning();
     $$('[data-pos-drop]', body).forEach((b) => (b.onclick = async () => {
       if (!confirm('把这一条从待拍板里删掉？')) return;
