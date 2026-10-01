@@ -1974,7 +1974,6 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .wk-sum{font-size:14px;color:var(--ink-2)}
 .wk-sum b,.td-score b{font-family:var(--mono);color:var(--warn)}
 .wk-sum b.ok,.td-score b.ok{color:var(--out)}
-.wk-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .wk-day{font:inherit;text-align:left;color:var(--ink);background:var(--sunk);border:1px solid transparent;border-radius:10px;padding:8px 8px 10px;min-height:112px;display:flex;flex-direction:column;gap:5px;cursor:pointer;min-width:0}
 .wk-day:hover{border-color:var(--line)}
 .wk-day.future{background:transparent;border-color:var(--line-soft)}
@@ -2025,7 +2024,7 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .td-row.shut .td-h h2{font-size:16px;font-weight:700}
 .td-row.shut .td-letter{width:24px;height:24px;font-size:15px}
 .td-notes .tag.day{color:var(--in)}
-@media (max-width:760px){.wk-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.wk-cols{grid-template-columns:1fr}}
+@media (max-width:760px){.wk-cols{grid-template-columns:1fr}}
 /* 今天 · Wendy 卡片：最上面。现在做这一件 + 她说的话 + 回她 */
 .wd{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--pub);border-radius:12px;padding:14px 18px 16px;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
 .wd-h{display:flex;align-items:center;gap:10px;font-size:15px}
