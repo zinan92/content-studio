@@ -11,4 +11,9 @@
 - launchd 环境需要 `USER` / `LOGNAME`，否则 `claude` CLI 找不到钥匙串里的登录信息。
 - 数据：`~/.config/content-studio/`（`data/studio.sqlite3`、`studio/reports/`、`m1/reports/` 旧样本、`drafts/`）。
 - 每日同步：`python3 -m content_studio write-schedule` 只生成 plist，是否启用由 Park 决定。
+- 夜里配证据图（2026-10-01）：launchd `com.park.content-studio.evidence` 每天 01:30 跑 `caffeinate -i python3 -m content_studio evidence`
+  （`~/Library/LaunchAgents/com.park.content-studio.evidence.plist`，日志 `~/.config/content-studio/logs/evidence.log`）。
+  问常驻服务要队列（`/api/evidence/queue`：还有平台没发、有文章、有视频的），一篇一篇跑，最多 270 分钟，09:25 同步前跑完；没跑完的明晚接着跑。
+  只写提案：文章旁边的 `evidence/`、`evidence/proposal.json`、`article.evidence.md`，不动 `article.md`、定稿、排版、发布。
+  要 Mac 插着电、作品库那块 SSD 插着（视频在上面）；睡着的 Mac launchd 不会叫醒，醒来后补跑。单跑一篇：`python3 -m content_studio evidence --topic 35`。
 - 所有会改数据的 `/api` 请求必须带请求头 `X-Content-Studio: 1`，并且 Origin（如有）必须是本站；命令行调试用 `curl -H 'X-Content-Studio: 1' ...`。这是为了防止别的网站借浏览器里保存的代理密码替 Park 触发后台代跑或确认发布。

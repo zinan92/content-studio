@@ -15,6 +15,8 @@ dependencies = [
     "markdown>=3.5",
     # 咨询录音上传是表单上传，FastAPI 解析表单要它；本机装了所以一直没发现，CI 上没有
     "python-multipart>=0.0.9",
+    # 证据图（evidence.py）取帧去重、裁剪、拼总览图；本机装了所以没发现，CI 上没有
+    "pillow>=10.0",
 ]
 
 [project.scripts]
