@@ -2,7 +2,7 @@
 /* 对外简介：一个文件、两段——国内版和 X 版（profiles.py），正本是 Obsidian 里的 park profile.md。
  * 放在「定位」页最下面：在这里改就写回 Obsidian，在 Obsidian 里改这里也跟着变。
  * 每个平台只记「哪天改成了它那一版」。改到平台上是 Park 自己做：复制过去贴，贴完点「我贴好了」。 */
-const PFX = { data: null, live: null };
+const PFX = { data: null, live: null, editing: {} };  // editing：哪一版点了「改这一版」；存过的默认锁着（10/1 Park：存好了还是开着，lock in）
 const PF_STATE = { synced: ['已同步', 'hot'], stale: ['这一版改过了，要更新', 'mid'], never: ['还没改过', 'low'] };
 
 function profilePlatform(p) {
@@ -18,6 +18,23 @@ function profileVariant(v, d) {
   const count = (f) => `<i class="${v.limits[f] && cur[f].length > v.limits[f] ? 'over' : ''}"><b data-pf-count="${v.key}-${f}">${cur[f].length}</b>${v.limits[f] ? ' / ' + v.limits[f] : ''}</i>`;
   const plats = d.platforms.filter((p) => p.variant === v.key);
   const live = v.key === 'x' && PFX.live ? `<div class="pf-live"><small>X 上现在是</small><b>${esc(PFX.live.name || '')}</b><span>${esc(PFX.live.description || '（没有简介）')}</span></div>` : '';
+  const side = `<div class="pf-side">${live}${plats.map(profilePlatform).join('') || '<small class="pf-hint">这一版对应的平台都没开。</small>'}</div>`;
+  if ((cur.name || cur.bio) && !PFX.editing[v.key]) {
+    // 锁定：只读显示，复制照常；要改先点「改这一版」
+    return `<div class="pf-var locked" data-pf-var="${v.key}">
+    <div class="pf-edit">
+      <h3>${esc(v.label)} <small>${plats.map((p) => esc(p.label)).join('、') || '没有开着的平台'}</small><span class="pf-lock">已定稿 · 锁着</span></h3>
+      <div class="pf-read"><small>名字</small><b>${esc(cur.name)}</b></div>
+      <div class="pf-read"><small>简介</small><p>${esc(cur.bio)}</p></div>
+      <div class="pf-acts">
+        <button class="btn small" type="button" data-pf-copy="${v.key}" data-f="bio">复制简介</button>
+        <button class="btn small" type="button" data-pf-copy="${v.key}" data-f="name">复制名字</button>
+        <button class="btn small ghost" type="button" data-pf-unlock="${v.key}">改这一版</button>
+      </div>
+    </div>
+    ${side}
+  </div>`;
+  }
   return `<div class="pf-var" data-pf-var="${v.key}">
     <div class="pf-edit">
       <h3>${esc(v.label)} <small>${plats.map((p) => esc(p.label)).join('、') || '没有开着的平台'}</small></h3>
@@ -29,9 +46,10 @@ function profileVariant(v, d) {
         <button class="btn small primary" type="button" data-pf-save="${v.key}">存进 Obsidian</button>
         <button class="btn small" type="button" data-pf-copy="${v.key}" data-f="bio">复制简介</button>
         <button class="btn small" type="button" data-pf-copy="${v.key}" data-f="name">复制名字</button>
+        ${cur.name || cur.bio ? `<button class="btn small ghost" type="button" data-pf-cancel="${v.key}">不改了，锁回去</button>` : ''}
       </div>
     </div>
-    <div class="pf-side">${live}${plats.map(profilePlatform).join('') || '<small class="pf-hint">这一版对应的平台都没开。</small>'}</div>
+    ${side}
   </div>`;
 }
 
@@ -52,19 +70,25 @@ window.renderProfiles = async () => {
   $$('.pf-var', box).forEach((card) => {
     const key = card.dataset.pfVar;
     const limits = d.variants.find((v) => v.key === key).limits;
+    const unlock = $(`[data-pf-unlock="${key}"]`, card);
+    if (unlock) unlock.onclick = () => { PFX.editing[key] = true; again(); };
+    const cancel = $(`[data-pf-cancel="${key}"]`, card);
+    if (cancel) cancel.onclick = () => { delete PFX.editing[key]; again(); };
     $$('[data-pf-f]', card).forEach((el) => (el.oninput = () => {
       const c = $(`[data-pf-count="${key}-${el.dataset.pfF}"]`, card);
       c.textContent = el.value.length;
       c.parentElement.classList.toggle('over', Boolean(limits[el.dataset.pfF]) && el.value.length > limits[el.dataset.pfF]);
     }));
-    $(`[data-pf-save="${key}"]`, card).onclick = async () => {
+    const save = $(`[data-pf-save="${key}"]`, card);
+    if (save) save.onclick = async () => {
       const body = { ...Object.fromEntries($$('[data-pf-f]', card).map((el) => [el.dataset.pfF, el.value])), mtime: p.mtime };
-      try { await api(`/api/profile/${key}`, { method: 'PUT', body }); toast('存进 Obsidian 了'); } catch (err) { toast(err.message); }
+      try { await api(`/api/profile/${key}`, { method: 'PUT', body }); delete PFX.editing[key]; toast('存进 Obsidian 了，锁上了'); } catch (err) { toast(err.message); }
       document.activeElement.blur();
       again();
     };
     $$(`[data-pf-copy="${key}"]`, card).forEach((b) => (b.onclick = async () => {
-      const text = $(`[data-pf-f="${b.dataset.f}"]`, card).value;
+      const field = $(`[data-pf-f="${b.dataset.f}"]`, card);
+      const text = field ? field.value : (p.variants[key] || {})[b.dataset.f] || '';
       try { await navigator.clipboard.writeText(text); toast(b.dataset.f === 'bio' ? '简介复制好了' : '名字复制好了'); } catch (_) { toast('没复制上，手动选中复制'); }
     }));
   });

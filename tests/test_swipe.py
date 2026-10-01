@@ -160,3 +160,9 @@ def test_past_days_are_green_or_red_by_demerits() -> None:
     assert ".mo-day.mo-pass{" in css and ".mo-day.mo-fail{" in css
     # 选中那一天的描边要压在红绿之上
     assert css.index(".mo-day.mo-fail{") < css.index(".mo-day.sel{")
+
+
+def test_saved_profiles_are_locked_until_park_asks_to_edit() -> None:
+    """10/1 Park：对外简介存好了还是开着的，要 lock in。存过的默认只读，点「改这一版」才出输入框。"""
+    js = (Path(__file__).resolve().parents[1] / "src/content_studio/static/profiles.js").read_text(encoding="utf-8")
+    assert "if ((cur.name || cur.bio) && !PFX.editing[v.key])" in js and "data-pf-unlock" in js and "delete PFX.editing[key]" in js

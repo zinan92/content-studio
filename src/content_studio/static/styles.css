@@ -1959,6 +1959,11 @@ tr.cl-noplan td.f-报价 .cl-in{opacity:.4}
 .pf-lab i.over{color:var(--warn)}
 .pf-edit input,.pf-edit textarea{font:inherit;font-size:15px;line-height:1.6;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);resize:vertical}
 .pf-hint{font-size:12px;color:var(--ink-3);margin:0}
+.pf-lock{font-size:11px;font-weight:600;color:var(--out);background:var(--out-soft);border-radius:99px;padding:2px 8px;margin-left:auto}
+.pf-read{display:flex;flex-direction:column;gap:3px}
+.pf-read small{font-size:12px;color:var(--ink-3)}
+.pf-read b{font-size:15px}
+.pf-read p{margin:0;font-size:14.5px;line-height:1.65;white-space:pre-wrap}
 .pf-hint a{color:var(--accent)}
 .pf-acts{display:flex;gap:8px;flex-wrap:wrap}
 .pf-plat a.btn{text-decoration:none;color:inherit}
