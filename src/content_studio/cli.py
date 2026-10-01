@@ -105,6 +105,11 @@ def build_parser() -> argparse.ArgumentParser:
     phone.add_argument("project", type=Path, help="口播项目目录，或配置根目录下的项目名")
     phone.add_argument("--out", type=Path, default=None, help="输出到别的目录（默认 项目/final/手机预览）")
 
+    ev = commands.add_parser("evidence", help="夜里给还没发完的内容配证据图（视频里的笔记截图、名人原推），只出提案")
+    ev.add_argument("--server", default=f"http://127.0.0.1:{DEFAULT_PORT}")
+    ev.add_argument("--topic", type=int, default=None, help="只跑这一篇（跑过的也重跑）")
+    ev.add_argument("--budget-minutes", type=int, default=270, help="总共最多跑多久，到点停（早上 9:25 有同步）")
+
     plist = commands.add_parser(
         "write-schedule", help="write (but do not load) a launchd plist for a daily sync"
     )
@@ -231,6 +236,46 @@ def run_sync(args: argparse.Namespace) -> int:
             summary["archive"] = archive_new_videos(store, cookie_path=args.cookies)
     print(json.dumps(summary, ensure_ascii=False))
     return 1 if summary.get("stopped") else 0
+
+
+def run_evidence(args: argparse.Namespace) -> int:
+    """问工作台要今晚跑哪几篇，一篇一篇跑；一篇失败记一行接着下一篇。到点就停，没跑完的明晚接着跑。"""
+    import time
+    import urllib.request
+
+    from . import evidence
+
+    started = time.monotonic()
+    with urllib.request.urlopen(f"{args.server}/api/evidence/queue", timeout=120) as r:
+        queue = json.loads(r.read().decode())["topics"]
+    stamp = lambda: time.strftime("%m-%d %H:%M:%S")  # noqa: E731
+    todo = [t for t in queue if (t["topic_id"] == args.topic if args.topic else not t["done"] and not t["skip"])]
+    print(f"{stamp()} 证据图：{len(todo)} 篇要跑（共 {len(queue)} 篇，跳过 {sum(1 for t in queue if t['skip'])} 篇）", flush=True)
+    for t in queue:
+        if t["skip"] and (not args.topic or t["topic_id"] == args.topic):
+            print(f"{stamp()}   跳过《{t['title'][:20]}》：{t['skip']}", flush=True)
+    failed = 0
+    for t in todo:
+        if time.monotonic() - started > args.budget_minutes * 60:
+            print(f"{stamp()} 到点了，剩下的明晚接着跑", flush=True)
+            break
+        if t["skip"]:
+            continue
+        segments = []
+        if t["transcript"]:
+            try:
+                segments = json.loads(Path(t["transcript"]).read_text(encoding="utf-8")).get("segments") or []
+            except (OSError, ValueError):
+                segments = []
+        try:
+            res = evidence.run_topic(Path(t["article"]), Path(t["video"]), segments=segments)
+            ok = [i for i in res["items"] if i.get("placed")]
+            print(f"{stamp()}   《{t['title'][:20]}》：提案 {len(ok)} 张（视频截图 {sum(i['kind'] == 'frame' for i in ok)}、"
+                  f"推文 {sum(i['kind'] == 'tweet' for i in ok)}），扔掉 {len(res['rejected'])} 张", flush=True)
+        except Exception as exc:  # noqa: BLE001 - 一篇失败不拖累下一篇
+            failed += 1
+            print(f"{stamp()}   《{t['title'][:20]}》失败：{exc}", flush=True)
+    return 1 if failed else 0
 
 
 def run_screen_reach(args: argparse.Namespace) -> int:
@@ -435,6 +480,7 @@ def main(argv: list[str] | None = None) -> int:
         handlers = {
             "add-account": run_add_account,
             "sync": run_sync,
+            "evidence": run_evidence,
             "screen-reach": run_screen_reach,
             "work": run_work,
             "serve": run_serve,

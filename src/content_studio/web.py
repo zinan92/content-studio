@@ -3939,6 +3939,39 @@ def create_app(
             items.append(it)
         return {"items": items, "running": running, "need": out["need"]}
 
+    @app.get("/api/evidence/queue")
+    def evidence_queue() -> dict[str, Any]:
+        """夜里配证据图要跑哪几篇：还有平台没发的内容里，有文章、有视频的。
+        提案比文章新（跑过了、文章没再改）或者文章里已经有证据图（手工配过）的，标 done，夜里跳过。"""
+        from . import cover, evidence
+
+        out = []
+        for r in get_backfill()["videos"]:
+            if r.get("cancelled") or not r["missing"] or not r["topic_id"]:
+                continue
+            topic = store.topic(r["topic_id"])
+            art = _article_path(topic)
+            video = final_video_path(topic)
+            row = {"topic_id": topic["id"], "title": r["headline"] or topic["title"], "article": str(art) if art else None,
+                   "video": None, "transcript": None, "done": False, "skip": None}
+            if art is None or not art.is_file():
+                row["skip"] = "还没有文章"
+            elif video is None or not video.is_file():
+                row["skip"] = "找不到视频（作品库那块硬盘没插？）"
+            else:
+                if topic.get("video_project"):
+                    try:
+                        video = cover.source_video(video_project.project_dir(video_root(), topic["video_project"]), video)
+                    except VideoProjectError:
+                        pass
+                row["video"] = str(video)
+                found = sorted((downloads_dir / "douyin").glob(f"*/{r['video_id']}/transcript.json"))
+                row["transcript"] = str(found[0]) if found else None
+                proposal = art.parent / evidence.OUT / evidence.PROPOSAL
+                row["done"] = (proposal.is_file() and proposal.stat().st_mtime >= art.stat().st_mtime) or f"]({evidence.OUT}/" in art.read_text(encoding="utf-8")
+            out.append(row)
+        return {"topics": out}
+
     @app.get("/api/backfill/desk")
     def backfill_desk() -> dict[str, Any]:
         """补发工作台那张表：一行一条还有平台没发的内容，一格一个平台——发过了 / 今天排上了 / 能挑 / 发不了（为什么）。"""
