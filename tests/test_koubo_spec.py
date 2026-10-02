@@ -45,6 +45,12 @@ def test_vertical_burned_in_no_hook(project: Path) -> None:
     assert "不要再渲染字幕" in prompt and "竖屏纯口播" in prompt and "不做 Hook" in prompt and "不加背景音乐" in prompt
 
 
+def test_word_timing_uses_srt_alignment_not_cpu_whisper(project: Path) -> None:
+    prompt = workflow_runner.build_prompt(project)
+    assert "align_srt.py" in prompt and "subtitles/source.srt" in prompt
+    assert "不要用 openai-whisper 命令行" in prompt
+
+
 def test_switching_back_restores_defaults(project: Path) -> None:
     koubo.set_spec(project, {"layout": "vertical-full-overlay", "hook": "no"}, skill=SKILL[0])
     koubo.set_spec(project, {"layout": "split-4x3", "hook": "yes"}, skill=SKILL[0])

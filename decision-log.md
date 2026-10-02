@@ -4,6 +4,14 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-10-02 — 词级时间有 SRT 就对齐、只用 mlx-whisper，不跑 CPU 版 Whisper（#365）
+
+- **面对什么:** 「客户咨询1」的后台流水线在 Step 4 自己调了 openai-whisper 命令行（`whisper --model turbo`），只能用 CPU，9 分 37 秒的口播跑了 12 分钟没完。Park：「如果我已经有 SRT 了，那我还需要再跑 Whisper 吗？」「帮我改成用 SRT 对齐音频，而且本来就该用 mlx whisper」。
+- **定了什么:** runner 提示词写死顺序：有 `subtitles/source.srt` 就跑 ask-park-video 的 `scripts/motion/align_srt.py`（拿 SRT 文字对齐音频，mlx cross-attention + DTW，每 ~25 秒一次前向，不解码）；没有 SRT 才跑 `scripts/motion/words.py`（mlx 整条转写）；禁止 openai-whisper 命令行。skill 的 Step 4 和 motion-director 同步，`words.json` 统一放 `subtitles/`（`check-visual-plan` 读的就是这里）。
+- **为什么:** 剪映 SRT 已经切到中位 1.33 秒一条，只缺句内每个字的时刻；重新识别既慢，又会和字幕字面对不上（引用原话时找不到）。mlx 版在 Apple 芯片上走 GPU。
+- **怎么验证:** 同一条视频：`align_srt.py` 37 秒（含加载模型），370 句全部对齐，0 句退回按字数平分，逐字时间单调。`tests/test_koubo_spec.py` 断言提示词里有这条规则。
+- **踩了什么坑:** skill 没有提这一步该用哪个工具，后台 agent 就自己挑了 CPU 版；`motion-director.md` 写的是 `motion/words.json`，`check-visual-plan` 读的是 `subtitles/words.json`，两处路径不一致。剪映 SRT 自己也会听错（这条把「60 粉丝」写成了「6,000 粉丝」），对齐只管时间，不纠正字。
+
 ## 2026-10-01 — 「今天」最上面是月历；Wendy 在「今天」和定位页，Anna 在进项到发布（#346）
 
 - **面对什么:** Park：「这个 calendar 能否放一个 monthly calendar……我其实希望最上边的是一个 calendar view」「这样我就能看清楚，今天在哪些平台发了什么」。以及：「Wendy 和 Anna 不应该在同一屏。Anna 就在进项、加工、打包、发布中；Wendy 应该在今天、我是谁找到谁里，因为她既定义了我的整个 North Star，也定义了我今天的 Calendar。」
