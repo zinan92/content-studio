@@ -129,6 +129,55 @@ window.VIDEO_TABS.push({
   },
 });
 
+/* 付息稿（10/2 Park）：骨架后面的一步。观众买了你的国债——开头发债（说清本金）、每 10 秒付一次息（新判断、原因、
+ * 案例证据、下一步）、最后兑付本金。规则在 Anna 的工作流文件「付息稿.md」里，他随时能改。骨架写完会自动接着写。 */
+const CPN = { data: null, mode: 'preview', poll: null };
+
+window.VIDEO_TABS.push({
+  key: 'coupon',
+  label: '付息稿',
+  badge: (t) => (CPN.data && CPN.data.topic_id === t.id ? (CPN.data.running ? '生成中' : CPN.data.coupon ? '已写' : '') : ''),
+  async render(topic, el) {
+    let d;
+    try { d = { ...(await api(`/api/topics/${topic.id}/coupon`)), topic_id: topic.id }; } catch (err) { el.innerHTML = `<div class="empty"><b>${esc(err.message)}</b></div>`; return; }
+    CPN.data = d;
+    clearTimeout(CPN.poll);
+    if (d.running) {
+      el.innerHTML = `<div class="empty"><span class="spin"></span><b>正在把骨架排成付息稿</b><span>一般 1–3 分钟。</span></div>`;
+      CPN.poll = setTimeout(() => { if (S.view === 'work' && VD.tab === 'coupon' && VD.topicId === topic.id) { $('#videoBody').dataset.sig = ''; renderView(); } }, 5000);
+      return;
+    }
+    const start = async (b) => {
+      if (d.coupon && !confirm('重写会覆盖现在的付息稿，继续吗？')) return;
+      b.disabled = true;
+      try { const r = await api(`/api/topics/${topic.id}/coupon`, { method: 'POST' }); toast(r.message); } catch (err) { toast(err.message); }
+      $('#videoBody').dataset.sig = ''; renderView();
+    };
+    if (!d.coupon) {
+      el.innerHTML = `<div class="empty"><b>还没有付息稿</b>${d.error ? `<span class="bad">${esc(d.error)}</span>` : ''}
+        <span>观众点开视频，就像买了你的国债：开头说清看完能拿到什么（本金），之后每 10 秒给一点东西（新判断、原因、案例证据、下一步），最后把本金给他。照骨架排成一条带时间的口播线，附一本利息账本。</span>
+        ${topic.outline_path ? '<div class="track-pick"><button class="btn primary" type="button" id="cpnStart">写付息稿</button></div>' : '<span>先在「骨架」里写好骨架。</span>'}</div>`;
+      const b = $('#cpnStart', el);
+      if (b) b.onclick = () => start(b);
+      return;
+    }
+    const c = d.coupon;
+    el.innerHTML = `${d.error ? `<p class="bad">上一次重写没成：${esc(d.error)}</p>` : ''}<div class="art-head"><div><small>付息稿 · ${c.generated_at ? `生成于 ${day(c.generated_at)} · ` : ''}最后修改 ${day(c.updated_at)}</small></div>
+        <div class="seg-toggle" role="group"><button type="button" class="${CPN.mode === 'preview' ? 'on' : ''}" data-cpn-mode="preview">预览</button><button type="button" class="${CPN.mode === 'edit' ? 'on' : ''}" data-cpn-mode="edit">编辑</button></div></div>
+      ${CPN.mode === 'edit' ? `<textarea id="cpnText" class="big-text" spellcheck="false">${esc(c.markdown)}</textarea>` : `<article class="md art-md">${renderMarkdown(c.markdown)}</article>`}
+      <div class="art-foot">${CPN.mode === 'edit' ? '<button class="btn primary" type="button" id="cpnSave">保存</button>' : ''}
+        <button class="btn" type="button" id="cpnCopy">复制</button>
+        <button class="btn" type="button" id="cpnRedo" title="照现在的骨架重新排，会覆盖现在的">重写</button></div>`;
+    $$('[data-cpn-mode]', el).forEach((b) => (b.onclick = () => { CPN.mode = b.dataset.cpnMode; $('#videoBody').dataset.sig = ''; renderView(); }));
+    const save = $('#cpnSave', el);
+    if (save) save.onclick = async () => {
+      try { await api(`/api/topics/${topic.id}/coupon`, { method: 'PUT', body: { markdown: $('#cpnText').value } }); CPN.mode = 'preview'; toast('已保存'); $('#videoBody').dataset.sig = ''; renderView(); } catch (err) { toast(err.message); }
+    };
+    $('#cpnCopy', el).onclick = () => navigator.clipboard.writeText($('#cpnText') ? $('#cpnText').value : c.markdown).then(() => toast('已复制'), () => toast('复制失败'));
+    $('#cpnRedo', el).onclick = (e) => start(e.target);
+  },
+});
+
 // 研习室文章 9/29 搬去「03 打包」了：加工中只管骨架和剪辑
 const TAB_ORDER = ['outline', 'edit'];
 const WORK_STEPS = [['outline', '骨架'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
