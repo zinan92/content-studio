@@ -528,6 +528,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         if start_worker:
             worker.start()
+            threading.Timer(5, _pack_resume_all).start()
         yield
         stop_auto.set()
         worker.stop()
@@ -1499,6 +1500,7 @@ def create_app(
     # -- article line ------------------------------------------------------
 
     def _write_topic(topic_id: int, instruction: str = "") -> None:
+        failed = None
         try:
             topic = store.topic(topic_id)
             result = writer.write_article(
@@ -1520,10 +1522,12 @@ def create_app(
             # 9/29 起写完不自动配图：Park 先看文章、定稿，再配（打包页定稿文章时开始配）。还要重写的话不白画一轮。
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("writing topic %s failed: %s", topic_id, exc)
-            store.update_topic(topic_id, write_state="failed", write_error=str(exc)[:300] or type(exc).__name__)
+            failed = str(exc)[:300] or type(exc).__name__
+            store.update_topic(topic_id, write_state="failed", write_error=failed)
         finally:
             with writing_lock:
                 writing.discard(topic_id)
+            _pack_job_done(topic_id, "article", failed)
 
     @app.post("/api/topics/{topic_id}/write")
     def start_write(topic_id: int, body: WriteBody | None = None) -> dict[str, Any]:
@@ -1774,6 +1778,7 @@ def create_app(
             finally:
                 with writing_lock:
                     writing.discard(50_000 + topic_id)
+                _pack_job_done(topic_id, "wx", layout_errors.get(topic_id))
 
         threading.Thread(target=run, name=f"layout-{topic_id}", daemon=True).start()
         return {"started": True, "message": f"开始用 gzh 排版（{gzh_layout.THEME}），一般 5–10 分钟"}
@@ -1812,6 +1817,7 @@ def create_app(
             finally:
                 with writing_lock:
                     writing.discard(60_000 + topic_id)
+                _pack_job_done(topic_id, "figs", illustrate_errors.get(topic_id))
 
         threading.Thread(target=run, name=f"illustrate-{topic_id}", daemon=True).start()
         return True
@@ -2119,6 +2125,7 @@ def create_app(
             finally:
                 with writing_lock:
                     writing.discard(60_000 + topic_id)
+                _pack_job_done(topic_id, "xhs", xhs_errors.get(topic_id))
 
         threading.Thread(target=run, name=f"xhs-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始出小红书图文，十几秒"}
@@ -3092,6 +3099,7 @@ def create_app(
         return {
             "title": title, "from_copy": from_copy, "lines": cover.split_title(title),
             "source": source.name, "running": running, "error": cover_errors.get(topic_id),
+            "progress": cover.progress(base) if running else None,
             "frames": [{"at": f["at"], "score": f["score"], "pick": f["pick"], "url": _media_url(topic, str(f["path"].relative_to(base)))} for f in frames],
         }
 
@@ -3119,9 +3127,200 @@ def create_app(
             finally:
                 with writing_lock:
                     writing.discard(70_000 + topic_id)
+                _pack_job_done(topic_id, "cover", cover_errors.get(topic_id))
 
         threading.Thread(target=run, name=f"cover-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始出封面（图像生成），一般 5–10 分钟"}
+
+    # -- 打包自动档（pack_auto.py）：Park 只定标题，剩下的一步接一步做完、自动定稿 -----------
+
+    pack_lock = threading.Lock()
+
+    def _pack_running(topic_id: int, state: dict[str, Any]) -> set[str]:
+        with writing_lock:
+            live = set(writing)
+        running = set()
+        if 70_000 + topic_id in live:
+            running.add("cover")
+        if topic_id in live:
+            running.add("article")
+        if 50_000 + topic_id in live:
+            running.add("wx")
+        if 60_000 + topic_id in live:
+            # 配图和小红书出图共用一个占位：看自动档记的是哪一步在跑
+            steps = state.get("steps") or {}
+            running.add("xhs" if (steps.get("xhs") or {}).get("state") == "running" and (steps.get("figs") or {}).get("state") != "running" else "figs")
+        return running
+
+    def _pack_start(topic_id: int, key: str) -> None:
+        from . import cover
+
+        if key == "cover":
+            _topic, base, video = _cover_target(topic_id)
+            source = cover.source_video(base, video)
+            import hashlib
+
+            frames = cover.pick_frames(source, base / "analysis" / f"cover-frames-{hashlib.sha1(str(source).encode()).hexdigest()[:8]}")
+            pick = next((f for f in frames if f["pick"]), frames[len(frames) // 2] if frames else {"at": 0})
+            make_cover(topic_id, {"at": pick["at"]})
+        elif key == "article":
+            start_write(topic_id)
+        elif key == "figs":
+            start_illustrate(topic_id)
+        elif key == "wx":
+            start_layout(topic_id)
+        elif key == "xhs":
+            start_xhs(topic_id)
+
+    def pack_advance(topic_id: int) -> dict[str, Any]:
+        """照 pack_auto.plan 往下走一步：做好的自动定稿，该开始的开始。没 armed 什么都不做。"""
+        from . import approvals, pack_auto
+
+        topic = store.topic(topic_id)
+        st = _approval_state(topic)
+        folder, fps = st["folder"], st["fps"]
+        with pack_lock:
+            state = pack_auto.load(folder)
+            status = approvals.status(folder, fps)
+            running = _pack_running(topic_id, state)
+            for action, key in pack_auto.plan(state, status, running, title=state.get("title") or "", xhs="xhs" in fps):
+                step = (state.get("steps") or {}).get(key) or {}
+                if action == "approve":
+                    try:
+                        status = approvals.set_approval(folder, key, True, fps, by="auto")
+                        state = pack_auto.mark(folder, key, state="done", error=None)
+                    except approvals.ApprovalError as exc:
+                        state = pack_auto.mark(folder, key, state="error", error=str(exc))
+                elif action in ("start", "interrupted"):
+                    tries = int(step.get("tries") or 0) + 1 if action == "interrupted" else 1
+                    try:
+                        _pack_start(topic_id, key)
+                        state = pack_auto.mark(folder, key, state="running", started_at=pack_auto.now(), tries=tries, error=None,
+                                               **({"title": state.get("title")} if key == "cover" else {}))
+                    except Exception as exc:  # noqa: BLE001 - 打包页显示，等 Park 点重试
+                        logger.warning("pack %s %s failed to start: %s", topic_id, key, exc)
+                        state = pack_auto.mark(folder, key, state="error", error=str(getattr(exc, "detail", "") or exc)[:300])
+                elif action == "give_up":
+                    state = pack_auto.mark(folder, key, state="error", error="被中断了两次（服务重启），点重试再来")
+        return state
+
+    def _pack_job_done(topic_id: int, key: str, error: str | None) -> None:
+        """打包要的任务做完（不管是自动档起的还是手点的）：记一笔，自动档往下走。"""
+        from . import pack_auto
+
+        try:
+            folder = drafts_root / f"topic-{topic_id}"
+            state = pack_auto.load(folder)
+            if not state.get("armed"):
+                return
+            pack_auto.mark(folder, key, state="error" if error else "made", error=error)
+            pack_advance(topic_id)
+        except Exception as exc:  # noqa: BLE001 - 不让收尾把任务本身弄成失败
+            logger.warning("pack advance after %s %s: %s", key, topic_id, exc)
+
+    def pack_view(topic_id: int) -> dict[str, Any]:
+        from . import approvals, pack_auto
+
+        topic = store.topic(topic_id)
+        st = _approval_state(topic)
+        state = pack_auto.load(st["folder"])
+        status = approvals.status(st["folder"], st["fps"])
+        running = _pack_running(topic_id, state)
+        detail: dict[str, str] = {}
+        if "cover" in running:
+            try:
+                from . import cover
+
+                _t, base, _v = _cover_target(topic_id)
+                pr = cover.progress(base)
+                detail["cover"] = f"出图中 · 竖版、横版好了 {pr['done']}/{pr['total']}"
+            except Exception:  # noqa: BLE001 - 进度只是一句话
+                detail["cover"] = "出图中"
+        if "article" in running:
+            detail["article"] = "照视频字幕写，一般 1–5 分钟"
+        if "figs" in running:
+            detail["figs"] = "小黑手绘，一张一张画，5–10 分钟"
+        if "wx" in running:
+            detail["wx"] = "gzh 排版，5–10 分钟"
+        rows = pack_auto.view(state, status, running, xhs="xhs" in st["fps"], detail=detail)
+        return {"armed": bool(state.get("armed")), "title": state.get("title") or "", "copy_locked": bool(status["copy"]["approved"] and status["copy"]["valid"]),
+                "steps": rows, "ready": all(r["state"] == "done" for r in rows), "busy": any(r["state"] in ("running", "waiting") for r in rows)}
+
+    @app.post("/api/topics/{topic_id}/pack/go")
+    def pack_go(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """Park 定了标题：存标题（描述、话题沿用已经写的；没写过的用成片包里的发布文案），文字定稿，打开自动档。"""
+        from . import approvals, copypack, pack_auto
+
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="先写标题")
+        topic = store.topic(topic_id)
+        old = (copypack.read_copy(drafts_root, topic_id) or {}).get("platforms") or {}
+        from .publish_desk import shared_entry
+
+        shared = shared_entry({"platforms": old})
+        rel = _release_for(topic) or {}
+        seed = rel.get("copy") or {}
+        body = shared["body"] or seed.get("body") or ""
+        tags = shared["tags"] or list(seed.get("tags") or [])
+        # B 站、YouTube 不在打包页上露面（10/2 Park），但照样写一份共用的标题和描述，发的时候还能用
+        traffic = store.settings().get("traffic_tags") or {}
+        keys = [k for k in copypack.PLATFORMS if k in ("douyin", "channels", "xiaohongshu", "bilibili", "youtube")]
+
+        def tags_for(key: str) -> list[str]:
+            content = [t for t in tags if not any(t in (v or []) for v in traffic.values())]
+            merged = list(dict.fromkeys([*(traffic.get(key) or []), *content]))
+            return merged[: copypack.PLATFORMS[key]["tags"]]
+
+        platforms = {**old, **{k: {"title": title, "body": (old.get(k) or {}).get("body") or body, "tags": tags_for(k)} for k in keys}}
+        copypack.save_copy(drafts_root, topic_id, platforms)
+        st = _approval_state(topic)
+        approvals.set_approval(st["folder"], "copy", True, st["fps"])
+        prior = pack_auto.load(st["folder"])
+        covers = [str((rel.get("covers") or {}).get(k) or "") for k in ("portrait", "landscape")]
+        stem = re.sub(r'[\\/:*?"<>|]', "", title)[:40]  # cover.generate 存封面时的文件名开头
+        if any(covers) and not ((prior.get("steps") or {}).get("cover") or {}).get("title") \
+                and not any(Path(c).name.startswith(stem) for c in covers if c):
+            # 现有封面不是按这个标题出的：记下来，让自动档按新标题重出，不拿旧封面直接定稿
+            pack_auto.mark(st["folder"], "cover", state="made", title=shared["title"] or "（旧封面）")
+        pack_auto.arm(st["folder"], title)
+        pack_advance(topic_id)
+        return pack_view(topic_id)
+
+    @app.post("/api/topics/{topic_id}/pack/advance")
+    def pack_tick(topic_id: int) -> dict[str, Any]:
+        """页面轮询用（POST：会启动任务）。没定标题的不动。"""
+        pack_advance(topic_id)
+        return pack_view(topic_id)
+
+    @app.get("/api/topics/{topic_id}/pack")
+    def pack_get(topic_id: int) -> dict[str, Any]:
+        """只读：打开页面时看自动档的状态，不启动任何任务。"""
+        return pack_view(topic_id)
+
+    @app.post("/api/topics/{topic_id}/pack/retry")
+    def pack_retry(topic_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        from . import pack_auto
+
+        key = str(payload.get("key") or "")
+        if key not in pack_auto.ORDER:
+            raise HTTPException(status_code=400, detail="没有这一步")
+        pack_auto.retry(drafts_root / f"topic-{topic_id}", key)
+        {"cover": cover_errors, "figs": illustrate_errors, "wx": layout_errors, "xhs": xhs_errors}.get(key, {}).pop(topic_id, None)
+        pack_advance(topic_id)
+        return pack_view(topic_id)
+
+    def _pack_resume_all() -> None:
+        """服务刚起来：自动档里记着在跑的，重起（被部署重启打断的）。"""
+        from . import pack_auto
+
+        for path in sorted(drafts_root.glob(f"topic-*/{pack_auto.FILE}")):
+            try:
+                state = pack_auto.load(path.parent)
+                if state.get("armed") and any((s or {}).get("state") in ("running", "made") for s in (state.get("steps") or {}).values()):
+                    pack_advance(int(path.parent.name.split("-", 1)[1]))
+            except Exception as exc:  # noqa: BLE001 - 一条坏了不挡别的
+                logger.warning("pack resume %s: %s", path, exc)
 
     phone_errors: dict[int, str] = {}
 

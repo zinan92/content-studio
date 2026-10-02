@@ -25,19 +25,20 @@ def test_generate_hands_codex_the_frame_refs_and_title_and_files_the_two_covers(
     (base / "final" / "covers").mkdir(parents=True)
     (base / "final" / "covers" / "旧-竖封面.jpg").write_bytes(b"old")
     calls = []
-    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: calls.append(what) or (Path(args[-1]).write_bytes(b"jpg") if what == "取帧" else ""))
+    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: calls.append(what) or (Path(args[-1]).write_bytes(b"jpg") if what in ("取帧", "垫 16:9") else ""))
     monkeypatch.setattr(cover, "_ratio_ok", lambda path, want: True)
     monkeypatch.setattr(cover, "word_breaks", lambda text: set(range(1, len(text))))
     seen = {}
 
     def runner(text: str, cwd: Path) -> None:
+        # 10/2 起 image_gen 只画竖、横两张，16:9 由 ffmpeg 从横版垫出来
         seen["text"] = text
         seen["files"] = sorted(p.name for p in cwd.iterdir())
         (cwd / "out" / "cover-3x4.png").write_bytes(b"p")
         (cwd / "out" / "cover-4x3.png").write_bytes(b"l")
-        (cwd / "out" / "cover-16x9.png").write_bytes(b"w")
 
     made = cover.generate(base, tmp_path / "raw.mov", at=292.0, title="做自媒体没有大流量如何月入10个", runner=runner)
+    assert "垫 16:9" in calls and "16:9" not in seen["text"]
     assert made == {"竖": "final/covers/做自媒体没有大流量如何月入10个-竖封面.png", "横": "final/covers/做自媒体没有大流量如何月入10个-横封面.png",
                     "YouTube": "final/covers/做自媒体没有大流量如何月入10个-YouTube封面.png"}
     assert seen["files"] == ["out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
@@ -57,20 +58,20 @@ def test_cover_person_comes_only_from_the_video_frame_even_with_portraits_around
     for name in ("01 电梯间 正脸.jpg", "03 浴室 笑.jpg", "05 旧照 光膀子.jpg", "README.md"):
         (looks / name).write_bytes(b"x")
     monkeypatch.setenv("CONTENT_STUDIO_PORTRAITS", str(looks))
-    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: Path(args[-1]).write_bytes(b"jpg") if what == "取帧" else "")
+    monkeypatch.setattr(cover, "_run", lambda args, what, timeout=120: Path(args[-1]).write_bytes(b"jpg") if what in ("取帧", "垫 16:9") else "")
     monkeypatch.setattr(cover, "_ratio_ok", lambda path, want: True)
     monkeypatch.setattr(cover, "word_breaks", lambda text: set(range(1, len(text))))
     seen = {}
 
     def runner(text: str, cwd: Path) -> None:
         seen["text"], seen["files"] = text, sorted(p.name for p in cwd.iterdir())
-        for name in ("cover-3x4.png", "cover-4x3.png", "cover-16x9.png"):
+        for name in ("cover-3x4.png", "cover-4x3.png"):
             (cwd / "out" / name).write_bytes(b"p")
 
     cover.generate(tmp_path / "proj", tmp_path / "raw.mov", at=1.0, title="明牌机会，AI时代普通人仅有的三条路", runner=runner)
     assert seen["files"] == ["out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
     assert "SOLE PERSON SOURCE" in seen["text"] and "好看版" not in seen["text"] and "look-" not in seen["text"]
-    assert "三张封面里是同一个人" in seen["text"]
+    assert "两张封面里是同一个人" in seen["text"]
 
 
 def test_generate_says_so_when_a_cover_is_missing(tmp_path: Path, monkeypatch) -> None:
@@ -126,3 +127,22 @@ def test_release_tells_16x9_from_4x3(tmp_path: Path) -> None:
     (covers / "t-YouTube封面.png").write_bytes(b"")
     found = release.find_covers(tmp_path)
     assert found["wide"] == "final/covers/t-YouTube封面.png" and found["landscape"] == "final/covers/t-横封面.png"
+
+
+def test_title_lines_keep_numbers_with_their_units_and_particles_off_the_line_start(monkeypatch) -> None:
+    """10/2：「我是怎么聊一 / 个年入 200 / 万的老板的」——数字和量词、单位不拆；「了」「的」不打头。"""
+    monkeypatch.setattr(cover, "word_breaks", lambda text: set(range(1, len(text))))
+    for title in ("6000 粉丝，三天三单 2000 块的咨询：我是怎么聊一个年入 200 万的老板的", "只有6000粉丝，3个小时赚了大部分人一个月工资"):
+        lines = cover.split_title(title)
+        assert "".join(lines).replace(" ", "") == title.replace(" ", "")
+        for a, b in zip(lines, lines[1:]):
+            assert not (a[-1] in cover.NUMERAL and b[0] in cover.MEASURE), (a, b)
+            assert b[0] not in cover.NO_LINE_START, (a, b)
+
+
+def test_progress_counts_the_drawn_covers_that_landed(tmp_path: Path) -> None:
+    assert cover.progress(tmp_path) == {"done": 0, "total": 2}
+    out = tmp_path / cover.WORK / "out"
+    out.mkdir(parents=True)
+    (out / "cover-3x4.png").write_bytes(b"p")
+    assert cover.progress(tmp_path) == {"done": 1, "total": 2}
