@@ -142,6 +142,15 @@ class ApproveBody(BaseModel):
     note: str | None = None
 
 
+class V2ApproveBody(BaseModel):
+    gate: str
+    message: str
+
+
+class V2StartBody(BaseModel):
+    job: str
+
+
 class AdoptBody(BaseModel):
     path: str
 
@@ -2938,6 +2947,31 @@ def create_app(
             raise ValueError("先在 worktable 里选 Hook 并导入，再批准")
         record = workflow_runner.approve(path, body.gate, note=body.note)
         return {"approval": record, "project": video_project.inspect(video_root(), _topic["video_project"])}
+
+    # -- 口播动效 v2（park-video-v2）：进度和动作都在它自己的 pv2.py 里 ------------
+    def v2_project(topic_id: int) -> tuple[dict[str, Any], Path]:
+        from . import video_v2
+
+        topic, path, info = linked_project(topic_id)
+        if info["layout"] != "v2" or not video_v2.is_v2(path):
+            raise ValueError("这不是 v2 项目（项目里没有 v2/brief.yaml，或者是旧流程的项目）")
+        return topic, path
+
+    @app.post("/api/topics/{topic_id}/video-project/v2/approve")
+    def approve_v2(topic_id: int, body: V2ApproveBody) -> dict[str, Any]:
+        from . import video_v2
+
+        topic, path = v2_project(topic_id)
+        record = video_v2.approve(path, body.gate, body.message)
+        return {"approval": record, "project": video_project.inspect(video_root(), topic["video_project"])}
+
+    @app.post("/api/topics/{topic_id}/video-project/v2/start")
+    def start_v2(topic_id: int, body: V2StartBody) -> dict[str, Any]:
+        from . import video_v2
+
+        topic, path = v2_project(topic_id)
+        message = video_v2.start(path, body.job)
+        return {"message": message, "project": video_project.inspect(video_root(), topic["video_project"])}
 
     # -- one-click publishing (Park confirms every job) --------------------
 

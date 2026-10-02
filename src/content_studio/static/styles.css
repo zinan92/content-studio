@@ -166,6 +166,14 @@ button.chip-state{cursor:pointer}
 .vp-bar i,.vp-bar b{height:5px;border-radius:3px}
 .vp-bar i{background:var(--accent)}
 .vp-bar b{background:var(--line)}
+/* 口播动效 v2：四步 + 按钮结果 */
+.vp-v2-steps{display:flex;gap:6px;list-style:none;margin:10px 0;padding:0}
+.vp-v2-steps li{flex:1;text-align:center;font-size:13px;padding:6px 0;border-radius:6px;background:var(--line-soft,var(--line));color:var(--ink-3)}
+.vp-v2-steps li.done{background:var(--accent-soft);color:var(--accent)}
+.vp-v2-steps li.current{background:var(--accent);color:var(--bg,#fff);font-weight:600}
+.vp-v2-out{font-size:13px;margin-top:6px;min-height:1em}
+.vp-v2-out.ok{color:var(--save)}
+.vp-v2-out.bad{color:var(--warn)}
 /* 实时动静：谁在干活、最后写了什么 */
 .vp-act{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line-soft);font-size:13px;color:var(--ink-2)}
 .vp-act-h{display:flex;gap:8px;align-items:center}

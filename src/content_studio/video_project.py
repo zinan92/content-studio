@@ -212,6 +212,29 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         "continue_command": f"用 ask-park-video 继续这个口播项目：{base}",
         "log": process_log_tail(base),
     }
+    from . import video_v2
+
+    if video_v2.is_v2(base):
+        st = video_v2.status(base)
+        waiting = st.get("waiting_for")
+        summary = st["step"] + (f" · 等 {waiting}" if waiting else (f" · {st['percent']}%" if st.get("percent") is not None else ""))
+        if st.get("failed"):
+            summary += f" · 出错：{st.get('detail')}"
+        return {
+            **common,
+            "layout": "v2",
+            "continue_command": f"用 park-video-v2 给这个口播项目加动效：{base}",
+            "v2": st,
+            "delivered": st["step"] == "已交付",
+            "final_video": st.get("final"),
+            "summary": summary,
+            "steps": [],
+            "stages": video_v2.stages(st),
+            "current_step": None,
+            "gate": None,
+            "artifacts": {},
+            "blocked_reason": None,
+        }
     if not isinstance(contract, dict):
         from . import release
 
@@ -221,7 +244,7 @@ def inspect(root: Path, name: str) -> dict[str, Any]:
         if final:
             summary = "旧版目录：已有成片"
         elif fresh:
-            summary = "还没开始：放入粗剪视频和字幕后，在 Claude/Codex 里开始"
+            summary = "还没开始：放入粗剪视频和字幕后，在 Claude/Codex 里用 park-video-v2 开始"
         else:
             summary = "没有 project.json，无法按 14 步判断进度"
         return {
