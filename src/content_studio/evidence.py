@@ -3,9 +3,12 @@
 Park：「内容里虽然有插图，但看起来都是 AI 做的，这降低了真实感。」证据有两种：
   1. 他自己视频里的画面——录口播时屏幕右边开着的备忘录、AI 简报、和 Wendy 的对话。他当时真写的东西。
   2. 名人发过的、和文章观点一样的推文（「要不然文章证据太少了」）；找不到就不放，不硬凑、不编。
-「素材处理应该是一件晚上睡觉之后再做的事」：每晚跑一遍还有平台没发的内容，只出提案，不动正式稿：
+只出提案，不动正式稿：
   - evidence/ 里放截好的图，evidence/proposal.json 记每张放在哪一段后面、为什么；
   - article.evidence.md 是插好图的整篇，Park 看过点「用」才换进 article.md（定稿、排版都不在这里动）。
+10/2 Park：找了图没人看，等于白找（那天《100 件事 99 件不赚钱》的提案躺在文件夹里，发出去一张没有）。
+改成打包页「插图」那一步点按钮才找（「要不要找证据图」由他问），找完在同一处一张张选「要 / 不要」，
+放进文章或者整篇不要。没定之前，补发工作台里这篇的 X、公众号先不让发。
 
 流程：每 10 秒取一帧、去重（不看下面字幕那条）→ 拼一张总览图、每帧带前后几句口播
 → claude -p 挑帧、给裁剪框、找推文（只读工具：看图、搜网页）→ 这里逐张核对：
@@ -56,6 +59,97 @@ Shot = Callable[[str, Path], None]
 
 class EvidenceError(RuntimeError):
     """说给人听的一句话。"""
+
+
+BACKUP = "article.before-evidence.md"
+
+
+def _load(article: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads((article.parent / OUT / PROPOSAL).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _save(article: Path, data: dict[str, Any]) -> None:
+    (article.parent / OUT / PROPOSAL).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def in_article(markdown: str) -> list[str]:
+    """文章里已经放着的证据图（文件名）。"""
+    return [Path(m.group(1)).name for b in markdown.splitlines() if (m := IMAGE_LINE.match(b.strip())) and m.group(1).startswith(OUT + "/")]
+
+
+def strip(markdown: str) -> str:
+    """去掉证据图那几行。定稿看的是文字：放图、撤图都不算改文章（公众号排版照样要重排）。"""
+    lines = [b for b in markdown.splitlines() if not ((m := IMAGE_LINE.match(b.strip())) and m.group(1).startswith(OUT + "/"))]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).rstrip() + "\n"
+
+
+def status(article: Path) -> dict[str, Any]:
+    """这篇的证据图走到哪了：none 还没找 / empty 找了没合适的 / pending 等他挑 / applied 放进文章了 / skipped 他说不要。"""
+    data = _load(article)
+    text = article.read_text(encoding="utf-8") if article.is_file() else ""
+    used = in_article(text)
+    if data is None:
+        return {"state": "applied" if used else "none", "items": [], "rejected": 0, "used": used}
+    items = [i for i in data.get("items") or [] if i.get("placed") and (article.parent / OUT / str(i.get("file") or "")).is_file()]
+    decision = data.get("decision") or {}
+    state = ("applied" if used else decision.get("state") if decision.get("state") == "skipped"
+             else "pending" if items else "empty")
+    return {"state": state, "items": items, "rejected": len(data.get("rejected") or []), "used": used,
+            "decided_at": decision.get("at"), "can_undo": bool(used and (article.parent / BACKUP).is_file())}
+
+
+def pending(article: Path) -> bool:
+    """找到了图、他还没挑：这篇的文字平台先别发。"""
+    return status(article)["state"] == "pending"
+
+
+def apply(article: Path, files: list[str], *, now: str) -> dict[str, Any]:
+    """他挑的那几张放进正式稿（按提案的位置，顶掉指定的 AI 图）；一张都不挑就记「这篇不要」，文章不动。"""
+    data = _load(article)
+    if data is None:
+        raise EvidenceError("这篇还没找过证据图")
+    markdown = article.read_text(encoding="utf-8")
+    if in_article(markdown):
+        raise EvidenceError("文章里已经放了证据图，要重挑先点「撤回」")
+    chosen = [i for i in data.get("items") or [] if i.get("placed") and i.get("file") in set(files)]
+    if files and not chosen:
+        raise EvidenceError("挑的图不在提案里，刷新一下再挑")
+    if chosen:
+        text, placed = propose(markdown, chosen)
+        if not all(p["placed"] for p in placed):
+            raise EvidenceError("文章改过了，有的图找不到该放的那一段：重新找一遍证据图")
+        (article.parent / BACKUP).write_text(markdown, encoding="utf-8")
+        article.write_text(text, encoding="utf-8")
+    data["decision"] = {"state": "applied" if chosen else "skipped", "files": [i["file"] for i in chosen], "at": now}
+    _save(article, data)
+    return status(article)
+
+
+def undo(article: Path) -> dict[str, Any]:
+    """撤回：放进去的证据图拿掉、顶掉的 AI 图回来（回到放图之前那一版）；说过「不要」的回到等他挑。
+    放图之后他改过文字，就不能整篇退回去了，免得把他改的字一起退掉。"""
+    from .illustrate import strip_images
+
+    words = lambda md: strip_images(strip(md))  # noqa: E731 - 只比字，图不算
+    data = _load(article)
+    backup = article.parent / BACKUP
+    markdown = article.read_text(encoding="utf-8")
+    if in_article(markdown):
+        if not backup.is_file():
+            raise EvidenceError("找不到放图之前那一版，只能在文章里手动删掉证据图")
+        before = backup.read_text(encoding="utf-8")
+        if words(before) != words(markdown):
+            raise EvidenceError("放图之后文章改过字了，不能整篇退回：在文章里手动删掉证据图那几行")
+        article.write_text(before, encoding="utf-8")
+        backup.unlink()
+    if data is not None:
+        data.pop("decision", None)
+        _save(article, data)
+    return status(article)
 
 
 def _run(args: list[str], what: str, timeout: int = 600) -> str:
@@ -296,6 +390,8 @@ def run_topic(article: Path, video: Path, *, segments: list[dict[str, Any]] | No
     base = article.parent
     work = base / WORK
     out = base / OUT
+    if in_article(article.read_text(encoding="utf-8")):
+        raise EvidenceError("文章里已经放着证据图了：要重新找，先点「撤回」把它们拿出来")
     frames = distinct(sample_frames(video, work / "frames", run=run))
     if not frames:
         raise EvidenceError("视频里取不到帧")

@@ -611,6 +611,68 @@ async function renderFigs(dlg, topicId) {
   };
 }
 
+/* 证据图（10/2 Park）：要不要找由他点；找完一张张挑「要 / 不要」，放进文章或者整篇不要。
+   没挑之前补发工作台里这篇的 X、公众号不让发——10/2 那篇找了 5 张没人看，发出去一张没有。 */
+const EV_KIND = { frame: '视频里的截图', tweet: '原推' };
+async function renderEvidence(dlg, topicId) {
+  const box = $('#pdlEvid', dlg);
+  if (!box) return;
+  let st;
+  try { st = await api(`/api/topics/${topicId}/evidence`); } catch (err) { box.innerHTML = `<p class="pdl-note bad">${esc(err.message)}</p>`; return; }
+  const head = '<h4 class="ev-h">证据图 <span>真东西：你视频里的笔记、简报截图，名人说过的原推</span></h4>';
+  const again = (ms) => setTimeout(() => { if (document.body.contains(box)) renderEvidence(dlg, topicId); }, ms);
+  const post = async (path, body, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      await api(`/api/topics/${topicId}/evidence${path}`, { method: 'POST', body: body || {} });
+      if (window.rerenderPackRow) window.rerenderPackRow('wx');
+    } catch (err) { toast(err.message); }
+    renderEvidence(dlg, topicId);
+  };
+  if (st.running) {
+    box.innerHTML = `${head}<p class="pdl-note"><span class="spin"></span> 正在找：看视频画面、核对推文原话，一般 2–4 分钟。可以先做别的。</p>`;
+    again(8000);
+    return;
+  }
+  const err = st.error ? `<p class="pdl-note bad">上次没找成：${esc(st.error)}</p>` : '';
+  if (st.state === 'none' || st.state === 'empty') {
+    const why = st.skip ? `<p class="pdl-note">${esc(st.skip)}，找不了。</p>` : '';
+    box.innerHTML = `${head}${err}${st.state === 'empty' ? `<p class="pdl-note">找过一遍，没有能用的${st.rejected ? `（${st.rejected} 张没过检查：糊、有隐私、原话对不上）` : ''}。</p>` : ''}${why}
+      ${st.skip ? '' : `<p class="pdl-note">这篇要不要配证据图？<button class="btn small" type="button" data-ev-go>${st.state === 'empty' ? '再找一遍' : '找证据图'}</button> 只出提案，你挑完才放进文章。</p>`}`;
+    const go = $('[data-ev-go]', box);
+    if (go) go.onclick = () => post('', null, go);
+    return;
+  }
+  const card = (i, on) => `<label class="ev-card${on ? ' on' : ''}">
+      <input type="checkbox" data-ev-file="${esc(i.file)}" ${on ? 'checked' : ''}${st.state === 'pending' ? '' : ' disabled'}>
+      <a href="${i.src}" target="_blank" rel="noopener"><img src="${i.src}" alt="${esc(i.caption)}" loading="lazy"></a>
+      <span class="ev-kind">${EV_KIND[i.kind] || ''}${i.url ? ` · <a href="${esc(i.url)}" target="_blank" rel="noopener">原推</a>` : ''}</span>
+      <b>${esc(i.caption)}</b>
+      <span class="ev-where">放在「${esc(String(i.after || '').slice(0, 22))}…」后面${i.replaces ? `，顶掉 AI 图 ${esc(i.replaces)}` : ''}</span>
+    </label>`;
+  if (st.state === 'pending') {
+    box.innerHTML = `${head}${err}<p class="pdl-note">找到 ${st.items.length} 张${st.rejected ? `（另有 ${st.rejected} 张没过检查，已扔掉）` : ''}。不要的取消勾选，再点「放进文章」。<b>挑完之前，补发工作台里这篇的 X、公众号先不发。</b></p>
+      <div class="ev-grid">${st.items.map((i) => card(i, true)).join('')}</div>
+      <p class="ev-act"><button class="btn primary small" type="button" data-ev-apply>放进文章</button> <button class="btn small" type="button" data-ev-skip>这篇都不要</button></p>`;
+    const picked = () => [...box.querySelectorAll('[data-ev-file]:checked')].map((x) => x.dataset.evFile);
+    const btn = $('[data-ev-apply]', box);
+    const paint = () => { const n = picked().length; btn.textContent = n ? `放进文章（${n} 张）` : '一张都没勾'; btn.disabled = !n; box.querySelectorAll('.ev-card').forEach((c) => c.classList.toggle('on', c.querySelector('input').checked)); };
+    box.querySelectorAll('[data-ev-file]').forEach((x) => { x.onchange = paint; });
+    paint();
+    btn.onclick = () => post('/apply', { files: picked() }, btn);
+    $('[data-ev-skip]', box).onclick = (e) => post('/apply', { files: [] }, e.target);
+    return;
+  }
+  const used = new Set(st.used || []);
+  const shown = st.items.filter((i) => used.has(i.file));
+  box.innerHTML = st.state === 'applied'
+    ? `${head}<p class="pdl-note">放进文章 ${used.size} 张。公众号排版要重排一次（下面「公众号排版」那一步）。${st.can_undo ? ' <button class="linklike" type="button" data-ev-undo>撤回，重新挑</button>' : ''}</p>
+       ${shown.length ? `<div class="ev-grid">${shown.map((i) => card(i, true)).join('')}</div>` : ''}`
+    : `${head}<p class="pdl-note">这篇说了不要证据图。<button class="linklike" type="button" data-ev-undo>改主意，重新挑</button></p>`;
+  const undo = $('[data-ev-undo]', box);
+  if (undo) undo.onclick = () => post('/undo', null, undo);
+}
+
 /* 公众号：先排版（gzh，5–10 分钟）→ 看公众号里的样子 → 存进草稿箱。状态就地显示，不靠 toast（弹窗会挡住它）。 */
 function openWxPreview(topicId) {
   const box = document.createElement('dialog');

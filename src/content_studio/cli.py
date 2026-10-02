@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     phone.add_argument("project", type=Path, help="口播项目目录，或配置根目录下的项目名")
     phone.add_argument("--out", type=Path, default=None, help="输出到别的目录（默认 项目/final/手机预览）")
 
-    ev = commands.add_parser("evidence", help="夜里给还没发完的内容配证据图（视频里的笔记截图、名人原推），只出提案")
+    ev = commands.add_parser("evidence", help="一次给一批还没发完的内容找证据图（视频里的笔记截图、名人原推），只出提案；平时在打包页点按钮找")
     ev.add_argument("--server", default=f"http://127.0.0.1:{DEFAULT_PORT}")
     ev.add_argument("--topic", type=int, default=None, help="只跑这一篇（跑过的也重跑）")
     ev.add_argument("--budget-minutes", type=int, default=270, help="总共最多跑多久，到点停（早上 9:25 有同步）")
@@ -239,7 +239,7 @@ def run_sync(args: argparse.Namespace) -> int:
 
 
 def run_evidence(args: argparse.Namespace) -> int:
-    """问工作台要今晚跑哪几篇，一篇一篇跑；一篇失败记一行接着下一篇。到点就停，没跑完的明晚接着跑。"""
+    """问工作台要跑哪几篇，一篇一篇跑；一篇失败记一行接着下一篇。到点就停。"""
     import time
     import urllib.request
 
