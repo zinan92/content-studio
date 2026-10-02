@@ -1620,3 +1620,80 @@ def test_benchmark_sync_route_is_separate(client: TestClient) -> None:
     state = client.get("/api/state").json()
     assert state["benchmarks_running"] is False
     assert "benchmark_count" in state
+
+
+def test_pack_autopilot_starts_only_after_the_title_and_stops_on_failure(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/2 Park：打包只定标题。看页面（GET）不启动任何任务；定了标题才出封面、写文章；失败停下等重试。"""
+    import time
+
+    from content_studio import cover
+
+    root = tmp_path / "videos"
+    base = root / "2026-10-02_客户咨询1"
+    (base / "final").mkdir(parents=True)
+    (base / "final" / "video.mp4").write_bytes(b"0" * 64)
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "客户咨询1", "formats": "video"}).json()
+    tid = topic["id"]
+    client.put(f"/api/topics/{tid}/video-project", json={"name": base.name})
+    monkeypatch.setattr(cover, "source_video", lambda b, final: final)
+    monkeypatch.setattr(cover, "pick_frames", lambda video, out, keep=6, sample=12: [{"at": 33.0, "path": out / "f.jpg", "score": 0.9, "pick": True}])
+    calls: list = []
+    monkeypatch.setattr(cover, "generate", lambda b, source, **kw: calls.append(kw) or (_ for _ in ()).throw(cover.CoverError("横版封面没出来")))
+
+    view = client.get(f"/api/topics/{tid}/pack").json()
+    assert view["armed"] is False and all(s["state"] == "idle" for s in view["steps"]) and calls == []
+    assert client.post(f"/api/topics/{tid}/pack/advance").json()["armed"] is False and calls == []  # 没定标题不动
+
+    assert client.post(f"/api/topics/{tid}/pack/go", json={"title": " "}).status_code == 400
+    go = client.post(f"/api/topics/{tid}/pack/go", json={"title": "只有6000粉丝，3个小时赚了大部分人一个月工资"}).json()
+    assert go["armed"] is True and go["copy_locked"] is True
+    copy = client.get(f"/api/topics/{tid}/copy").json()["copy"]
+    assert {"douyin", "channels", "xiaohongshu", "bilibili", "youtube"} <= set(copy["platforms"])
+    assert all(e["title"] == "只有6000粉丝，3个小时赚了大部分人一个月工资" for e in copy["platforms"].values())
+    for _ in range(60):
+        cover_row = next(s for s in client.get(f"/api/topics/{tid}/pack").json()["steps"] if s["key"] == "cover")
+        if cover_row["state"] == "error":
+            break
+        time.sleep(0.05)
+    assert cover_row["state"] == "error" and "横版封面没出来" in cover_row["note"] and calls[0]["at"] == 33.0
+    client.post(f"/api/topics/{tid}/pack/advance")
+    time.sleep(0.1)
+    assert len(calls) == 1  # 失败了不自己再出一轮
+    client.post(f"/api/topics/{tid}/pack/retry", json={"key": "cover"})
+    for _ in range(60):
+        if len(calls) == 2:
+            break
+        time.sleep(0.05)
+    assert len(calls) == 2  # 点了重试才再出
+
+
+def test_pack_go_reuses_covers_made_for_this_title_and_redraws_ones_for_another(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """封面文件名以标题开头（cover.generate 存的）。标题对得上就直接定稿；对不上按新标题重出。"""
+    import time
+
+    from content_studio import cover
+
+    root = tmp_path / "videos"
+    base = root / "2026-10-02_客户咨询1"
+    (base / "final" / "covers").mkdir(parents=True)
+    (base / "final" / "video.mp4").write_bytes(b"0" * 64)
+    for shape in ("竖", "横"):
+        (base / "final" / "covers" / f"只有6000粉丝-{shape}封面.png").write_bytes(b"png")
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    tid = client.post("/api/topics", json={"title": "客户咨询1", "formats": "video"}).json()["id"]
+    client.put(f"/api/topics/{tid}/video-project", json={"name": base.name})
+    monkeypatch.setattr(cover, "source_video", lambda b, final: final)
+    monkeypatch.setattr(cover, "pick_frames", lambda video, out, keep=6, sample=12: [{"at": 1.0, "path": out / "f.jpg", "score": 0.9, "pick": True}])
+    calls: list = []
+    monkeypatch.setattr(cover, "generate", lambda b, source, **kw: calls.append(kw) or {})
+
+    view = client.post(f"/api/topics/{tid}/pack/go", json={"title": "只有6000粉丝"}).json()
+    assert next(s for s in view["steps"] if s["key"] == "cover")["state"] == "done" and calls == []
+
+    client.post(f"/api/topics/{tid}/pack/go", json={"title": "换了一个标题"})
+    for _ in range(40):
+        if calls:
+            break
+        time.sleep(0.05)
+    assert calls and calls[0]["title"] == "换了一个标题"

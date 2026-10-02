@@ -26,6 +26,8 @@ WORD_BREAKS = Path(__file__).parent / "native" / "word_breaks.swift"
 STYLE_REFS = {"3x4": "assets/covers/park-bold-orange-v1-3x4.png", "4x3": "assets/covers/park-bold-orange-v1-4x3.png"}
 # 出哪几张：竖 3:4（抖音、视频号、小红书）、横 4:3（抖音横封面、公众号垫宽）、宽 16:9（YouTube、B 站，9/29 起）
 SHAPES = (("竖", "cover-3x4.png", 3 / 4), ("横", "cover-4x3.png", 4 / 3), ("YouTube", "cover-16x9.png", 16 / 9))
+# 10/2 起只有竖、横两张用 image_gen 画；16:9 用 ffmpeg 从横版垫出来（模糊放大的底 + 居中横版），不再多跑一轮出图
+DRAWN = SHAPES[:2]
 WORK = "analysis/cover-imagegen"
 VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v")
 # 预览、样片、试做都是小码率的副本，不拿来取帧
@@ -98,10 +100,27 @@ def word_breaks(text: str) -> set[int]:
     return found or every
 
 
+# 数字和后面的量词、单位不拆开：10/2「我是怎么聊一 / 个年入 200 / 万的老板的」把「一个」「200 万」劈开了
+NUMERAL = "0123456789一二三四五六七八九十百千两几半"
+MEASURE = "个万千百亿块元岁年月天周小时分秒次条张位倍%"
+# 行首禁则：助词不能开头（「3个小时赚 / 了大部分人」）
+NO_LINE_START = "了的着过吗呢吧啊么得地"
+
+
+def _glued(text: str, i: int) -> bool:
+    """text[i-1] 和 text[i] 之间不能断：数字（含中文数字）后面紧跟量词或单位，中间的空格也算。"""
+    left = text[:i].rstrip()
+    right = text[i:].lstrip()
+    if not left or not right:
+        return False
+    return (left[-1] in NUMERAL and right[0] in MEASURE) or right[0] in NO_LINE_START
+
+
 def _balanced(phrase: str, breaks: set[int], per_line: float) -> list[str]:
     """在允许的断点里挑一种断法：每行不超过上限（放不下的单个词除外），行数最少，各行宽度最接近。
     标点永远跟着前一行。"""
-    cuts = sorted(i for i in breaks if 0 < i < len(phrase) and not re.match(r"[，。！？、：；,!?:;）)」”]", phrase[i]))
+    cuts = sorted(i for i in breaks if 0 < i < len(phrase) and not re.match(r"[，。！？、：；,!?:;）)」”]", phrase[i])
+                  and not _glued(phrase, i))
     points = [0, *cuts, len(phrase)]
     n = len(points)
     best: list[tuple[int, float, list[int]] | None] = [None] * n
@@ -169,6 +188,18 @@ def score_frames(paths: list[Path]) -> dict[Path, float]:
 def pick_frames(video: Path, out_dir: Path, *, keep: int = 6, sample: int = 12) -> list[dict[str, Any]]:
     """9/29 Park：「画面不用我自己选，你帮我选；6 选 1 也行。」多取几帧，按人脸拍摄质量留最好的几张
     （按时间排），分最高的那张标 pick。打不了分就退回等距那几张、选中间。"""
+    stat = video.stat() if video.is_file() else None
+    key = {"video": str(video), "size": stat.st_size if stat else 0, "mtime": round(stat.st_mtime, 3) if stat else 0, "keep": keep, "sample": sample}
+    cache = out_dir / "picks.json"
+    try:
+        if stat is None:
+            raise ValueError("no video to key the cache on")
+        saved = json.loads(cache.read_text(encoding="utf-8"))
+        if saved.get("key") == key and all((out_dir / f["file"]).is_file() for f in saved["frames"]):
+            # 10/2：打包页每 8 秒问一次进度，每次都重取 12 帧、重打分，页面看起来像卡住
+            return [{"at": f["at"], "path": out_dir / f["file"], "score": f["score"], "pick": f["pick"]} for f in saved["frames"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     frames = candidate_frames(video, out_dir, count=sample)
     scores = score_frames([f["path"] for f in frames])
     for f in frames:
@@ -179,7 +210,10 @@ def pick_frames(video: Path, out_dir: Path, *, keep: int = 6, sample: int = 12) 
     else:
         kept = sorted(sorted(frames, key=lambda f: f["score"], reverse=True)[:keep], key=lambda f: f["at"])
         best = max(kept, key=lambda f: f["score"])
-    return [{**f, "pick": f is best} for f in kept]
+    picked = [{**f, "pick": f is best} for f in kept]
+    if stat is not None:
+        cache.write_text(json.dumps({"key": key, "frames": [{"at": f["at"], "file": f["path"].name, "score": f["score"], "pick": f["pick"]} for f in picked]}), encoding="utf-8")
+    return picked
 
 
 
@@ -217,12 +251,12 @@ def style_refs() -> dict[str, Path]:
 
 # 10/2 Park：不要把视频那一帧和形象照拼在一起——拼出来像另一个人，竖横两张还不一样。只用视频本身那一帧。
 PERSON_BLOCK = ("- person.jpg — SOLE PERSON SOURCE：本期视频里的真人截图。封面上的人必须就是他：同一张脸、同样发型、同样的衣服和配饰、同样的手势。"
-                "不要换脸、不要美颜成另一个人、不要换衣服。三张封面里是同一个人、同一个状态，只是构图不同。"
+                "不要换脸、不要美颜成另一个人、不要换衣服。两张封面里是同一个人、同一个状态，只是构图不同。"
                 "原图里如果有烧进去的字幕框，封面上必须去掉，一个字都不能留；背景的杂物（灯、椅子、桌子）也不要。\n")
 
 
 def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
-    return f"""用 image_gen 生成三张视频封面（竖、横、宽），直接生成，不用等我确认。当前目录里有：
+    return f"""用 image_gen 生成两张视频封面（竖、横），直接生成，不用等我确认。当前目录里有：
 
 {PERSON_BLOCK}- style-3x4.png（竖版）和 style-4x3.png（横版）— STYLE REFERENCE ONLY：只学视觉语言，不要用里面的人、衣服、手势或文字。
 
@@ -236,10 +270,22 @@ def prompt(title: str, portrait: list[str], landscape: list[str]) -> str:
 
 2) 横版 4:3（1448×1086）：标题压左边约 55% 宽，分 {len(landscape)} 行「{' / '.join(landscape)}」；人物压右边，胸口以上，占满右侧高度，脸大而清楚。单独构图，不要把竖版裁成横版。保存为 out/cover-4x3.png。
 
-3) 宽版 16:9（1920×1080，给 YouTube 和 B 站）：和横版同一套——同样的标题断行、橙色关键词、底色、斜角条、笔刷下划线；标题压左边约 50% 宽，人物压右边、占满右侧高度。精确 16:9，不要拉伸。保存为 out/cover-16x9.png。
-
-生成后自己看一遍：字是否逐字一致、有没有残留字幕、人是不是 person.jpg 里那个人、三张里的人是否一样、缩到 360 像素宽时标题是否还能一眼读清。不合格就重生成，最多各试 3 次。最后只保留最好的三张在 out/ 里，另写 out/receipt.json：{{"prompt": 你实际用的完整提示词, "checks": {{"text": ..., "person": ..., "no_caption": ..., "thumbnail": ...}}}}。不要改当前目录里的其他文件。
+生成后自己看一遍：字是否逐字一致、有没有残留字幕、人是不是 person.jpg 里那个人、两张里的人是否一样、缩到 360 像素宽时标题是否还能一眼读清。不合格就重生成，最多各试 3 次。最后只保留最好的两张在 out/ 里，另写 out/receipt.json：{{"prompt": 你实际用的完整提示词, "checks": {{"text": ..., "person": ..., "no_caption": ..., "thumbnail": ...}}}}。不要改当前目录里的其他文件。
 """
+
+
+def widen(landscape: Path, out: Path) -> Path:
+    """4:3 横版垫成 16:9（1920×1080）：同一张图放大、模糊、压暗一点当底，原图居中不裁。"""
+    _run(["ffmpeg", "-v", "error", "-y", "-i", str(landscape), "-filter_complex",
+          "[0]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=30:3,eq=brightness=-0.06[bg];"
+          "[0]scale=-2:1080[fg];[bg][fg]overlay=(W-w)/2:0", "-frames:v", "1", str(out)], "垫 16:9", timeout=60)
+    return out
+
+
+def progress(base: Path) -> dict[str, int]:
+    """正在出的那一轮出好了几张（看 out/ 里落地的文件，不估时间）。"""
+    out = base / WORK / "out"
+    return {"done": sum((out / name).is_file() for _, name, _ in DRAWN), "total": len(DRAWN)}
 
 
 def codex_runner(text: str, cwd: Path) -> None:
@@ -283,12 +329,15 @@ def generate(base: Path, source: Path, *, at: float, title: str, runner: Runner 
     text = prompt(title, split_title(title), split_title(title, per_line=5.5))
     (work / "prompt.md").write_text(text, encoding="utf-8")
     runner(text, work)
-    made = {label: work / "out" / name for label, name, _ in SHAPES}
+    made = {label: work / "out" / name for label, name, _ in DRAWN}
     for label, path in made.items():
         if not path.is_file():
             raise CoverError(f"{label}版封面没出来")
-    if not all(_ratio_ok(made[label], want) for label, _, want in SHAPES):
-        raise CoverError("出来的封面比例不对（要竖 3:4、横 4:3、宽 16:9），再出一次")
+    if not all(_ratio_ok(made[label], want) for label, _, want in DRAWN):
+        raise CoverError("出来的封面比例不对（要竖 3:4、横 4:3），再出一次")
+    wide = work / "out" / SHAPES[2][1]
+    widen(made["横"], wide)
+    made[SHAPES[2][0]] = wide
     covers = base / "final" / "covers"
     covers.mkdir(parents=True, exist_ok=True)
     old = covers / "_old"
