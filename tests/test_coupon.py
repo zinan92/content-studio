@@ -75,3 +75,13 @@ def test_coupon_follows_the_skeleton_on_the_video_page(client, tmp_path: Path, m
     saved = client.put(f"/api/topics/{topic['id']}/coupon", json={"markdown": "# 改过的"}).json()
     assert saved["markdown"] == "# 改过的\n"
     assert outline.FRAMEWORK_FILE != coupon.FRAMEWORK_FILE
+
+
+def test_the_coupon_tab_is_actually_shown_on_the_video_page() -> None:
+    """10/2：页签注册了，但视频页只显示 TAB_ORDER 里的几个——漏了它，Park 刷新了也看不到。"""
+    import re
+
+    js = (Path(__file__).resolve().parents[1] / "src/content_studio/static/video.js").read_text(encoding="utf-8")
+    order = re.search(r"const TAB_ORDER = \[([^\]]*)\]", js).group(1)
+    assert "'coupon'" in order and order.index("'outline'") < order.index("'coupon'") < order.index("'edit'")
+    assert "key: 'coupon'" in js

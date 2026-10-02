@@ -179,7 +179,7 @@ window.VIDEO_TABS.push({
 });
 
 // 研习室文章 9/29 搬去「03 打包」了：加工中只管骨架和剪辑
-const TAB_ORDER = ['outline', 'edit'];
+const TAB_ORDER = ['outline', 'coupon', 'edit'];  // 视频页只显示这几个页签，按这个顺序（10/2 加了付息稿）
 const WORK_STEPS = [['outline', '骨架'], ['record', '录制'], ['edit', '剪辑'], ['ready', '待发'], ['shipped', '已发出']];
 const WK = { topics: null, at: 0 };
 
