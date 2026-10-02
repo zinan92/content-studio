@@ -1697,3 +1697,27 @@ def test_pack_go_reuses_covers_made_for_this_title_and_redraws_ones_for_another(
             break
         time.sleep(0.05)
     assert calls and calls[0]["title"] == "换了一个标题"
+
+
+def test_pack_go_gives_every_video_platform_the_content_tags_from_the_title_run(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/2 Park：只有抖音有话题。没写过内容话题时，用出标题时按内容出的那批；流量话题还是各平台自己的、排在前面。"""
+    from content_studio import cover
+
+    root = tmp_path / "videos"
+    base = root / "2026-10-02_客户咨询1"
+    (base / "final").mkdir(parents=True)
+    (base / "final" / "video.mp4").write_bytes(b"0" * 64)
+    client.put("/api/settings", json={"video_projects_root": str(root), "traffic_tags": {"douyin": ["青年创作者成长计划"]}})
+    tid = client.post("/api/topics", json={"title": "客户咨询1", "formats": "video"}).json()["id"]
+    client.put(f"/api/topics/{tid}/video-project", json={"name": base.name})
+    monkeypatch.setattr(cover, "source_video", lambda b, final: final)
+    monkeypatch.setattr(cover, "pick_frames", lambda video, out, keep=6, sample=12: [{"at": 1.0, "path": out / "f.jpg", "score": 0.9, "pick": True}])
+    monkeypatch.setattr(cover, "generate", lambda b, source, **kw: {})
+    from content_studio import titles
+
+    monkeypatch.setattr(titles, "read_titles", lambda d, topic_id: {"tags": ["自媒体变现", "咨询", "个人IP"]} if topic_id == tid else None)
+    client.post(f"/api/topics/{tid}/pack/go", json={"title": "只有6000粉丝"})
+    platforms = client.get(f"/api/topics/{tid}/copy").json()["copy"]["platforms"]
+    assert platforms["douyin"]["tags"] == ["青年创作者成长计划", "自媒体变现", "咨询", "个人IP"]
+    assert platforms["channels"]["tags"] == ["自媒体变现", "咨询", "个人IP"]
+    assert platforms["xiaohongshu"]["tags"] == ["自媒体变现", "咨询", "个人IP"]

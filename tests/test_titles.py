@@ -78,3 +78,17 @@ def test_srt_text_keeps_only_words(tmp_path: Path) -> None:
     srt = tmp_path / "a.srt"
     srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n你好\n\n2\n00:00:01,000 --> 00:00:02,000\n世界\n", encoding="utf-8")
     assert titles.srt_text(srt) == "你好世界"
+
+
+def test_parse_reads_content_tags_when_given_and_tolerates_none() -> None:
+    """10/2：出标题顺带出内容话题，各平台都带。没给或太少不退回，标题照用。"""
+    with_tags = _out(GOOD).replace("<<<END>>>", "\n## 话题\n#开源，dbskill，知识付费、个人IP，这是一个超过十二个字的太长话题\n<<<END>>>")
+    assert titles.parse(with_tags, material=MATERIAL)["tags"] == ["开源", "dbskill", "知识付费", "个人IP"]
+    assert titles.parse(_out(GOOD), material=MATERIAL)["tags"] == []
+    two = _out(GOOD).replace("<<<END>>>", "\n## 话题\n开源，dbskill\n<<<END>>>")
+    assert titles.parse(two, material=MATERIAL)["tags"] == []
+
+
+def test_prompt_asks_for_content_tags_not_traffic_tags() -> None:
+    prompt = titles.build_prompt({"title": "t"}, framework="f", transcript="", skeleton="")
+    assert "## 话题" in prompt and "流量话题" in prompt

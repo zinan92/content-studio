@@ -24,6 +24,8 @@ from .writer import ARTICLE_BLOCK, DEFAULT_DRAFTS_DIR, WriteFn, WriterError, cli
 FRAMEWORK_FILE = "标题.md"
 FILENAME = "titles.json"
 MIN_TITLES, MAX_TITLES = 6, 10
+# 10/2 Park：只有抖音有话题，视频号、小红书都没有。出标题时顺便按内容出一批话题，各平台都带。
+MIN_TAGS, MAX_TAGS, TAG_MAX = 3, 8, 12
 TITLE_MAX = PLATFORMS["douyin"]["title"]
 BORROW = "借力点名"
 MATERIAL_CAP = 14000  # 15 分钟口播的转写大约一万字；再长就截，标题用不着看全
@@ -80,7 +82,11 @@ def build_prompt(topic: dict[str, Any], *, framework: str, transcript: str, skel
 
 ## 输出
 按标准里「输出」一节写，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间。
-{MIN_TITLES}–{MAX_TITLES} 条，每条不超过 {TITLE_MAX} 个字。不写解释、不写推荐哪条。{retry}"""
+{MIN_TITLES}–{MAX_TITLES} 条，每条不超过 {TITLE_MAX} 个字。不写解释、不写推荐哪条。
+
+在同一块的最后再加一节「## 话题」：{MIN_TAGS + 2}–{MAX_TAGS} 个内容话题，用中文逗号隔开，不带 #，每个不超过 {TAG_MAX} 个字。
+话题说的是这条视频讲什么、谁会搜（例如：自媒体变现，咨询，个人IP），只用视频里真的讲到的东西；
+不要写平台活动、扶持计划这类流量话题（那些 Park 在设置里按平台填）。{retry}"""
 
 
 def _section(text: str, name: str) -> str:
@@ -115,7 +121,13 @@ def parse(output: str, *, material: str) -> dict[str, Any]:
         borrowed = [c for c in candidates if BORROW in c["pattern"] and any(p.lower() in c["title"].lower() for p in people)]
         if not borrowed:
             raise WriterError(f"视频里点名了 {'、'.join(people)}，至少要一条「{BORROW}」把名字放进标题")
-    return {"people": people, "candidates": candidates}
+    tags = []
+    for raw in re.split(r"[，,、\n]+", _section(text, "话题")):
+        tag = raw.strip().lstrip("#").strip()
+        if tag and len(tag) <= TAG_MAX and tag not in tags:
+            tags.append(tag)
+    # 话题是顺带的：没给或者太少不退回，标题照样能用
+    return {"people": people, "candidates": candidates, "tags": tags[:MAX_TAGS] if len(tags) >= MIN_TAGS else []}
 
 
 def write_titles(
