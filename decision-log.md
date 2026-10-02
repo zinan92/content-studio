@@ -4,13 +4,21 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-10-02 — 剪映粗剪直接当 Clean Master 也算 Step 10 完成（#367）
+
+- **面对什么:** Park：「我现在怎么一直在 step 10 卡了好久了」。「客户咨询1」没有 Hook、没有删减，agent 把剪映粗剪直接当 Clean Master，只在 `part-b-body/edit.json` 里指向它，没另出 `clean-master.mp4`。视频页只认 `clean-master.mp4`，进度停在 Step 10；H2 入口只在 Step 11 露出，动效方案写完了也没有批准按钮。
+- **定了什么:** Step 10 的证据也认 `edit.json` 里 `clean_master.path` 指向的、在项目目录里真实存在的文件；项目目录外的路径不认。有 `clean-master.mp4` 的老项目照旧。
+- **为什么:** 不转码、不复制 835 MB 的粗剪是 skill 自己的规则（Clean Master 以哈希为准），工作台不该因此卡住。
+- **怎么验证:** `tests/test_video_project.py`：指向的文件不存在仍停在 Step 10；存在后到 Step 11 并露出 H2；指向项目外不认。这条线上项目当时先用一个指向粗剪的符号链接 `clean-master.mp4` 解锁。
+- **踩了什么坑:** 进度是按证据文件推出来的，某一步换了交付方式，后面所有审批门都会跟着消失，页面上看起来就是「卡住」。
+
 ## 2026-10-02 — 词级时间有 SRT 就对齐、只用 mlx-whisper，不跑 CPU 版 Whisper（#365）
 
 - **面对什么:** 「客户咨询1」的后台流水线在 Step 4 自己调了 openai-whisper 命令行（`whisper --model turbo`），只能用 CPU，9 分 37 秒的口播跑了 12 分钟没完。Park：「如果我已经有 SRT 了，那我还需要再跑 Whisper 吗？」「帮我改成用 SRT 对齐音频，而且本来就该用 mlx whisper」。
 - **定了什么:** runner 提示词写死顺序：有 `subtitles/source.srt` 就跑 ask-park-video 的 `scripts/motion/align_srt.py`（拿 SRT 文字对齐音频，mlx cross-attention + DTW，每 ~25 秒一次前向，不解码）；没有 SRT 才跑 `scripts/motion/words.py`（mlx 整条转写）；禁止 openai-whisper 命令行。skill 的 Step 4 和 motion-director 同步，`words.json` 统一放 `subtitles/`（`check-visual-plan` 读的就是这里）。
 - **为什么:** 剪映 SRT 已经切到中位 1.33 秒一条，只缺句内每个字的时刻；重新识别既慢，又会和字幕字面对不上（引用原话时找不到）。mlx 版在 Apple 芯片上走 GPU。
 - **怎么验证:** 同一条视频：`align_srt.py` 37 秒（含加载模型），370 句全部对齐，0 句退回按字数平分，逐字时间单调。`tests/test_koubo_spec.py` 断言提示词里有这条规则。
-- **踩了什么坑:** skill 没有提这一步该用哪个工具，后台 agent 就自己挑了 CPU 版；`motion-director.md` 写的是 `motion/words.json`，`check-visual-plan` 读的是 `subtitles/words.json`，两处路径不一致。剪映 SRT 自己也会听错（这条把「60 粉丝」写成了「6,000 粉丝」），对齐只管时间，不纠正字。
+- **踩了什么坑:** skill 没有提这一步该用哪个工具，后台 agent 就自己挑了 CPU 版；`motion-director.md` 写的是 `motion/words.json`，`check-visual-plan` 读的是 `subtitles/words.json`，两处路径不一致。对齐只管时间，不纠正字；字以剪映 SRT 为准（这条一度被当成把「60 粉丝」听错成「6,000 粉丝」，Park 确认就是 6000，Tella 的自动转写才是错的）。
 
 ## 2026-10-01 — 「今天」最上面是月历；Wendy 在「今天」和定位页，Anna 在进项到发布（#346）
 

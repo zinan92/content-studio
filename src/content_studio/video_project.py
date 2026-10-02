@@ -120,6 +120,21 @@ def _step_checks(base: Path, contract: dict[str, Any]) -> dict[int, Callable[[],
     skipped = lambda n: str(status.get(str(n)) or status.get(n) or "").lower() == "skipped"  # noqa: E731
     presets = contract.get("presets") or {}
 
+    def clean_master_ok() -> Evidence:
+        # 剪映粗剪本身就是 Clean Master 时，agent 不转码不复制，只在 edit.json 里指向它——这也算。
+        # 只认项目目录里的文件。
+        note = "part-b-body/clean-master.mp4（或 edit.json 指向的粗剪）+ edit.json"
+        if not exists("part-b-body/edit.json"):
+            return Evidence(False, note)
+        if exists("part-b-body/clean-master.mp4"):
+            return Evidence(True, note)
+        edit = _json(base / "part-b-body/edit.json")
+        master = edit.get("clean_master") if isinstance(edit, dict) else None
+        rel = str(master.get("path") or "") if isinstance(master, dict) else ""
+        target = (base / rel).resolve() if rel else None
+        inside = target is not None and target.is_relative_to(base.resolve())
+        return Evidence(bool(inside and target.is_file()), note)
+
     def presets_ok() -> Evidence:
         missing = [k for k in ("media", "audio", "caption_style", "caption_layout") if not presets.get(k)]
         return Evidence(bool(contract) and not missing, "project.json 与四个 preset" if not missing else f"project.json 缺 preset：{'、'.join(missing)}")
@@ -137,7 +152,7 @@ def _step_checks(base: Path, contract: dict[str, Any]) -> dict[int, Callable[[],
         7: lambda: Evidence(skipped(7) or (_nonempty_dir(base / "part-a-hook/individual")), "part-a-hook/individual/ 截好的 Hook 片段（或记录为不做 Hook）"),
         8: lambda: Evidence(skipped(8) or (exists("part-a-hook/edit.json") and exists("part-a-hook/subtitles.srt")), "part-a-hook/edit.json + subtitles.srt（或记录为不做 Hook）"),
         9: lambda: Evidence(skipped(9) or (exists("part-a-hook/video.mp4") and qa_passed(base / "part-a-hook/qa.json")), "part-a-hook/video.mp4 + QA A 通过（或记录为不做 Hook）"),
-        10: lambda: Evidence(exists("part-b-body/clean-master.mp4") and exists("part-b-body/edit.json"), "part-b-body/clean-master.mp4 + edit.json"),
+        10: clean_master_ok,
         11: lambda: Evidence(
             (exists("part-b-body/visual-plan.json") and bool(approvals.get("visual_spec"))) or str(status.get("11") or "").lower() == "skipped",
             "visual-plan.json + 视觉规格批准（或记录为不加视觉）",

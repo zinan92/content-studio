@@ -66,6 +66,23 @@ def test_full_delivery_and_h3_gate(tmp_path: Path) -> None:
     assert info["delivered"] is True and info["summary"] == "已交付"
 
 
+def test_rough_cut_as_clean_master_counts_for_step_10(tmp_path: Path) -> None:
+    """剪映粗剪直接当 Clean Master（edit.json 指向它，不另出 clean-master.mp4）也算 Step 10 完成，H2 才露得出来。"""
+    base = _project(tmp_path, "p", step_status={"2": "pass", "3": "pass", "5": "skipped", "7": "skipped", "8": "skipped", "9": "skipped"})
+    for rel in ("subtitles/source.srt", "subtitles/transcript.sentences.json", "analysis/worktable.html", "analysis/content-map.md",
+                "part-b-body/visual-plan.json"):
+        _touch(base, rel)
+    edit = {"clean_master": {"path": "粗剪.mov"}}
+    _touch(base, "part-b-body/edit.json", json.dumps(edit, ensure_ascii=False))
+    assert vp.inspect(tmp_path.resolve(), "p")["current_step"] == 10  # 指向的文件还不存在
+    _touch(base, "粗剪.mov")
+    info = vp.inspect(tmp_path.resolve(), "p")
+    assert info["current_step"] == 11 and info["gate"]["key"] == "H2"
+    _touch(base, "part-b-body/edit.json", json.dumps({"clean_master": {"path": "../outside.mov"}}))
+    _touch(tmp_path, "outside.mov")
+    assert vp.inspect(tmp_path.resolve(), "p")["current_step"] == 10  # 不认项目目录外面的文件
+
+
 def test_failed_qa_is_not_pass(tmp_path: Path) -> None:
     _touch(tmp_path, "qa.json", json.dumps({"status": "fail"}))
     assert vp.qa_passed(tmp_path / "qa.json") is False
