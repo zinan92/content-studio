@@ -137,3 +137,80 @@ def read_coupon(drafts_dir: Path, topic_id: int) -> dict[str, Any] | None:
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     return {"markdown": path.read_text(encoding="utf-8"), "path": str(path),
             "updated_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds"), **meta}
+
+
+# -- 润色：把已经写好的文字（X 图文文章）按付息稿的逻辑重新整理一遍 ------------------
+# 10/2 Park：「文字最终还是我口述的，可能偏离了框架……有一个叫『润色』的 button，背后用『利息和本金』的逻辑重新跑一遍。」
+# 只重排、改写表达，不加新事实；插图行原样带着（插图跟着段落走，不重画）。
+
+IMAGE_LINE = re.compile(r"^!\[[^\]]*\]\([^)\s]+\)[ \t]*$", re.MULTILINE)
+
+
+def polish_prompt(article: str, *, framework: str, error: str | None = None) -> str:
+    retry = f"\n\n上一次输出有问题：{error}。请修正后重新输出。" if error else ""
+    me = author()
+    return f"""你在帮 {me.name} 润色一篇已经写好的 X 图文文章。文章是照他的口播整理的，可能散、可能跑题。
+用他和 Anna 定的「付息稿」逻辑把它重新整理一遍——付息稿本来是给口播排时间线用的，这里用的是同一个道理：
+
+- 开头「发债」：第一段就让读者知道读完能拿到什么（本金）。
+- 中间「付息」：每一段都要给读者一点东西（一个新判断、一个原因、一个案例），没有给东西的段落删掉或并掉。
+- 结尾「兑付本金」：把开头答应的那个东西完整交出来。
+
+框架原文（给你理解这套逻辑；里面关于时间线、秒数、利息账本的格式要求，这次**不用**照做）：
+
+---
+
+{framework}
+
+---
+
+硬规则：
+1. 只用原文里有的事实、数字、例子和说法，不新增；不编 {me.name} 的经历和数据。尽量保留他的原话和口吻。
+2. 第一行保留「# 标题」（可以不改）。
+3. 原文里每一行图片（形如 ![说明](illustrations/xx.png)）都要原样保留，一行不少、一个字不改，放在它说的那一段后面。
+4. 输出整篇 Markdown，放在单独一行的 <<<ARTICLE>>> 和单独一行的 <<<END>>> 之间，不写解释。
+
+## 原文
+
+{article}{retry}"""
+
+
+def check_polish(original: str, output: str) -> str:
+    match = ARTICLE_BLOCK.search(output)
+    if not match:
+        raise WriterError("模型没有按格式返回")
+    text = match.group(1).strip()
+    if not text.startswith("#"):
+        raise WriterError("缺少标题")
+    before = sorted(m.strip() for m in IMAGE_LINE.findall(original))
+    after = sorted(m.strip() for m in IMAGE_LINE.findall(text))
+    if before != after:
+        raise WriterError(f"图片行要原样保留：原文 {len(before)} 张，润色后 {len(after)} 张或改了字")
+    body = lambda s: len(IMAGE_LINE.sub("", s).strip())  # noqa: E731
+    if body(text) < body(original) * 0.5:
+        raise WriterError("润色后不到原文一半长，删得太多了")
+    return text + "\n"
+
+
+def polish_article(path: Path, *, write_fn: WriteFn | None = None, workflows: Path | None = None, attempts: int = 2,
+                   now: datetime | None = None) -> dict[str, Any]:
+    """原文先备份成 article.before-polish-<时间>.md，再写回润色后的版本。"""
+    original = path.read_text(encoding="utf-8")
+    framework = load_framework(workflows)
+    fn = write_fn or (lambda prompt: cli_write(prompt, command=os.environ.get(COUPON_COMMAND_ENV) or DEFAULT_COUPON_COMMAND, timeout=900))
+    error: str | None = None
+    for _ in range(attempts):
+        try:
+            text = check_polish(original, fn(polish_prompt(original, framework=framework, error=error)))
+            break
+        except JudgeLoginError:
+            raise
+        except WriterError as exc:
+            error = str(exc)
+    else:
+        raise WriterError(f"连续 {attempts} 次没润色成：{error}")
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
+    backup = path.with_name(f"{path.stem}.before-polish-{stamp}{path.suffix}")
+    backup.write_text(original, encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
+    return {"path": str(path), "backup": str(backup)}

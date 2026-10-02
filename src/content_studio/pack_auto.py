@@ -123,9 +123,12 @@ def view(state: dict[str, Any], approvals: dict[str, dict[str, Any]], running: s
             continue
         a = approvals.get(key) or {}
         step = steps.get(key) or {}
-        if a.get("approved") and a.get("valid"):
-            st, note = "done", (detail or {}).get(key) or "好了"
-        elif key in running or step.get("state") == "running":
+        if key in running:  # 已经定稿的也可能在重做（比如文章在润色）：在做优先
+            st, note = "running", (detail or {}).get(key) or "在做"
+        elif a.get("approved") and a.get("valid"):
+            # 定稿那一版还在，但后来又做过一次没成（比如润色失败）：仍然算好了，说一句
+            st, note = "done", f"好了 · 上次重做没成：{step['error']}" if step.get("state") == "error" and step.get("error") else "好了"
+        elif step.get("state") == "running":
             st, note = "running", (detail or {}).get(key) or "在做"
         elif step.get("state") == "error":
             st, note = "error", step.get("error") or "没做成"

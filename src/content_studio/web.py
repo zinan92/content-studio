@@ -1538,6 +1538,40 @@ def create_app(
                 writing.discard(topic_id)
             _pack_job_done(topic_id, "article", failed)
 
+    @app.post("/api/topics/{topic_id}/polish")
+    def start_polish(topic_id: int) -> dict[str, Any]:
+        """润色（10/2 Park）：把已经写好的 X 图文文章按付息稿的逻辑重新整理一遍。原文先备份；
+        插图行原样保留。改完文章，自动档会重新定稿，公众号排版跟着重排。"""
+        from . import coupon
+
+        topic = store.topic(topic_id)
+        article = _article_path(topic)
+        if article is None or not article.is_file():
+            raise HTTPException(status_code=400, detail="还没有文章，先写好再润色")
+        with writing_lock:
+            if topic_id in writing:
+                return {"started": False, "message": "这篇正在写或正在润色"}
+            writing.add(topic_id)
+        store.update_topic(topic_id, write_state="running", write_error=None)
+
+        def run() -> None:
+            failed = None
+            try:
+                coupon.polish_article(article, **({"write_fn": write_fn} if write_fn else {}))
+                store.update_topic(topic_id, write_state=None, write_error=None)
+                store.log_event("copy", f"《{topic['title'][:24]}》按付息稿润色好了", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 打包页显示
+                logger.warning("polish %s failed: %s", topic_id, exc)
+                failed = str(exc)[:300] or type(exc).__name__
+                store.update_topic(topic_id, write_state="failed", write_error=failed)
+            finally:
+                with writing_lock:
+                    writing.discard(topic_id)
+                _pack_job_done(topic_id, "article", failed)
+
+        threading.Thread(target=run, name=f"polish-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始润色（按付息稿：开头发债、每段付息、最后兑付本金），一般 2–5 分钟"}
+
     @app.post("/api/topics/{topic_id}/write")
     def start_write(topic_id: int, body: WriteBody | None = None) -> dict[str, Any]:
         topic = store.topic(topic_id)
@@ -3271,7 +3305,7 @@ def create_app(
             except Exception:  # noqa: BLE001 - 进度只是一句话
                 detail["cover"] = "出图中"
         if "article" in running:
-            detail["article"] = "照视频字幕写，一般 1–5 分钟"
+            detail["article"] = "在润色，一般 2–5 分钟" if status["article"]["made"] else "照视频字幕写，一般 1–5 分钟"
         if "figs" in running:
             detail["figs"] = "小黑手绘，一张一张画，5–10 分钟"
         if "wx" in running:
