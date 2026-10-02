@@ -449,6 +449,7 @@ def create_app(
     write_fn: Callable[[str], str] | None = None,
     brief_fn: Callable[[str], dict] | None = None,
     outline_fn: Callable[[str], str] | None = None,
+    coupon_fn: Callable[[str], str] | None = None,
     review_fn: Callable[[str], dict] | None = None,
     suggest_fn: Callable[[str], str] | None = None,
     x_profile_read_fn: Callable[[], dict] | None = None,
@@ -1554,6 +1555,7 @@ def create_app(
             store.update_topic(topic_id, outline_path=result["outline_path"], outline_state=None, outline_error=None, manual_stage=None)
             store.log_event("outline", f"《{store.topic(topic_id)['title'][:30]}》的骨架写好了", topic_id)
             _run_qa(topic_id)
+            _start_coupon(topic_id)  # 10/2 Park：骨架后面接着出付息稿
         except Exception as exc:  # noqa: BLE001 - shown on the topic card
             logger.warning("skeleton topic %s failed: %s", topic_id, exc)
             store.update_topic(topic_id, outline_state="failed", outline_error=str(exc)[:300] or type(exc).__name__)
@@ -1561,6 +1563,74 @@ def create_app(
         finally:
             with writing_lock:
                 writing.discard(-topic_id)
+
+    # -- 付息稿（10/2 Park：观众买了你的国债——开头发债、每 10 秒付息、最后兑付本金）--------------------
+    coupon_errors: dict[int, str] = {}
+
+    def _coupon_topic(topic_id: int) -> None:
+        from . import coupon, outline
+
+        try:
+            topic = store.topic(topic_id)
+            sk = outline.read_outline(topic)
+            coupon.write_coupon(topic, skeleton=(sk or {}).get("markdown", ""), vault_raw=vault_path(), drafts_dir=drafts_root,
+                                **({"write_fn": coupon_fn} if coupon_fn else {}))
+            store.log_event("outline", f"《{topic['title'][:30]}》的付息稿写好了", topic_id)
+        except Exception as exc:  # noqa: BLE001 - shown on the tab
+            logger.warning("coupon topic %s failed: %s", topic_id, exc)
+            coupon_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+        finally:
+            with writing_lock:
+                writing.discard(60_000 + topic_id)
+
+    def _start_coupon(topic_id: int) -> bool:
+        from . import coupon
+
+        try:
+            coupon.load_framework()  # 框架文件不在：不起线程，等他放好了再点
+        except Exception as exc:  # noqa: BLE001
+            coupon_errors[topic_id] = str(exc)[:300]
+            return False
+        with writing_lock:
+            if 60_000 + topic_id in writing:
+                return False
+            writing.add(60_000 + topic_id)
+        coupon_errors.pop(topic_id, None)
+        threading.Thread(target=_coupon_topic, args=(topic_id,), name=f"coupon-{topic_id}", daemon=True).start()
+        return True
+
+    @app.get("/api/topics/{topic_id}/coupon")
+    def get_coupon(topic_id: int) -> dict[str, Any]:
+        from . import coupon
+
+        store.topic(topic_id)
+        with writing_lock:
+            running = 60_000 + topic_id in writing
+        return {"running": running, "error": coupon_errors.get(topic_id), "coupon": coupon.read_coupon(drafts_root, topic_id)}
+
+    @app.post("/api/topics/{topic_id}/coupon")
+    def start_coupon(topic_id: int) -> dict[str, Any]:
+        from . import coupon
+
+        topic = store.topic(topic_id)
+        if not topic.get("outline_path"):
+            raise ValueError("先写骨架，付息稿是照着骨架排的")
+        coupon.load_framework()
+        if not _start_coupon(topic_id):
+            return {"started": False, "message": "正在写"}
+        return {"started": True, "message": "开始写付息稿，一般 1–3 分钟"}
+
+    @app.put("/api/topics/{topic_id}/coupon")
+    def put_coupon(topic_id: int, body: ArticleBody) -> dict[str, Any]:
+        from . import coupon
+
+        store.topic(topic_id)
+        if not body.markdown.strip():
+            raise ValueError("付息稿不能为空")
+        path = drafts_root / f"topic-{topic_id}" / coupon.FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body.markdown if body.markdown.endswith("\n") else body.markdown + "\n", encoding="utf-8")
+        return coupon.read_coupon(drafts_root, topic_id) or {}
 
     @app.post("/api/topics/{topic_id}/outline")
     def start_outline(topic_id: int) -> dict[str, Any]:
@@ -2327,6 +2397,11 @@ def create_app(
             lines.append(f"## 这条视频\n标题：{topic['title']}\n状态：{topic.get('status')}{'（已归档）' if topic.get('archived_at') else ''}\n备注：{topic.get('memo') or '（无）'}")
             draft = outline.read_outline(topic)
             lines.append("## 拍摄提纲\n" + (draft["markdown"] if draft else "还没写"))
+            from . import coupon as coupon_mod
+
+            cp = coupon_mod.read_coupon(drafts_root, topic_id)
+            if cp:
+                lines.append("## 付息稿（骨架排成的时间线：开头发债、每 10 秒付息、最后兑付本金）\n" + cp["markdown"][:6000])
             q = qa.load(drafts_root, topic_id)
             if q:
                 lines.append("## 三点评分\n" + "\n".join(f"- {label} {q[key]['score']}/5：{q[key]['reason']}" for key, label in qa.POINTS) + f"\n- 结论：{q['verdict']}｜最该改：{q['fix']}" + (f"｜不要讲过头：{q['caution']}" if q.get("caution") else ""))
