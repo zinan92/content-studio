@@ -102,7 +102,7 @@ window.VIDEO_TABS.push({
       }
       const free = list.projects.filter((p) => !p.topic_id);
       el.innerHTML = `<div class="vp-start">
-        <div class="vp-option"><h3>新建项目文件夹</h3><p>在 <code>${esc(list.root)}</code> 下建一个文件夹${topic.outline_path ? '，并放一份拍摄提纲' : ''}。录完把剪映粗剪视频和 SRT 放进去，然后在 Claude/Codex 里用口播 workflow 开始。</p><button class="btn primary" type="button" id="vpCreate">新建并关联</button></div>
+        <div class="vp-option"><h3>新建项目文件夹</h3><p>在 <code>${esc(list.root)}</code> 下建一个文件夹${topic.outline_path ? '，并放一份拍摄提纲' : ''}。录完把剪映粗剪视频和 SRT 放进去，然后在 Claude/Codex 里用 park-video-v2 开始（说清楚视频类型和动效怎么放）。</p><button class="btn primary" type="button" id="vpCreate">新建并关联</button></div>
         <div class="vp-option"><h3>关联已有项目</h3>${free.length ? `<select id="vpPick">${free.map((p) => `<option value="${esc(p.name)}">${esc(p.name)} · ${esc(p.summary)}</option>`).join('')}</select><button class="btn" type="button" id="vpLink">关联</button>` : '<p class="muted">没有未关联的项目</p>'}</div>
       </div>`;
       $('#vpCreate').onclick = async () => {
@@ -122,6 +122,7 @@ window.VIDEO_TABS.push({
         return;
       }
     }
+    if (info.layout === 'v2') { renderV2(topic, info, el); return; }
     const a = info.artifacts;
     const finalVideo = info.final_video;
     const done = info.steps.filter((x) => x.done).length;
@@ -174,6 +175,100 @@ window.VIDEO_TABS.push({
 
 
 const mins = (iso) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+
+/* 口播动效 v2：四步（准备 → 方案 → 渲染 → 终审），进度是 pv2.py 写的真实百分比。
+   按钮点两下才生效（第一下变「再点一次确认」），结果留在按钮下面，服务器没收到就明说。 */
+function twoStep(btn, out, run) {
+  if (!btn) return;
+  const label = btn.textContent;
+  let armed = 0;
+  btn.onclick = async () => {
+    if (!armed) {
+      armed = setTimeout(() => { armed = 0; btn.textContent = label; }, 6000);
+      btn.textContent = '再点一次确认';
+      return;
+    }
+    clearTimeout(armed); armed = 0;
+    btn.disabled = true; btn.textContent = '提交中…';
+    out.className = 'vp-v2-out'; out.textContent = '';
+    try {
+      const msg = await run();
+      out.className = 'vp-v2-out ok'; out.textContent = msg || '服务器已收到';
+      toast(msg || '服务器已收到');
+      setTimeout(() => { delete VP.cache[topic_id_of(btn)]; $('#videoBody').dataset.sig = ''; renderView(); }, 900);
+    } catch (err) {
+      out.className = 'vp-v2-out bad'; out.textContent = `没成功：${err.message}。可以再点一次。`;
+      btn.disabled = false; btn.textContent = label;
+    }
+  };
+}
+const topic_id_of = (el) => Number(el.closest('[data-topic]').dataset.topic);
+
+function renderV2(topic, info, el) {
+  const st = info.v2 || {};
+  const w = st.waiting_for;
+  const pct = st.percent;
+  const running = !w && !st.failed && st.step !== '已交付' && pct !== null && pct !== undefined;
+  const video = (rel) => (rel ? `<video class="vp-video" controls preload="metadata" src="${fileUrl(info.name, rel)}"></video>` : '');
+  const approveBox = (gate, label, hint) => `<textarea id="v2Msg" rows="2" placeholder="${esc(hint)}"></textarea>
+    <div class="acts"><button class="btn primary" type="button" id="v2Approve" data-gate="${gate}">${label}</button></div><div class="vp-v2-out" id="v2Out"></div>`;
+  const startBox = (job, label, say) => `<p class="vp-now-say">${say}</p>
+    <div class="acts"><button class="btn primary" type="button" id="v2Start" data-job="${job}">${label}</button></div><div class="vp-v2-out" id="v2Out"></div>`;
+  let now;
+  if (st.failed) {
+    now = `<div class="vp-now todo"><div class="vp-now-h"><span class="chip warn">出错了</span><b>${esc(st.step)}</b></div>
+      <p class="vp-now-say">${esc(st.detail)}</p>
+      ${st.step === '渲染' ? startBox('render', '重新渲染整条', '修好之后从这里重来。') : st.step === '方案' ? startBox('sample', '重新出样片', '修好之后从这里重来。') : ''}</div>`;
+  } else if (running) {
+    now = `<div class="vp-now busy"><div class="vp-now-h"><span class="chip busy"><span class="spin"></span>在渲染</span><b>${esc(st.step)} · ${pct}%</b></div>
+      <div class="vp-bar"><i style="flex:${pct || 0.001}"></i><b style="flex:${100 - pct}"></b></div>
+      <p class="vp-now-say">这是 pv2 写的真实进度，几秒刷新一次。</p></div>`;
+    clearTimeout(VP.poll);
+    VP.poll = setTimeout(() => { if (S.view === 'work' && VD.tab === 'edit' && VD.topicId === topic.id) { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); } }, 4000);
+  } else if (w === 'Park 看样片') {
+    now = `<div class="vp-now gate"><div class="vp-now-h"><span class="chip warn">等你看</span><b>10 秒样片</b></div>
+      <p class="vp-now-say">这段和整条用的是同一个渲染。质量、位置没问题就批准，然后一次渲染整条。</p>
+      ${video(st.sample)}${approveBox('sample', '批准样片', '写一句你的话，比如「可以，全部渲染」')}</div>`;
+  } else if (w === '跑 sample') {
+    now = `<div class="vp-now todo">${startBox('sample', '出 10 秒样片', '方案已经过了程序检查。先出一段 10 秒的最终样子给你看。')}</div>`;
+  } else if (w === '跑 render') {
+    now = `<div class="vp-now todo">${startBox('render', '开始渲染整条', '样片批过了。渲染全部镜头、合成整条、跑终检，页面上看真实进度。')}</div>`;
+  } else if (w === 'Park 看成片') {
+    now = `<div class="vp-now gate"><div class="vp-now-h"><span class="chip warn">等你终审</span><b>整条成片</b>
+        <span class="spacer"></span><a class="btn small" href="${fileUrl(info.name, 'v2/contact.jpg')}" target="_blank" rel="noopener">抽帧总览 ↗</a></div>
+      ${video(st.final)}${approveBox('final', '批准成片', '写一句你的话，比如「就这样了」')}</div>`;
+  } else if (st.step === '已交付') {
+    now = `<div class="vp-now ok"><div class="vp-now-h"><span class="chip ok">交付了</span><b>成片好了，去打包</b>
+      <span class="spacer"></span><button class="btn small primary" type="button" onclick="S.packId = ${topic.id}; go('pack')">去打包 →</button></div>${video(st.final)}</div>`;
+  } else {
+    const say = { 'Park 确认 brief': '先在对话里说清楚：视频类型、动效怎么放、哪些时间段不加、字幕是否已经烧进去。', '跑 prep': '对齐字幕时间（约 30 秒）。', 'AI 写 plan.json': '在 Claude/Codex 里让它写动效方案。' }[w] || '';
+    now = `<div class="vp-now todo"><div class="vp-now-h"><span class="chip busy">在对话里做</span><b>${esc(st.step)} · ${esc(w || '')}</b></div>
+      <p class="vp-now-say">${esc(say)}</p>
+      <div class="vp-cmd"><span>在 Claude 或 Codex 里继续：</span><button class="invoke" type="button" id="vpCmd">${esc(info.continue_command)}</button></div></div>`;
+  }
+  el.innerHTML = `<div class="vp" data-topic="${topic.id}">
+    <div class="vp-head"><div><b>${esc(info.name)}</b><small>${esc(info.path)}</small></div>
+      <div class="acts"><button class="btn small" type="button" id="vpRefresh">刷新</button><button class="btn small ghost" type="button" id="vpUnlink">取消关联</button></div></div>
+    <ol class="vp-v2-steps">${info.stages.map((s) => `<li class="${s.state}">${esc(s.label)}</li>`).join('')}</ol>
+    ${now}
+  </div>`;
+  const out = $('#v2Out', el);
+  twoStep($('#v2Approve', el), out, async () => {
+    const gate = $('#v2Approve', el).dataset.gate;
+    const message = ($('#v2Msg', el).value || '').trim();
+    if (!message) throw new Error('先写一句你的话');
+    await api(`/api/topics/${topic.id}/video-project/v2/approve`, { method: 'POST', body: { gate, message } });
+    return gate === 'sample' ? '样片已批准，记进了 v2/approvals.json' : '成片已批准，交付了';
+  });
+  twoStep($('#v2Start', el), out, async () => {
+    const r = await api(`/api/topics/${topic.id}/video-project/v2/start`, { method: 'POST', body: { job: $('#v2Start', el).dataset.job } });
+    return r.message || '已在后台启动';
+  });
+  $('#vpRefresh', el).onclick = () => { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); };
+  $('#vpUnlink', el).onclick = async () => { try { await api(`/api/topics/${topic.id}/video-project`, { method: 'PUT', body: { name: null } }); toast('已取消关联'); await refreshVideoTab(); } catch (err) { toast(err.message); } };
+  const cmd = $('#vpCmd', el);
+  if (cmd) cmd.onclick = () => navigator.clipboard.writeText(info.continue_command).then(() => toast('已复制，贴到 Claude 或 Codex'), () => toast(info.continue_command));
+}
 
 /* 这一页只回答一个问题：现在轮到谁、要做什么。
    状态由 14 步的 current_step / gate / 后台任务决定，不靠一颗颗手加的按钮堆出来。 */
