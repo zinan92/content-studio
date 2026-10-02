@@ -4,6 +4,14 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-10-02 — 封面只用视频本身那一帧，不再拼形象照（#369）
+
+- **面对什么:** 「客户咨询1」出封面时，工作台把视频截图和形象照文件夹里的 4 张自拍一起交给 image_gen，要它「普通版 + 好看版合起来」（10/1 的做法）。Park：「还是不要合并视频的图片和我给你的库存图片了，好奇怪，而且你的横竖两张照片都不一样了……还是用视频本身的图片吧」。
+- **定了什么:** `cover.generate` 只把视频那一帧（person.jpg）交给 image_gen；形象照不再复制进去，`portraits()` 和「普通版/好看版」那段提示词删掉；提示词加一句「三张封面里是同一个人、同一个状态，只是构图不同」，自查也要看三张里的人是否一样。`paths.portraits` 配置项留着不用。
+- **为什么:** 两种来源拼出来的人哪张都不完全像他，而且三张各拼各的，竖横版里是两个人。视频那一帧就是这期的他。
+- **怎么验证:** `tests/test_cover.py`：形象照文件夹在也不会被交出去，提示词里只有 SOLE PERSON SOURCE、没有「好看版」，带「三张封面里是同一个人」。
+- **踩了什么坑:** 断行仍是另一个问题：`split_title` 会把「一个」「200 万」拆在两行，这次没改。
+
 ## 2026-10-02 — 剪映粗剪直接当 Clean Master 也算 Step 10 完成（#367）
 
 - **面对什么:** Park：「我现在怎么一直在 step 10 卡了好久了」。「客户咨询1」没有 Hook、没有删减，agent 把剪映粗剪直接当 Clean Master，只在 `part-b-body/edit.json` 里指向它，没另出 `clean-master.mp4`。视频页只认 `clean-master.mp4`，进度停在 Step 10；H2 入口只在 Step 11 露出，动效方案写完了也没有批准按钮。

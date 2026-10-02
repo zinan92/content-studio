@@ -45,8 +45,8 @@ def test_generate_hands_codex_the_frame_refs_and_title_and_files_the_two_covers(
     assert (base / "final" / "covers" / "_old" / "旧-竖封面.jpg").is_file()
 
 
-def test_portraits_join_the_video_frame_so_the_cover_person_is_the_better_looking_park(tmp_path: Path, monkeypatch) -> None:
-    """10/1 Park：视频那一帧是普通版，形象照是好看版，合起来出封面上的人；旧照只当脸型参考，不给。"""
+def test_cover_person_comes_only_from_the_video_frame_even_with_portraits_around(tmp_path: Path, monkeypatch) -> None:
+    """10/2 Park：不要把视频那一帧和形象照拼在一起，拼出来像另一个人、竖横两张还不一样；只用视频本身那一帧。"""
     skill = tmp_path / "skill"
     for rel in cover.STYLE_REFS.values():
         (skill / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -68,8 +68,9 @@ def test_portraits_join_the_video_frame_so_the_cover_person_is_the_better_lookin
             (cwd / "out" / name).write_bytes(b"p")
 
     cover.generate(tmp_path / "proj", tmp_path / "raw.mov", at=1.0, title="明牌机会，AI时代普通人仅有的三条路", runner=runner)
-    assert seen["files"] == ["look-1.jpg", "look-2.jpg", "out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
-    assert "普通版" in seen["text"] and "好看版" in seen["text"] and "look-1.jpg、look-2.jpg" in seen["text"] and "SOLE PERSON SOURCE" not in seen["text"]
+    assert seen["files"] == ["out", "person.jpg", "prompt.md", "style-3x4.png", "style-4x3.png"]
+    assert "SOLE PERSON SOURCE" in seen["text"] and "好看版" not in seen["text"] and "look-" not in seen["text"]
+    assert "三张封面里是同一个人" in seen["text"]
 
 
 def test_generate_says_so_when_a_cover_is_missing(tmp_path: Path, monkeypatch) -> None:
