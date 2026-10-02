@@ -99,3 +99,77 @@ def test_the_night_queue_lists_unfinished_content_and_says_why_it_skips(client) 
     tid = client.post(f"/api/backfill/{vid}/take").json()["topic_id"]
     row = next(t for t in client.get("/api/evidence/queue").json()["topics"] if t["topic_id"] == tid)
     assert row["skip"] == "还没有文章" and row["done"] is False
+
+
+def _proposed(folder: Path) -> Path:
+    """一篇文章 + 一份提案：两张图，一张顶掉 AI 图。"""
+    from PIL import Image
+
+    article = folder / "article.md"
+    folder.mkdir(parents=True, exist_ok=True)
+    article.write_text("# 标题\n\n先给你看一个东西。\n\n世界发展有一个规律。\n\n![AI 画的](illustrations/01-a.png)\n\n结尾。\n", encoding="utf-8")
+    out = folder / evidence.OUT
+    out.mkdir()
+    for f in ("01-f0001.jpg", "tweet-01-naval.png"):
+        Image.new("RGB", (400, 300), "white").save(out / f)
+    items = [{"kind": "frame", "file": "01-f0001.jpg", "after": "先给你看一个东西", "caption": "我的简报", "replaces": "", "placed": True},
+             {"kind": "tweet", "file": "tweet-01-naval.png", "after": "世界发展有一个规律", "caption": "Naval", "replaces": "01-a.png",
+              "url": "https://x.com/naval/status/9", "placed": True}]
+    (out / evidence.PROPOSAL).write_text(json.dumps({"items": items, "rejected": [{"why": "糊"}]}, ensure_ascii=False), encoding="utf-8")
+    return article
+
+
+def test_picking_evidence_puts_only_the_chosen_ones_in_and_can_be_taken_back(tmp_path: Path) -> None:
+    """10/2 Park：找了图没人看等于白找。找完他一张张挑；没挑之前算「等你挑」，文字平台先不发。"""
+    article = _proposed(tmp_path / "topic-1")
+    original = article.read_text(encoding="utf-8")
+    st = evidence.status(article)
+    assert st["state"] == "pending" and evidence.pending(article) and len(st["items"]) == 2 and st["rejected"] == 1
+    st = evidence.apply(article, ["tweet-01-naval.png"], now="2026-10-02T12:00:00+00:00")
+    text = article.read_text(encoding="utf-8")
+    assert st["state"] == "applied" and st["used"] == ["tweet-01-naval.png"] and not evidence.pending(article)
+    assert "evidence/tweet-01-naval.png" in text and "01-f0001" not in text and "01-a.png" not in text  # 没勾的不放；顶掉的 AI 图拿掉
+    from content_studio.illustrate import strip_images
+    assert strip_images(evidence.strip(text)) == strip_images(original)  # 定稿看的字没变：文章那一步不用重新定稿
+    with pytest.raises(evidence.EvidenceError):
+        evidence.apply(article, ["01-f0001.jpg"], now="x")  # 已经放过：先撤回再挑
+    st = evidence.undo(article)
+    assert article.read_text(encoding="utf-8") == original and st["state"] == "pending"  # AI 图回来了，回到等他挑
+    assert evidence.apply(article, [], now="x")["state"] == "skipped" and article.read_text(encoding="utf-8") == original
+    assert not evidence.pending(article)  # 说了不要，也不拦
+    assert evidence.undo(article)["state"] == "pending"
+
+
+def test_undo_will_not_throw_away_words_he_changed_after_the_images_went_in(tmp_path: Path) -> None:
+    article = _proposed(tmp_path / "topic-1")
+    evidence.apply(article, ["01-f0001.jpg"], now="x")
+    article.write_text(article.read_text(encoding="utf-8").replace("结尾。", "结尾改过了。"), encoding="utf-8")
+    with pytest.raises(evidence.EvidenceError, match="改过字"):
+        evidence.undo(article)
+    assert "结尾改过了" in article.read_text(encoding="utf-8")
+
+
+def test_an_article_with_no_proposal_or_nothing_usable_is_not_held(tmp_path: Path) -> None:
+    article = tmp_path / "topic-2" / "article.md"
+    article.parent.mkdir()
+    article.write_text("# 标题\n\n一段。\n", encoding="utf-8")
+    assert evidence.status(article)["state"] == "none" and not evidence.pending(article)
+    (article.parent / evidence.OUT).mkdir()
+    (article.parent / evidence.OUT / evidence.PROPOSAL).write_text(json.dumps({"items": [], "rejected": [{"why": "糊"}]}), encoding="utf-8")
+    assert evidence.status(article)["state"] == "empty" and not evidence.pending(article)
+
+
+def test_the_pack_page_finds_picks_and_undoes_evidence_through_the_api(client, tmp_path: Path) -> None:
+    topic = client.post("/api/topics", json={"title": "旧视频"}).json()
+    article = _proposed(tmp_path / "drafts" / f"topic-{topic['id']}")
+    client.app.state.store.update_topic(topic["id"], article_path=str(article))
+    st = client.get(f"/api/topics/{topic['id']}/evidence").json()
+    assert st["state"] == "pending" and not st["running"] and st["skip"]  # 测试里没有视频：找不了，但能挑已有的提案
+    assert st["items"][0]["src"] == f"/api/topics/{topic['id']}/article-file/evidence/01-f0001.jpg"
+    assert client.get(st["items"][0]["src"]).status_code == 200
+    assert client.post(f"/api/topics/{topic['id']}/evidence").status_code == 400  # 没视频
+    st = client.post(f"/api/topics/{topic['id']}/evidence/apply", json={"files": ["01-f0001.jpg"]}).json()
+    assert st["state"] == "applied" and st["can_undo"]
+    assert client.post(f"/api/topics/{topic['id']}/evidence/apply", json={"files": ["01-f0001.jpg"]}).status_code == 400
+    assert client.post(f"/api/topics/{topic['id']}/evidence/undo").json()["state"] == "pending"
+    assert client.post(f"/api/topics/{topic['id']}/evidence/apply", json={"files": []}).json()["state"] == "skipped"

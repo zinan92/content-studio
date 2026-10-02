@@ -2905,7 +2905,7 @@ def create_app(
 
     def _approval_state(topic: dict[str, Any], release_info: dict[str, Any] | None = None) -> dict[str, Any]:
         """打包页每一步的定稿状态（见 approvals.py）。"""
-        from . import approvals, copypack, gzh_layout, illustrate as il, reach, xhs_cards
+        from . import approvals, copypack, evidence, gzh_layout, illustrate as il, reach, xhs_cards
 
         rel = release_info if release_info is not None else _release_for(topic)
         covers: list[Path] = []
@@ -2920,7 +2920,7 @@ def create_app(
         figs = [art.parent / il.FOLDER / i["file"] for i in il.state(art)["images"]] if text else []
         fps = approvals.fingerprints(
             copy=(copypack.read_copy(drafts_root, topic["id"]) or {}).get("platforms"),
-            covers=covers, article=il.strip_images(text) if text else None, figs=figs,
+            covers=covers, article=il.strip_images(evidence.strip(text)) if text else None, figs=figs,
             wx=gzh_layout.state(art) if text else {},
             xhs=(xhs_cards.state(art) if text else {}) if reach.form_of("xiaohongshu", store.settings()["platform_accounts"]) == "cards" else None,
         )
@@ -3629,8 +3629,11 @@ def create_app(
                     continue
             except StoreError:
                 continue
+            held = _evidence_pending(r["topic_id"])
             for k in r["missing"]:
                 if backfill.KIND.get(k) == "视频" and not r.get("video"):
+                    continue
+                if held and k in EVIDENCE_HOLD:
                     continue
                 cells.append({"video_id": r["video_id"], "topic_id": r["topic_id"], "platform": k, "label": labels.get(k, k),
                               "tier": "major" if k in reach.CORE else "minor", "title": r["headline"] or r["title"][:40]})
@@ -3872,6 +3875,9 @@ def create_app(
     # -- 补发工作台（10/1 Park）-------------------------------------------------------------
     # 「我要每天看大家的情绪和 mood……自己想好今天最适合发什么」：在一张和全平台追踪一样的表上点格子，
     # 点的顺序就是发的顺序；换个样子再给他看一遍，他点确认，工作台按顺序一格一格现场发。
+    # 证据图找到了、他还没挑：这几个文字平台先不让发（发出去就改不了图了，10/2 那篇就是这么漏的）
+    EVIDENCE_HOLD = ("x", "wechat_mp", "miniprogram")
+
     # B 站、YouTube、X 自己发出去；公众号进草稿箱（9/27 他定的，群发他点）；视频号（腾讯封了自动发布）、
     # 小红书没有自动通道：上传文件夹备好，他传完点「发了」。
     BW_HOW = {"bilibili": ("auto", "自动投稿，B 站审核后公开"), "youtube": ("auto", "自动上传，直接公开"),
@@ -3887,6 +3893,8 @@ def create_app(
             return "还没接上选题：在全平台追踪点「拿去补发」"
         if backfill.KIND.get(platform) == "视频" and not r.get("video"):
             return "作品库里没有成片"
+        if platform in EVIDENCE_HOLD and _evidence_pending(r["topic_id"]):
+            return "证据图还没挑：去打包页「插图」那一步，要哪几张、还是都不要"
         return "包还没定稿：去打包页定稿"
 
     def _bw_pick(cells: list[dict[str, Any]], sheet: dict[str, Any], *, again: bool = False) -> list[dict[str, Any]]:
@@ -3939,38 +3947,145 @@ def create_app(
             items.append(it)
         return {"items": items, "running": running, "need": out["need"]}
 
+    def _evidence_inputs(topic: dict[str, Any], video_id: str | None = None) -> dict[str, Any]:
+        """找证据图要的三样：文章、视频（剪辑前的原片更清楚）、字幕。缺了说为什么。"""
+        from . import cover
+
+        art = _article_path(topic)
+        video = final_video_path(topic)
+        row: dict[str, Any] = {"article": str(art) if art else None, "video": None, "transcript": None, "skip": None}
+        if art is None or not art.is_file():
+            row["skip"] = "还没有文章"
+        elif video is None or not video.is_file():
+            row["skip"] = "找不到视频（作品库那块硬盘没插？）"
+        else:
+            if topic.get("video_project"):
+                try:
+                    video = cover.source_video(video_project.project_dir(video_root(), topic["video_project"]), video)
+                except VideoProjectError:
+                    pass
+            row["video"] = str(video)
+            vid = video_id or topic.get("published_video_id")
+            found = sorted((downloads_dir / "douyin").glob(f"*/{vid}/transcript.json")) if vid else []
+            row["transcript"] = str(found[0]) if found else None
+        return row
+
     @app.get("/api/evidence/queue")
     def evidence_queue() -> dict[str, Any]:
-        """夜里配证据图要跑哪几篇：还有平台没发的内容里，有文章、有视频的。
-        提案比文章新（跑过了、文章没再改）或者文章里已经有证据图（手工配过）的，标 done，夜里跳过。"""
-        from . import cover, evidence
+        """命令行 `content-studio evidence` 一次跑一批用：还有平台没发的内容里，有文章、有视频的。
+        提案比文章新（跑过了、文章没再改）或者文章里已经有证据图的，标 done，跳过。"""
+        from . import evidence
 
         out = []
         for r in get_backfill()["videos"]:
             if r.get("cancelled") or not r["missing"] or not r["topic_id"]:
                 continue
             topic = store.topic(r["topic_id"])
-            art = _article_path(topic)
-            video = final_video_path(topic)
-            row = {"topic_id": topic["id"], "title": r["headline"] or topic["title"], "article": str(art) if art else None,
-                   "video": None, "transcript": None, "done": False, "skip": None}
-            if art is None or not art.is_file():
-                row["skip"] = "还没有文章"
-            elif video is None or not video.is_file():
-                row["skip"] = "找不到视频（作品库那块硬盘没插？）"
-            else:
-                if topic.get("video_project"):
-                    try:
-                        video = cover.source_video(video_project.project_dir(video_root(), topic["video_project"]), video)
-                    except VideoProjectError:
-                        pass
-                row["video"] = str(video)
-                found = sorted((downloads_dir / "douyin").glob(f"*/{r['video_id']}/transcript.json"))
-                row["transcript"] = str(found[0]) if found else None
+            row = {"topic_id": topic["id"], "title": r["headline"] or topic["title"], "done": False, **_evidence_inputs(topic, r["video_id"])}
+            if not row["skip"]:
+                art = Path(row["article"])
                 proposal = art.parent / evidence.OUT / evidence.PROPOSAL
-                row["done"] = (proposal.is_file() and proposal.stat().st_mtime >= art.stat().st_mtime) or f"]({evidence.OUT}/" in art.read_text(encoding="utf-8")
+                row["done"] = (proposal.is_file() and proposal.stat().st_mtime >= art.stat().st_mtime) or bool(evidence.in_article(art.read_text(encoding="utf-8")))
             out.append(row)
         return {"topics": out}
+
+    # 打包页「插图」那一步：要不要找证据图他点了才找；找完一张张挑（10/2 Park）
+    evidence_errors: dict[int, str] = {}
+
+    def _evidence_view(topic_id: int) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        from . import evidence
+
+        topic = store.topic(topic_id)
+        with writing_lock:
+            running = 60_000 + topic_id in writing
+        art = _article_path(topic)
+        st = evidence.status(art) if art is not None and art.is_file() else {"state": "none", "items": [], "rejected": 0, "used": []}
+        for i in st["items"]:
+            i["src"] = f"/api/topics/{topic_id}/article-file/{evidence.OUT}/{quote(i['file'])}"
+        return {"running": running, "error": evidence_errors.get(topic_id), "skip": _evidence_inputs(topic)["skip"], **st}
+
+    @app.get("/api/topics/{topic_id}/evidence")
+    def evidence_state(topic_id: int) -> dict[str, Any]:
+        return _evidence_view(topic_id)
+
+    @app.post("/api/topics/{topic_id}/evidence")
+    def evidence_start(topic_id: int) -> dict[str, Any]:
+        """开始找证据图（后台跑，2–4 分钟）：视频里的笔记截图、名人原推。只出提案，文章不动。"""
+        from . import evidence
+
+        topic = store.topic(topic_id)
+        inputs = _evidence_inputs(topic)
+        if inputs["skip"]:
+            raise ValueError(inputs["skip"])
+        if evidence.in_article(Path(inputs["article"]).read_text(encoding="utf-8")):
+            raise ValueError("文章里已经放着证据图了：要重新找，先点「撤回」")
+        with writing_lock:
+            if 60_000 + topic_id in writing:
+                return {"started": False, "message": "正在找"}
+            writing.add(60_000 + topic_id)
+        evidence_errors.pop(topic_id, None)
+
+        def run() -> None:
+            try:
+                segments = []
+                if inputs["transcript"]:
+                    try:
+                        segments = json.loads(Path(inputs["transcript"]).read_text(encoding="utf-8")).get("segments") or []
+                    except (OSError, ValueError):
+                        segments = []
+                res = evidence.run_topic(Path(inputs["article"]), Path(inputs["video"]), segments=segments)
+                n = sum(1 for i in res["items"] if i.get("placed"))
+                store.log_event("copy", f"《{topic['title'][:24]}》找了证据图：{n} 张等你挑", topic_id)
+            except Exception as exc:  # noqa: BLE001 - 打包页显示
+                logger.warning("evidence %s failed: %s", topic_id, exc)
+                evidence_errors[topic_id] = str(exc)[:300] or type(exc).__name__
+            finally:
+                with writing_lock:
+                    writing.discard(60_000 + topic_id)
+
+        threading.Thread(target=run, name=f"evidence-{topic_id}", daemon=True).start()
+        return {"started": True, "message": "开始找证据图：视频里的笔记截图、名人原推，一般 2–4 分钟"}
+
+    @app.post("/api/topics/{topic_id}/evidence/apply")
+    def evidence_apply(topic_id: int, body: dict[str, Any]) -> dict[str, Any]:
+        """他挑的放进文章；files 为空就是「这篇不要证据图」。放进去之后公众号排版作废，要重排。"""
+        from . import evidence
+
+        art = _article_path(store.topic(topic_id))
+        if art is None or not art.is_file():
+            raise ValueError("还没有文章")
+        files = [str(f) for f in body.get("files") or []]
+        try:
+            evidence.apply(art, files, now=now_iso())
+        except evidence.EvidenceError as exc:
+            raise ValueError(str(exc)) from None
+        return _evidence_view(topic_id)
+
+    @app.post("/api/topics/{topic_id}/evidence/undo")
+    def evidence_undo(topic_id: int) -> dict[str, Any]:
+        from . import evidence
+
+        art = _article_path(store.topic(topic_id))
+        if art is None or not art.is_file():
+            raise ValueError("还没有文章")
+        try:
+            evidence.undo(art)
+        except evidence.EvidenceError as exc:
+            raise ValueError(str(exc)) from None
+        return _evidence_view(topic_id)
+
+    def _evidence_pending(topic_id: int | None) -> bool:
+        from . import evidence
+
+        if not topic_id:
+            return False
+        try:
+            art = _article_path(store.topic(topic_id))
+        except StoreError:
+            return False
+        return art is not None and art.is_file() and evidence.pending(art)
 
     @app.get("/api/backfill/desk")
     def backfill_desk() -> dict[str, Any]:

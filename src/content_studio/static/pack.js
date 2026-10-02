@@ -281,8 +281,8 @@ function renderRow(key, box) {
     box.dataset.done = 'gated';
     box.innerHTML = `<p class="pdl-note">先定稿「${PK_LABEL[PK_DEPENDS[key]]}」：一块一块往上搭，上一步定了这里自己解开。</p>`;
   } else if (key === 'figs') {
-    box.innerHTML = '<div id="pdlFigs"></div>';
-    if (d.has_article) renderFigs(box, id); else box.innerHTML = '<p class="pdl-note">插图插在文章里，先把上面的 X 图文文章写好。</p>';
+    box.innerHTML = '<div id="pdlFigs"></div><div id="pdlEvid" class="ev"></div>';
+    if (d.has_article) { renderFigs(box, id); renderEvidence(box, id); } else box.innerHTML = '<p class="pdl-note">插图插在文章里，先把上面的 X 图文文章写好。</p>';
   } else if (key === 'wx') {
     box.innerHTML = d.has_article ? '<div class="pdl-wx" id="pdlWx"></div>' : '<p class="pdl-note">公众号发的是上面那篇文章，先把它写好。</p>';
     if (d.has_article) renderWx(box, id);
