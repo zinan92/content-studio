@@ -72,6 +72,9 @@ def build_prompt(project_path: Path) -> str:
 
 规则：{_visual_rule(project_path)}{_spec_rules(project_path)}
 - 按 skill 的 14 步和完成证据，从最早没完成的一步继续，连续执行，直到遇到人工审批门（H1 Hook、H2 视觉规格、H3 终审）、真实阻塞或全部完成就停下。
+- 词级时间 subtitles/words.json 只用 mlx-whisper 出：有 subtitles/source.srt 就跑 skill 的
+  `python3 scripts/motion/align_srt.py <粗剪> subtitles/source.srt subtitles/words.json`（拿 SRT 文字对齐音频，不重新识别，约 40 秒）；
+  没有 SRT 才跑 `scripts/motion/words.py`。**不要用 openai-whisper 命令行（`whisper …`）**——Mac 上只能用 CPU，10 分钟口播要十几分钟。
 - 写完 part-b-body/visual-plan.json 之后，**先跑算术检查再叫独立评审**：
   `python3 -m content_studio check-visual-plan <项目目录>`（在 ~/work/content-studio 下跑）。
   它查的是机器能判的：引用的卡片存不存在、镜头钉的那句话真实时间对不对得上
