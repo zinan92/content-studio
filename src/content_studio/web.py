@@ -3301,8 +3301,14 @@ def create_app(
         traffic = store.settings().get("traffic_tags") or {}
         keys = [k for k in copypack.PLATFORMS if k in ("douyin", "channels", "xiaohongshu", "bilibili", "youtube")]
 
+        content = [t for t in tags if not any(t in (v or []) for v in traffic.values())]
+        if not content:
+            # 还没写过内容话题：用出标题时按内容出的那批（10/2 起），视频号、小红书也就有话题了
+            from . import titles as titles_mod
+
+            content = list(((titles_mod.read_titles(drafts_root, topic_id) or {}).get("tags")) or [])
+
         def tags_for(key: str) -> list[str]:
-            content = [t for t in tags if not any(t in (v or []) for v in traffic.values())]
             merged = list(dict.fromkeys([*(traffic.get(key) or []), *content]))
             return merged[: copypack.PLATFORMS[key]["tags"]]
 
