@@ -4,6 +4,14 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-10-03 — 动效图鉴里 ShotCraft 的卡也能播预览：来自 Park 的私有快照、本机重渲
+
+- **面对什么:** Park 问 video-shotcraft 有没有锁定版本、能不能继续用 9 月 7 日那版的全部功能。查下来：原仓库和图鉴网站都 404，本机 `~/.agents/skills/video-shotcraft` 是唯一一份、没锁版本（「更新全部 skill」会覆盖），预览视频当初就没在本机。
+- **定了什么:** 存成私有快照 `github.com/zinan92/video-shotcraft-snapshot`（不含能 `npm ci` 装回的 node_modules，不含安装后本机多出来的东西），在快照里把 213 个样式的演示重渲成 640×360 预览。park-video-v2 默认改读快照（`~/work/video-shotcraft-snapshot`）。工作台图鉴里 ShotCraft 的卡有预览就放视频，鼠标放上去才播（157 段一起自动播太重），`/api/video-v2/media/shotcraft/<卡>.mp4` 由 pv2 给的路径决定，工作台不认识 ShotCraft 的目录。
+- **为什么:** Park 要的是 ShotCraft 的「名字和样子」，没有预览只剩文字说明，他还是挑不出来。
+- **怎么验证:** `tests/test_video_v2.py::test_catalog_gives_urls_not_local_paths_and_serves_the_files`（视频网址、能取到、没有预览的卡 400）。
+- **踩了什么坑:** 快照目录里 `workbench/public/` 有三个链接指向 Park 9 月 21 日的一个私人项目，自动生成的索引里也写着那个路径——删链接、在没链接的状态下重新生成后才进库。
+
 ## 2026-10-03 — 视频页的动效设置照 park-video-v2 的清单画滑杆，工作台不写死任何视频设置；加动效图鉴
 
 - **面对什么:** Park 要 park-video-v2 成为一站式视频方案：「如果我这个 skill 足够完整，content studio 就不需要有过多的 input……直接把它包起来」；设置像调色一样是几根从低到高的滑杆。另外他叫不出 ShotCraft 那 100 多种样式的名字，就没法说要哪个。

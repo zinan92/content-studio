@@ -39,8 +39,9 @@ elif cmd == "catalog":
 elif cmd == "shotcraft":
     home = pathlib.Path(__file__).parents[1]
     print(json.dumps([{"name": "cycle-glass-node-morph", "summary": "循环图", "category_zh": "数据与指标",
-                       "poster": str(home / "sc-cycle.jpg"), "adapted_as": ["Cycle"]},
-                      {"name": "aurora-bloom-bg-flip", "summary": "极光", "category_zh": "开场", "poster": None, "adapted_as": []}],
+                       "poster": str(home / "sc-cycle.jpg"), "video": str(home / "sc-cycle.mp4"), "adapted_as": ["Cycle"]},
+                      {"name": "aurora-bloom-bg-flip", "summary": "极光", "category_zh": "开场", "poster": None, "video": None,
+                       "adapted_as": []}],
                      ensure_ascii=False))
 else:
     sys.exit("unknown")
@@ -160,14 +161,18 @@ def test_catalog_gives_urls_not_local_paths_and_serves_the_files(client: TestCli
     (pv2_home / "gallery").mkdir()
     (pv2_home / "gallery" / "Cycle.mp4").write_bytes(b"\x00\x00mp4")
     (pv2_home / "sc-cycle.jpg").write_bytes(b"\xff\xd8jpg")
+    (pv2_home / "sc-cycle.mp4").write_bytes(b"\x00\x00sc-mp4")
     data = client.get("/api/video-v2/catalog").json()
     comp = data["components"][0]
     assert comp["video_url"] == "/api/video-v2/media/gallery/Cycle.mp4" and "video" not in comp
     cards = {c["name"]: c for c in data["shotcraft"]}
     assert cards["cycle-glass-node-morph"]["poster_url"].endswith("/shotcraft/cycle-glass-node-morph.jpg")
-    assert cards["aurora-bloom-bg-flip"]["poster_url"] is None
+    assert cards["cycle-glass-node-morph"]["video_url"].endswith("/shotcraft/cycle-glass-node-morph.mp4")
+    assert cards["aurora-bloom-bg-flip"]["poster_url"] is None and cards["aurora-bloom-bg-flip"]["video_url"] is None
     assert str(pv2_home) not in json.dumps(data)
     assert client.get("/api/video-v2/media/gallery/Cycle.mp4").content == b"\x00\x00mp4"
     assert client.get("/api/video-v2/media/shotcraft/cycle-glass-node-morph.jpg").content == b"\xff\xd8jpg"
+    assert client.get("/api/video-v2/media/shotcraft/cycle-glass-node-morph.mp4").content == b"\x00\x00sc-mp4"
+    assert client.get("/api/video-v2/media/shotcraft/aurora-bloom-bg-flip.mp4").status_code == 400
     assert client.get("/api/video-v2/media/gallery/..%2Fsecret.mp4").status_code in (400, 404)
     assert client.get("/api/video-v2/media/other/Cycle.mp4").status_code == 400
