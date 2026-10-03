@@ -4331,15 +4331,16 @@ def create_app(
                     it.update(state="stuck", message="上次发到一半被打断了：先去平台后台看一眼有没有发出去")
                 elif job and job["state"] == "failed" and not c["sent"]:
                     # 重启以后也要记得上次为什么没发出去——不然又是一句「还没发出去」，他不知道该干什么
-                    it.update(state="failed", message=job.get("message") or "")
+                    it.update(state="failed", message=job.get("message") or "", failed_at=job.get("finished_at") or job.get("created_at"))
                 elif job and job["state"] == "done" and (job.get("result") or {}).get("published") is False and not c["sent"]:
                     it.update(state="draft", message="")  # 公众号进了草稿箱：重启以后也说清，别让他再发一遍
             it["sent"] = c["sent"]
             if not it["sent"] and it["state"] in ("failed", "login"):
-                it["diag"] = publisher.login_fix(c["platform"]) if it["state"] == "login" else publisher.diagnose(c["platform"], it.get("message") or "")
+                can_login = bool((publisher_specs().get(c["platform"]) or {}).get("login_argv"))
+                it["diag"] = publisher.login_fix(c["platform"]) if it["state"] == "login" else publisher.diagnose(c["platform"], it.get("message") or "", can_login=can_login)
                 if it["diag"]["fix"] == "login":
                     it["login"] = _login_view(c["platform"])
-                    if it["login"]["state"] == "ok":
+                    if it["login"]["state"] == "ok" or (it["state"] == "failed" and _login_cached_ok(c["platform"], after=it.get("failed_at"))):
                         # 已经登好了：这一格是登录之前失败的，下一步是再发，不是再登一次
                         it["diag"] = {**publisher.diagnose(c["platform"], ""), "why": "登好了。这一格是登录之前没发出去的。", "todo": "点「再发一次」。"}
             if it["sent"] and c["topic_id"]:
@@ -4584,7 +4585,7 @@ def create_app(
             except Exception as exc:  # noqa: BLE001 - shown on the item
                 state, msg = "failed", str(exc)
             with bw_lock:
-                it.update(state=state, message=msg)
+                it.update(state=state, message=msg, failed_at=now_iso() if state == "failed" else None)
         with bw_lock:
             bw_run["running"] = False
 
@@ -4610,6 +4611,17 @@ def create_app(
     def backfill_desk_go(body: dict[str, Any]) -> dict[str, Any]:
         """他点了确认：这几格排进今天，马上按顺序发。"""
         return _bw_start(_bw_pick(body.get("cells") or [], get_backfill(), again=True))
+
+    def _login_cached_ok(key: str, *, after: str | None) -> bool:
+        """失败之后的那次探测（登录后会真探一次，存在缓存里，重启也在）说登着：报登录过期的那次是登录之前的事。"""
+        from . import channel_probe
+        from .paths import config_dir
+
+        spec = publisher_specs().get(key) or {}
+        if not spec.get("login_argv"):
+            return False
+        hit = channel_probe._read_cache(config_dir() / "channel-probes.json").get(key) or {}
+        return hit.get("ok") is True and bool(after) and str(hit.get("checked_at") or "") > str(after)
 
     def _login_ok(key: str, spec: dict[str, Any]) -> bool | None:
         """现在登着没有（真跑一次探测，不看缓存）。没有探测命令的返回 None。"""

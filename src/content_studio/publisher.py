@@ -423,13 +423,19 @@ def _last_line(message: str) -> str:
     return (lines[-1] if lines else "")[:200]
 
 
-def diagnose(platform: str, message: str) -> dict[str, Any]:
-    """一格没发出去：{why 为什么, todo 你要做什么, fix login/retry/setup/wait, label 按钮字, link 要打开的页面}。"""
+LOGIN_EXPIRED = ("invalid_grant", "refresherror", "needs_reauth", "token has been expired", "token_missing", "未授权")
+
+
+def diagnose(platform: str, message: str, *, can_login: bool | None = None) -> dict[str, Any]:
+    """一格没发出去：{why 为什么, todo 你要做什么, fix login/retry/setup/wait, label 按钮字, link 要打开的页面}。
+    can_login：这个通道在工作台里能登录（有 login_argv）；不给就看 PUBLISHERS。"""
     text = str(message or "")
     low = text.lower()
     label = (PUBLISHERS.get(platform) or {}).get("label", platform)
-    if platform == "youtube" and any(k in low for k in ("invalid_grant", "refresherror", "needs_reauth", "token has been expired", "token_missing", "未授权")):
-        return login_fix("youtube")
+    if can_login is None:
+        can_login = bool((PUBLISHERS.get(platform) or {}).get("login_argv"))
+    if can_login and platform != "bilibili" and any(k in low for k in LOGIN_EXPIRED):
+        return login_fix(platform)
     if platform == "bilibili" and any(k in low for k in ("login", "登录", "cookie", "-101", "账号未登录")):
         return login_fix("bilibili")
     if "429" in text or "超额" in text:
