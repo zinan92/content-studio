@@ -146,6 +146,7 @@ function paintChrome(view) {
 }
 
 function go(view, { push = true } = {}) {
+  view = OLD_ROUTES[view] || view;
   S.view = view;
   paintChrome(view);
   if (push) {
@@ -156,13 +157,13 @@ function go(view, { push = true } = {}) {
   renderView();
 }
 
-const OLD_ROUTES = { brief: 'board', topics: 'board', video: 'board', article: 'board', hot: 'board', collect: 'input', weekly: 'output', queue: 'report', skills: 'settings' };
+// 10/3 Park：「这一条发到哪」那页不要了——发布就是全平台追踪 + 补发工作台。旧书签、旧按钮的 #publish 都落到全平台追踪。
+const OLD_ROUTES = { brief: 'board', topics: 'board', video: 'board', article: 'board', hot: 'board', collect: 'input', weekly: 'output', queue: 'report', skills: 'settings', publish: 'backfill' };
 
 function readHash() {
   let [view, id] = location.hash.replace(/^#/, '').split('/');
   view = OLD_ROUTES[view] || view; // old bookmarks
   if (view === 'report' && id) S.reportId = id;
-  if (view === 'publish') S.publishId = id ? Number(id) : null;
   if (view === 'pack') S.packId = id ? Number(id) : null;
   if (view === 'work') {
     if (!id) return 'board';
