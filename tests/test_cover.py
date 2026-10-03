@@ -146,3 +146,11 @@ def test_progress_counts_the_drawn_covers_that_landed(tmp_path: Path) -> None:
     out.mkdir(parents=True)
     (out / "cover-3x4.png").write_bytes(b"p")
     assert cover.progress(tmp_path) == {"done": 1, "total": 2}
+
+
+def test_progress_note_says_it_is_finishing_once_both_are_drawn() -> None:
+    """10/3 Park：「封面明明已经出好了，但是进度条一直在转」——两张画完到换上新封面还有约 1 分钟收尾。"""
+    assert cover.progress_note({"done": 0, "total": 2}) == "出图中 · 竖版、横版好了 0/2"
+    assert cover.progress_note({"done": 1, "total": 2}) == "出图中 · 竖版、横版好了 1/2"
+    note = cover.progress_note({"done": 2, "total": 2})
+    assert "收尾" in note and "2/2" not in note

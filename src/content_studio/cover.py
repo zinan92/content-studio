@@ -288,6 +288,13 @@ def progress(base: Path) -> dict[str, int]:
     return {"done": sum((out / name).is_file() for _, name, _ in DRAWN), "total": len(DRAWN)}
 
 
+def progress_note(pr: dict[str, int]) -> str:
+    """两张都画完后，出图程序还要收尾、再拼 16:9 换上新封面，约 1 分钟——这段时间不能说「好了 2/2」还在转。"""
+    if pr["done"] >= pr["total"]:
+        return "竖版、横版画好了，在收尾，1 分钟左右换上新封面"
+    return f"出图中 · 竖版、横版好了 {pr['done']}/{pr['total']}"
+
+
 def codex_runner(text: str, cwd: Path) -> None:
     from .illustrate import IllustrateError, codex_exec
 

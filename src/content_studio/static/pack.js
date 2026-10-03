@@ -209,8 +209,10 @@ function renderDetail(key, box) {
     const urls = (d.release && d.release.cover_urls) || {};
     const shots = [['portrait', '竖版 3:4'], ['landscape', '横版 4:3'], ['wide', '16:9']].filter(([k]) => urls[k]);
     const stamp = Date.now();
+    // 10/3：重出时这里还是上一版（旧标题）的封面，Park 以为已经出好了——要说清楚
+    const redoing = ((PK.view && PK.view.steps) || []).some((r) => r.key === 'cover' && r.state === 'running');
     box.innerHTML = shots.length
-      ? `<div class="pk2-covers">${shots.map(([k, l]) => `<a href="${urls[k]}" target="_blank" rel="noopener"><img class="${k}" src="${urls[k]}?t=${stamp}" alt="${l}"><small>${l}</small></a>`).join('')}</div>
+      ? `${redoing ? '<p class="pk2-muted">正在按新标题重出，下面是上一版，出好会自动换上。</p>' : ''}<div class="pk2-covers${redoing ? ' old' : ''}">${shots.map(([k, l]) => `<a href="${urls[k]}" target="_blank" rel="noopener"><img class="${k}" src="${urls[k]}?t=${stamp}" alt="${l}"><small>${l}</small></a>`).join('')}</div>
          <p class="pk2-muted">封面上的字就是标题，想换字就改上面的标题。</p>`
       : '<p class="pk2-muted">还没出好。</p>';
   } else if (key === 'article') {
