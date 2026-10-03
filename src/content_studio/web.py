@@ -3324,9 +3324,11 @@ def create_app(
                 elif action in ("start", "interrupted"):
                     tries = int(step.get("tries") or 0) + 1 if action == "interrupted" else 1
                     try:
-                        _pack_start(topic_id, key)
+                        # 先记「在做」再起任务：任务失败得快（比如出图马上报错），它的「失败」会先写进去，
+                        # 再被这里的「在做」盖掉，下一轮当成被打断又重做一遍（10/3 CI 偶发：封面出了两次）
                         state = pack_auto.mark(folder, key, state="running", started_at=pack_auto.now(), tries=tries, error=None,
                                                **({"title": state.get("title")} if key == "cover" else {}))
+                        _pack_start(topic_id, key)
                     except Exception as exc:  # noqa: BLE001 - 打包页显示，等 Park 点重试
                         logger.warning("pack %s %s failed to start: %s", topic_id, key, exc)
                         state = pack_auto.mark(folder, key, state="error", error=str(getattr(exc, "detail", "") or exc)[:300])
