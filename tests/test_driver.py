@@ -510,3 +510,60 @@ def test_backfill_desk_sends_the_picked_cells_one_by_one_in_the_order_he_clicked
         out = c.get("/api/today").json()["out"]
         assert out["sent"] == 2 and out["mode"] == "backfill"
     app.state.store.close()
+
+
+def test_backfill_desk_marks_a_cell_not_sent_and_closes_the_current_video(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/3 Park：「发布完毕」和「跳过」从发布页搬进补发工作台。
+
+    标「不发」的格子不算缺（全平台追踪、补发、打包都认）；今天排上的格子要先拿掉才能标。
+    「发布完毕」只给打包页还挂着的那条：点了打包、发布页就收起它，没发的格子以后照样能补。"""
+    from tests.test_web import SEC, _wait_sync
+
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    store = client.app.state.store
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+    _wait_sync(client)
+    desk = client.get("/api/backfill/desk").json()
+    row = desk["rows"][0]
+    vid, plats = row["video_id"], [p["key"] for p in desk["platforms"]]
+    assert row["closable"] is False  # 没接上选题的老内容：没有「结」这回事
+
+    assert client.post(f"/api/backfill/{vid}/skip", json={"platform": plats[0]}).json() == {"ok": True, "skip": True}
+    cell = next(r for r in client.get("/api/backfill/desk").json()["rows"] if r["video_id"] == vid)["cells"][plats[0]]
+    assert cell == {"state": "skipped"}
+    sheet = next(v for v in client.get("/api/backfill").json()["videos"] if v["video_id"] == vid)
+    assert plats[0] not in sheet["missing"] and sheet["done"][plats[0]] == "skip"
+    client.post(f"/api/backfill/{vid}/skip", json={"platform": plats[0], "skip": False})
+    assert plats[0] in next(v for v in client.get("/api/backfill").json()["videos"] if v["video_id"] == vid)["missing"]
+    assert store.settings()["tracker_skip"] == {}
+    assert client.post(f"/api/backfill/{vid}/skip", json={"platform": "douyin"}).status_code == 400
+    assert client.post("/api/backfill/nope/skip", json={"platform": plats[0]}).status_code == 400
+    store.set_backfill_plan(date.today().isoformat(), [(vid, plats[1])])
+    assert client.post(f"/api/backfill/{vid}/skip", json={"platform": plats[1]}).status_code == 400
+    store.set_backfill_plan(date.today().isoformat(), [])
+
+    # 接上选题、抖音发了的新视频：打包页挂着它，工作台给「发布完毕」
+    client.put("/api/settings", json={"platform_accounts": {k: {"on": True, "handle": ""} for k in plats[:2]}})
+    topic = client.post("/api/topics", json={"title": "抖音刚发"}).json()
+    store.update_topic(topic["id"], published_video_id=vid)
+    row = next(r for r in client.get("/api/backfill/desk").json()["rows"] if r["video_id"] == vid)
+    assert row["topic_id"] == topic["id"] and row["closable"] is True
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    # 开着的平台都标了不发：也算发完
+    for k in plats[:2]:
+        client.post(f"/api/backfill/{vid}/skip", json={"platform": k})
+    assert client.get("/api/publish/desk").json()["topic"] is None
+    client.post(f"/api/backfill/{vid}/skip", json={"platform": plats[0], "skip": False})
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    client.post(f"/api/topics/{topic['id']}/close")
+    assert client.get("/api/publish/desk").json()["topic"] is None
+    row = next(r for r in client.get("/api/backfill/desk").json()["rows"] if r["video_id"] == vid)
+    assert row["closable"] is False and row["cells"][plats[0]]["state"] != "skipped"  # 结了，没发的格子还能补
+
+    # 抖音上两周前发的老内容：选题刚被批量打包过（更新时间是新的）也不挂在打包页、不给「发布完毕」
+    client.delete(f"/api/topics/{topic['id']}/close")
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    with store.tx() as conn:
+        conn.execute("UPDATE videos SET published_at = ? WHERE video_id = ?", ("2026-01-01T00:00:00+00:00", vid))
+    assert client.get("/api/publish/desk").json()["topic"] is None
+    assert next(r for r in client.get("/api/backfill/desk").json()["rows"] if r["video_id"] == vid)["closable"] is False

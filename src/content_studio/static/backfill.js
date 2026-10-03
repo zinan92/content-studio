@@ -26,6 +26,7 @@ function bfCell(v, p) {
   if (v.cancelled && !st) return '<span class="bf-dot off" title="这条不补发了">–</span>';
   if (st === 'record' && url) return `<a class="bf-dot on link" href="${esc(url)}" target="_blank" rel="noopener" title="${esc(p.label)}：${esc(url)}">↗</a>`;
   if (st === 'record') return `<span class="bf-dot on" title="${esc(p.label)}：发过了，没记链接">✓</span>`;
+  if (st === 'skip') return `<span class="bf-dot skip" title="${esc(p.label)}：不发（在补发工作台里标的）">不发</span>`;
   if (st === 'mark') return `<button class="bf-dot on mark" type="button" data-bfunmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：你标过已经发过，点一下撤回">✓</button>`;
   return `<button class="bf-dot" type="button" data-bfmark="${esc(v.video_id)}" data-p="${p.key}" title="${esc(p.label)}：还没发。在工作台外面发过的，点一下标成已发">·</button>`;
 }
@@ -81,7 +82,7 @@ window.VIEWS.backfill = {
     const csvBtn = $('#bfCsv');
     if (csvBtn) csvBtn.onclick = () => {
       const q = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
-      const lines = [['内容', '发布日期', ...cols.map((c) => c.label)], ...d.videos.map((v) => [v.headline || v.title, (v.published_at || '').slice(0, 10), ...cols.map((c) => (v.links || {})[c.key] || (v.done[c.key] ? '已发' : ''))])];
+      const lines = [['内容', '发布日期', ...cols.map((c) => c.label)], ...d.videos.map((v) => [v.headline || v.title, (v.published_at || '').slice(0, 10), ...cols.map((c) => (v.done[c.key] === 'skip' ? '不发' : (v.links || {})[c.key] || (v.done[c.key] ? '已发' : '')))])];
       const blob = new Blob(['\ufeff' + lines.map((l) => l.map(q).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
       const a2 = document.createElement('a'); a2.href = URL.createObjectURL(blob); a2.download = `全平台追踪-${new Date().toISOString().slice(0, 10)}.csv`; a2.click(); URL.revokeObjectURL(a2.href);
     };

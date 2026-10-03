@@ -3,16 +3,18 @@
  * 一张和全平台追踪一样的表（一行一条内容、一列一个平台），点格子挑今天发什么，点的顺序就是发的顺序（1、2、3、4）。
  * 确认 → 换个样子再看一遍（每格发出去是什么样、怎么发）→ 再确认，工作台按顺序现场发。
  * B 站、YouTube、X 自己发出去；公众号进草稿箱，群发他点；视频号、小红书没有自动通道，文件夹备好他传，传完点「发了」。
- * 全平台追踪那张表还是只用来看和补记（那边点「·」是「在外面发过」），挑格子只在这里。 */
+ * 全平台追踪那张表还是只用来看和补记（那边点「·」是「在外面发过」），挑格子只在这里。
+ * 10/3 Park：发布页的「跳过」「发布完毕」搬到这里——「标不发」点格子（这一条这个平台以后也不发），
+ * 打包页还挂着的那条，标题下面给「发布完毕」（结了，打包、发布页不再显示；没发的格子以后照样能补）。 */
 
-const BW = { data: null, picks: [], step: 'pick', preview: null, poll: null, busy: false, focus: null };
+const BW = { data: null, picks: [], step: 'pick', preview: null, poll: null, busy: false, focus: null, skipMode: false };
 const BW_HOW = { auto: '自动发', draft: '进草稿箱', hand: '你来传' };
 const BW_STATE = { idle: '还没发出去', stuck: '上次发到一半被打断了', waiting: '排队', running: '正在发…', done: '✓ 发出去了', draft: '进了草稿箱：去后台点发布，发完点「发了」', hand: '文件夹备好了：你传，传完点「发了」', failed: '没发出去' };
 
 // focus：从全平台追踪点「补发」进来时那一条，打开后滚到它、闪一下（10/1 Park：补发只走这一个窗口，不再先进打包）
 // preselect：从打包页「去发其他平台」进来（10/3 Park：打包好了直接到挑格子）——这一条现在能发的格子按列的顺序先点好，他看一眼、去掉不发的就行
 window.openBackfillDesk = async (focus, opts) => {
-  BW.picks = []; BW.step = 'pick'; BW.preview = null; BW.focus = focus || null;
+  BW.picks = []; BW.step = 'pick'; BW.preview = null; BW.focus = focus || null; BW.skipMode = false;
   $('#bwBody').innerHTML = '<p class="td-note"><span class="spin"></span> 读全平台追踪…</p>';
   $('#bwDlg').showModal();
   await bwLoad();
@@ -37,6 +39,8 @@ function bwIndex(vid, p) { return BW.picks.findIndex((x) => bwKey(x.video_id, x.
 
 function bwCell(r, p) {
   const c = r.cells[p.key] || {};
+  if (c.state === 'skipped') return BW.skipMode ? `<button type="button" class="bw-c skipped" data-bw-unskip="${esc(r.video_id)}" data-p="${p.key}" title="点一下恢复：${esc(p.label)}以后还要发">不发</button>` : `<span class="bw-c skipped" title="${esc(p.label)}：不发（点下面「标不发」可以恢复）">不发</span>`;
+  if (BW.skipMode && ['open', 'blocked'].includes(c.state)) return `<button type="button" class="bw-c open skip" data-bw-skip="${esc(r.video_id)}" data-p="${p.key}" title="《${esc(r.title)}》${esc(p.label)}：标成不发">×</button>`;
   if (c.state === 'sent') return c.url ? `<a class="bw-c sent" href="${esc(c.url)}" target="_blank" rel="noopener" title="${esc(p.label)}：发过了">✓</a>` : `<span class="bw-c sent" title="${esc(p.label)}：发过了">✓</span>`;
   if (c.state === 'planned') return `<span class="bw-c planned" title="今天已经排上了">今天</span>`;
   if (c.state === 'blocked') return /定稿/.test(c.why || '') && r.topic_id ? `<button type="button" class="bw-c blocked" data-bw-pack="${r.topic_id}" title="${esc(c.why)}：点一下去打包页">–</button>` : `<span class="bw-c blocked" title="${esc(c.why || '')}">–</span>`;
@@ -61,14 +65,20 @@ function bwRunBlock(run) {
 
 function bwPickView(d) {
   const head = `<tr><th>内容</th>${d.platforms.map((p) => `<th class="c">${esc(p.label)}<small class="bw-how ${p.how}" title="${esc(p.how_text)}">${BW_HOW[p.how] || ''}</small></th>`).join('')}</tr>`;
-  const rows = d.rows.map((r) => `<tr class="${BW.focus === r.video_id ? 'bw-focus' : ''}" data-bw-row="${esc(r.video_id)}"><td class="bw-t"><b>${esc(r.title)}</b><small>${esc((r.published_at || '').slice(0, 10))}${r.likes != null ? ` · 点赞 ${fmt(r.likes)}` : ''}</small></td>${d.platforms.map((p) => `<td class="c">${bwCell(r, p)}</td>`).join('')}</tr>`).join('');
+  const close = (r) => r.closable ? `<button class="linklike bw-close" type="button" data-bw-close="${r.topic_id}" title="这条结了：打包、发布页不再显示它；没发的格子以后照样能在这里补">发布完毕</button>` : '';
+  const rows = d.rows.map((r) => `<tr class="${BW.focus === r.video_id ? 'bw-focus' : ''}" data-bw-row="${esc(r.video_id)}"><td class="bw-t"><b>${esc(r.title)}</b><small>${esc((r.published_at || '').slice(0, 10))}${r.likes != null ? ` · 点赞 ${fmt(r.likes)}` : ''}${close(r)}</small></td>${d.platforms.map((p) => `<td class="c">${bwCell(r, p)}</td>`).join('')}</tr>`).join('');
   const have = d.planned + BW.picks.length;
   const note = have >= d.need ? `今天一共 ${have} 格，够 ${d.need} 格了，都发出去就算出摊。` : `今天已排 ${d.planned} 格，还要再挑 ${d.need - have} 格才算出摊。`;
+  if (BW.skipMode) {
+    return `<p class="td-note bw-skipnote">点格子标成「不发」：这一条这个平台以后也不发，不算缺、补发不再挑它。再点一下恢复。</p>
+    ${d.rows.length ? `<div class="bw-tbl skipping"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>` : '<p class="td-note">旧内容都发完了。</p>'}
+    <div class="bw-bar"><span>标好了点右边，回去挑今天发什么。</span><span class="btns"><button class="btn go" type="button" data-bw-skipmode>标好了</button></span></div>`;
+  }
   return `${bwRunBlock(d.run)}
-    <p class="td-note">看今天大家的情绪，点格子挑今天发什么：点的顺序就是发的顺序，再点一下取消。✓ 是发过了，– 是现在发不了（鼠标停上去看为什么）。</p>
+    <p class="td-note">看今天大家的情绪，点格子挑今天发什么：点的顺序就是发的顺序，再点一下取消。✓ 是发过了，– 是现在发不了（鼠标停上去看为什么），「不发」是你标了不发的。</p>
     ${d.rows.length ? `<div class="bw-tbl"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>` : '<p class="td-note">旧内容都发完了。</p>'}
     <div class="bw-bar"><span>已选 <b>${BW.picks.length}</b> 格 · ${note}</span>
-      <span class="btns"><button class="btn quiet" type="button" data-bw-clear ${BW.picks.length ? '' : 'disabled'}>清空</button><button class="btn go" type="button" data-bw-review ${BW.picks.length && !BW.busy ? '' : 'disabled'}>确认，换个样子看一遍 →</button></span></div>`;
+      <span class="btns"><button class="btn quiet" type="button" data-bw-skipmode title="有的平台这一条不打算发：标成不发，就不算缺">标不发</button><button class="btn quiet" type="button" data-bw-clear ${BW.picks.length ? '' : 'disabled'}>清空</button><button class="btn go" type="button" data-bw-review ${BW.picks.length && !BW.busy ? '' : 'disabled'}>确认，换个样子看一遍 →</button></span></div>`;
 }
 
 function bwPreviewView(pv) {
@@ -96,6 +106,22 @@ function bwDraw() {
     const i = bwIndex(b.dataset.bwCell, b.dataset.p);
     if (i >= 0) BW.picks.splice(i, 1); else BW.picks.push({ video_id: b.dataset.bwCell, platform: b.dataset.p });
     bwDraw();
+  }));
+  const mode = $('[data-bw-skipmode]', body);
+  if (mode) mode.onclick = () => { BW.skipMode = !BW.skipMode; bwDraw(); };
+  const skip = async (vid, platform, on) => {
+    try { await api(`/api/backfill/${vid}/skip`, { method: 'POST', body: { platform, skip: on } }); } catch (err) { toast(err.message); return; }
+    BW.picks = BW.picks.filter((x) => bwKey(x.video_id, x.platform) !== bwKey(vid, platform));
+    await bwLoad();
+  };
+  $$('[data-bw-skip]', body).forEach((b) => (b.onclick = () => skip(b.dataset.bwSkip, b.dataset.p, true)));
+  $$('[data-bw-unskip]', body).forEach((b) => (b.onclick = () => skip(b.dataset.bwUnskip, b.dataset.p, false)));
+  $$('[data-bw-close]', body).forEach((b) => (b.onclick = async () => {
+    if (!confirm('这条发布完毕？打包、发布页不再显示它；没发的格子以后照样能在这里补。')) return;
+    try { await api(`/api/topics/${b.dataset.bwClose}/close`, { method: 'POST' }); toast('结了。没发的格子还在表里，想补随时补'); } catch (err) { toast(err.message); return; }
+    if (window.invalidatePack) window.invalidatePack();
+    if (window.invalidatePublish) window.invalidatePublish();
+    await bwLoad();
   }));
   const clear = $('[data-bw-clear]', body);
   if (clear) clear.onclick = () => { BW.picks = []; bwDraw(); };
