@@ -718,3 +718,27 @@ def test_login_resends_what_failed_before_a_restart(tmp_path, monkeypatch: pytes
         item = settle(c)["items"][0]
         assert item["sent"] and item["url"] == "https://x.com/i/2"  # 重启前失败的那格，登好了照样自己再发
     app.state.store.close()
+
+
+def test_backfill_desk_keeps_fully_sent_rows_folded_and_shows_douyin(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/3 Park：发齐了的别从工作台里消失，折起来、展开能看到；抖音也放进表里，最左边。"""
+    from tests.test_web import SEC, _wait_sync
+
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    client.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+    _wait_sync(client)
+    desk = client.get("/api/backfill/desk").json()
+    row = desk["rows"][0]
+    vid = row["video_id"]
+    assert row["douyin"]["url"] == f"https://www.douyin.com/video/{vid}" and desk["done_rows"] == []
+    plats = [p["key"] for p in desk["platforms"]]
+    for i, k in enumerate(plats):
+        if i % 2:
+            client.post(f"/api/backfill/{vid}/skip", json={"platform": k})
+        else:
+            client.post(f"/api/backfill/{vid}/mark", json={"platform": k, "done": True})
+    desk = client.get("/api/backfill/desk").json()
+    assert vid not in [r["video_id"] for r in desk["rows"]]
+    done = next(r for r in desk["done_rows"] if r["video_id"] == vid)
+    assert {c["state"] for c in done["cells"].values()} == {"sent", "skipped"} and done["douyin"]["url"]
+    assert done["closable"] is False

@@ -2166,6 +2166,10 @@ button.bw-c.skipped:hover{background:var(--line-soft);color:var(--ink)}
 .bw-c.open.skip:hover{border-color:var(--ink-2);color:var(--ink);border-style:solid}
 .bw-skipnote{background:var(--sunk);border-radius:8px;padding:8px 12px;color:var(--ink-2)}
 .bw-close{margin-left:8px;font-size:12px}
+.bw-done{margin-top:14px}
+.bw-done summary{cursor:pointer;font-size:14px;font-weight:600;color:var(--ink-2);padding:8px 2px}
+.bw-done summary small{font-weight:400;color:var(--ink-3);font-size:12px;margin-left:8px}
+.bw-done .bw-tbl{margin-top:6px}
 .bw-bar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0 14px;background:var(--surface);border-top:1px solid var(--line-soft);font-size:14px}
 .bw-bar .btns{display:flex;gap:8px}
 .bw-run{border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}

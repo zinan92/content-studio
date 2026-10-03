@@ -4502,8 +4502,9 @@ def create_app(
         cols = [p for p in sheet["platforms"] if p["key"] != "douyin"]
         on_keys = _on_keys()
         rows = []
+        done_rows = []  # 10/3 Park：发齐了的别消失，折起来，展开能看到每条发在了哪
         for r in sheet["videos"]:
-            if r.get("cancelled") or not r["missing"]:
+            if r.get("cancelled"):
                 continue
             cells = {}
             for p in cols:
@@ -4521,13 +4522,16 @@ def create_app(
             # 「发布完毕」只给打包、发布页还挂着的那几条（两周内、还没发完）——老的补发内容没有「结」这回事
             t = store.topic(r["topic_id"]) if r["topic_id"] else None
             closable = bool(t and _fresh(t) and _unfinished(t, on_keys))
-            rows.append({"video_id": r["video_id"], "topic_id": r["topic_id"], "title": r["headline"] or r["title"][:40],
-                         "published_at": r["published_at"], "likes": r.get("likes"), "multiple": r.get("multiple"), "cells": cells,
-                         "closable": closable})
+            row = {"video_id": r["video_id"], "topic_id": r["topic_id"], "title": r["headline"] or r["title"][:40],
+                   "published_at": r["published_at"], "likes": r.get("likes"), "multiple": r.get("multiple"), "cells": cells,
+                   "closable": closable and bool(r["missing"]),
+                   # 抖音这一格：每条都从抖音来（10/3 Park：抖音也放进表里，最左边）
+                   "douyin": {"url": (r.get("links") or {}).get("douyin"), "hidden": bool(r.get("hidden_on_douyin"))}}
+            (rows if r["missing"] else done_rows).append(row)
         run = _bw_snapshot(sheet)
         need = run.pop("need")
         return {"platforms": [{**p, "how": BW_HOW.get(p["key"], ("hand", ""))[0], "how_text": BW_HOW.get(p["key"], ("hand", ""))[1]} for p in cols],
-                "rows": rows, "need": need, "planned": len(planned), "run": run}
+                "rows": rows, "done_rows": done_rows, "need": need, "planned": len(planned), "run": run}
 
     @app.post("/api/backfill/desk/preview")
     def backfill_desk_preview(body: dict[str, Any]) -> dict[str, Any]:
