@@ -1,6 +1,7 @@
 /* 04 发布 · 全平台追踪（9/29 以前叫「补发队列」）：每条内容发在了哪些平台，一张表看全貌，每格能点开链接。
  * 没发齐的点「补发」：打开和「今天」同一个补发工作台（10/1 Park：不要两个页面做同一件事），包还没定稿的格子在那里点一下去打包。
- * 发布台上的这一条发完了，就回到这张表（Park：「finished the current item, then I should see the full tracking sheet」）。 */
+ * 发布台上的这一条发完了，就回到这张表（Park：「finished the current item, then I should see the full tracking sheet」）。
+ * 10/3 Park：「这一条发到哪」那页不要了。导轨上的「发布」直接到这里；发东西只走补发工作台（顶上的主按钮）。 */
 window.VIEWS = window.VIEWS || {};
 
 const BF = { data: null, busy: {}, poll: null };
@@ -9,12 +10,8 @@ async function loadBackfill() { [BF.data, BF.archive] = await Promise.all([api('
 window.refreshBackfillCount = async () => { try { await loadBackfill(); } catch (_) { /* ignore */ } paintPubSubnav(); };
 
 function paintPubSubnav() {
-  const n = BF.data ? BF.data.videos.filter((v) => v.missing.length).length : null;
-  $$('[data-pubnav]').forEach((nav) => {
-    nav.innerHTML = [['publish', '这一条'], ['backfill', `全平台追踪${n ? ` <span class="num" title="还有平台没发的条数">${n}</span>` : ''}`]]
-      .map(([k, l]) => `<button type="button" class="${S.view === k ? 'on' : ''}" data-pubgo="${k}">${l}</button>`).join('');
-    $$('[data-pubgo]', nav).forEach((b) => (b.onclick = () => go(b.dataset.pubgo)));
-  });
+  // 只剩一页了，不要标签
+  $$('[data-pubnav]').forEach((nav) => { nav.innerHTML = ''; nav.hidden = true; });
 }
 window.paintPubSubnav = paintPubSubnav;
 
@@ -57,7 +54,8 @@ window.VIEWS.backfill = {
     const d = BF.data;
     const cols = d.platforms;
     const todo = d.videos.filter((v) => v.missing.length);
-    $('#backfillFigs').innerHTML = `<div class="pub-figs"><span>${d.videos.length} 条内容 · ${todo.length} 条还有平台没发${d.videos.some((v) => v.cancelled) ? ` · ${d.videos.filter((v) => v.cancelled).length} 条不补发` : ''}</span><button class="btn small" type="button" id="bfCsv">下载表格</button></div>`;
+    $('#backfillFigs').innerHTML = `<div class="pub-figs"><span>${d.videos.length} 条内容 · ${todo.length} 条还有平台没发${d.videos.some((v) => v.cancelled) ? ` · ${d.videos.filter((v) => v.cancelled).length} 条不补发` : ''}</span><button class="btn small" type="button" id="bfCsv">下载表格</button><button class="btn primary" type="button" id="bfDesk">打开补发工作台 →</button></div>`;
+    $('#bfDesk').onclick = () => { if (window.openBackfillDesk) window.openBackfillDesk(); };
     const row = (v) => `<tr class="${v.cancelled ? 'bf-cancelled' : ''}">
       <td class="bf-title"><b>${esc(v.headline || v.title.slice(0, 30))}</b><small>${day(v.published_at)} · 点赞 ${fmt(v.likes)}${v.multiple !== null ? ` · ${v.multiple}×` : ''}</small>
         <div class="bf-acts">${bfNext(v)}</div></td>
@@ -92,7 +90,6 @@ window.VIEWS.backfill = {
     $$('[data-bfcancel]', body).forEach((b) => (b.onclick = async () => {
       try { await api(`/api/backfill/${b.dataset.bfcancel}/cancel`, { method: 'POST', body: { cancel: b.dataset.on === '1' } }); toast(b.dataset.on === '1' ? '这条不补发了，能点回来' : '恢复了'); await loadBackfill(); renderView(); if (window.refreshTodayBadge) window.refreshTodayBadge(); } catch (err) { toast(err.message); }
     }));
-    $$('[data-bfopen]', body).forEach((b) => (b.onclick = () => { S.publishId = Number(b.dataset.bfopen); go('publish'); }));
     // 9/29 起发布台要打包定稿过才发（文字平台）：补发接上以后先进打包，定稿了再去发
     // 10/1 Park：补发只走一个窗口。先接上选题（种文案、接成片），然后打开补发工作台，滚到这一条
     $$('[data-bftake]', body).forEach((b) => (b.onclick = async () => {
