@@ -8,12 +8,12 @@
      ① 定标题 —— 机器先出一批候选，点一条或自己写，点「用这个标题，开始准备」。
      ② 自动准备 —— 封面、X 图文、插图、公众号排版（小红书选了图文还有小红书图文）一步接一步做完、
         自动定稿（服务端 pack_auto.py，关了页面也接着做）。每一行能展开看、能改；失败了只给一个「重试」。
-     ③ 去发布 —— 全好了才亮。
+     ③ 发出去 —— 全好了才亮：还没发抖音就先发抖音、对上作品；发了就直接打开补发工作台挑其余平台。
    描述和话题已经自动填好，收在最下面，想改再打开。
    不再列别的视频（9/29 版顶上那排《为什么AI重度用户全体考公》这类，10/2 Park：分心）。 */
 window.VIEWS = window.VIEWS || {};
 
-const PK = { data: null, topic: null, view: null, at: 0, timer: null, editTitle: false, titlesAsked: new Set(), open: new Set() };
+const PK = { data: null, topic: null, view: null, at: 0, timer: null, editTitle: false, douyinNow: false, titlesAsked: new Set(), open: new Set() };
 
 async function loadPack(force) {
   if (!force && PK.data && (!S.packId || (PK.data.topic && PK.data.topic.id === S.packId)) && Date.now() - PK.at < 15000) return PK.data;
@@ -246,21 +246,71 @@ function renderDetail(key, box) {
 function ctaCard(v) {
   return `<section class="pk2-cta" id="pkCta">${ctaInner(v)}</section>`;
 }
+/* ③ 发出去（10/3 Park：打包好了直接进补发工作台挑格子，不再经过那张「这一条发到哪」）。
+   补发工作台的表一行是一条抖音作品，所以先发抖音、对上是哪条作品，再去挑其余平台。 */
 function ctaInner(v) {
-  if (v.ready) return '<button class="btn primary big" type="button" id="pkPublish">全部好了，去发布 →</button>';
+  const vid = PK.data && PK.data.topic && PK.data.topic.published_video_id;
   if (!v.armed) return '<span class="pk2-muted">定了标题，剩下的自动做；全好了这里会亮。</span>';
+  if ((v.ready || PK.douyinNow) && !vid) return douyinStep();
+  if (v.ready) return '<button class="btn primary big" type="button" id="pkDesk">全部好了，去发其他平台 →</button>';
   const err = (v.steps || []).some((r) => r.state === 'error');
   return `<button class="btn big" type="button" disabled>${err ? '有一步没做成，点上面的「重试」' : '还在准备 · 好了这里会亮'}</button>
-    <button class="linklike" type="button" id="pkPublishAnyway">先去发布已经好的平台</button>`;
+    <button class="linklike" type="button" id="pkEarly">${vid ? '先发已经好的平台' : '封面好了，先发抖音'}</button>`;
+}
+function douyinStep() {
+  const admin = 'https://creator.douyin.com/creator-micro/content/upload';
+  return `<div class="pk2-dy">
+    <div class="pk2-dy-h"><b>先发抖音</b><small>视频、竖封面、横封面在文件夹里，标题和描述在文案.txt。发完点「发了」，对一下是哪条，就去发其他平台。</small></div>
+    <div class="pk2-dy-b"><button class="btn primary big" type="button" id="pkDyFolder">打开抖音上传文件夹</button>
+      <a class="btn big" href="${admin}" target="_blank" rel="noopener">去抖音上传 ↗</a>
+      <button class="btn big" type="button" id="pkDyDone">发了</button></div>
+    <div id="pkDyLink"></div>
+  </div>`;
 }
 function paintCta() {
   const el = $('#pkCta');
   if (el && PK.view) { el.innerHTML = ctaInner(PK.view); wireCta(); }
 }
+function openDesk() {
+  const t = PK.data.topic;
+  if (window.openBackfillDesk) window.openBackfillDesk(t.published_video_id, { preselect: true });
+}
 function wireCta() {
-  const goPublish = () => { S.publishId = PK.data.topic.id; if (window.resetDesk) window.resetDesk(); window.go('publish'); };
-  const a = $('#pkPublish'); if (a) a.onclick = goPublish;
-  const b = $('#pkPublishAnyway'); if (b) b.onclick = goPublish;
+  const desk = $('#pkDesk'); if (desk) desk.onclick = openDesk;
+  const early = $('#pkEarly');
+  if (early) early.onclick = () => { if (PK.data.topic.published_video_id) openDesk(); else { PK.douyinNow = true; paintCta(); } };
+  const folder = $('#pkDyFolder');
+  if (folder) folder.onclick = async () => {
+    try { await api(`/api/topics/${PK.data.topic.id}/upload-folder`, { method: 'POST', body: { platform: 'douyin', open: true } }); toast('文件夹打开了：视频、封面、文案.txt 都在里面'); } catch (err) { toast(err.message); }
+  };
+  const done = $('#pkDyDone'); if (done) done.onclick = () => douyinLink($('#pkDyLink'));
+}
+
+/* 抖音发了：对一下是哪条作品（数据、评论、补发表都靠它） */
+async function douyinLink(box) {
+  if (!box) return;
+  const id = PK.data.topic.id;
+  box.innerHTML = '<p class="pk2-muted"><span class="spin"></span> 正在找你刚发的那条…</p>';
+  let d;
+  try { d = await api(`/api/topics/${id}/publish`); } catch (err) { box.innerHTML = `<p class="pk2-muted bad">${esc(err.message)}</p>`; return; }
+  if (!d.account) { box.innerHTML = '<p class="pk2-muted">还没设置自己的抖音号，先去设置里加。</p>'; return; }
+  const row = (v, primary) => `<div class="pk2-dy-v"><div><b>${esc(cleanTitle(v.title))}</b><small>${day(v.published_at)} · ${fmt(v.likes)} 赞</small></div>
+    <button class="btn small ${primary ? 'primary' : ''}" type="button" data-dy="${esc(v.video_id)}">就是这条</button></div>`;
+  const list = d.suggestions.length ? d.suggestions.map((v) => row(v, true)).join('') : d.recent.slice(0, 5).map((v) => row(v, false)).join('');
+  box.innerHTML = `<p class="pk2-muted">${d.suggestions.length ? '是这条吗？' : '还没找到标题相近的新作品。刚发的话等一两分钟，或者'}${d.suggestions.length ? '' : ' <button class="linklike" type="button" id="pkDySync">同步一下我的抖音</button>；也可以在下面直接点。'}</p>${list}`;
+  $$('[data-dy]', box).forEach((b) => (b.onclick = async () => {
+    try { await api(`/api/topics/${id}/publish`, { method: 'PUT', body: { video_id: b.dataset.dy } }); } catch (err) { toast(err.message); return; }
+    PK.data.topic.published_video_id = b.dataset.dy;
+    PK.douyinNow = false;
+    toast('对上了');
+    if (window.invalidatePublish) window.invalidatePublish();
+    paintCta();
+  }));
+  const sync = $('#pkDySync', box);
+  if (sync) sync.onclick = async () => {
+    try { toast((await api('/api/sync', { method: 'POST' })).message); } catch (err) { toast(err.message); }
+    setTimeout(() => douyinLink(box), 20000);
+  };
 }
 
 /* 描述和话题：自动填好了，收在最下面 */

@@ -178,3 +178,22 @@ def test_a_video_out_on_douyin_stays_in_pack_and_publish_until_the_rest_are_sent
     assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
     client.post(f"/api/topics/{topic['id']}/close")
     assert client.get("/api/publish/desk").json()["topic"] is None
+
+
+def test_cells_sent_from_the_backfill_desk_count_as_sent(client):
+    """10/3：发其他平台改在补发工作台里发。视频号、小红书在那边点「发了」记在抖音作品上，
+    整条「不补发」也在那边——打包、发布页得认这两样，不然这条永远收不起来。"""
+    store = client.app.state.store
+    client.put("/api/settings", json={"platform_accounts": {k: {"on": True, "handle": ""} for k in ("channels", "xiaohongshu")}})
+    topic = client.post("/api/topics", json={"title": "抖音刚发"}).json()
+    store.update_topic(topic["id"], published_video_id="v1")
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    store.set_backfill_mark("v1", "channels", True)
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    store.set_backfill_mark("v1", "xiaohongshu", True)
+    assert client.get("/api/publish/desk").json()["topic"] is None
+
+    store.set_backfill_mark("v1", "xiaohongshu", False)
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    store.update_settings({"tracker_cancel": ["v1"]})
+    assert client.get("/api/publish/desk").json()["topic"] is None

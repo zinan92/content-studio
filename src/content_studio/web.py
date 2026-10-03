@@ -1331,11 +1331,16 @@ def create_app(
         on_keys = {p["key"] for p in _platform_rows(publisher.readiness(publisher_specs())) if p.get("on")}
         on_count = len(on_keys)
 
+        # 补发工作台里点的「发了」记在抖音作品上（backfill_marks），「不补发」整条收起（tracker_cancel）——两边都算
+        marks = store.backfill_marks()
+        cancelled = set(store.settings().get("tracker_cancel") or [])
+
         def still_open(c: dict[str, Any]) -> bool:
             t = store.topic(c["id"])
-            if t.get("closed_at"):
+            vid = t.get("published_video_id")
+            if t.get("closed_at") or (vid and vid in cancelled):
                 return False
-            done = set(store.publish_records(c["id"])) | store.publish_skips(c["id"]) | ({"douyin"} if t.get("published_video_id") else set())
+            done = set(store.publish_records(c["id"])) | store.publish_skips(c["id"]) | ({"douyin"} | marks.get(vid, set()) if vid else set())
             return bool(on_keys - done)
 
         unfinished = [c for c in sendable if still_open(c)]
