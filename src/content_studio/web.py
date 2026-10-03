@@ -4339,6 +4339,9 @@ def create_app(
                 it["diag"] = publisher.login_fix(c["platform"]) if it["state"] == "login" else publisher.diagnose(c["platform"], it.get("message") or "")
                 if it["diag"]["fix"] == "login":
                     it["login"] = _login_view(c["platform"])
+                    if it["login"]["state"] == "ok":
+                        # 已经登好了：这一格是登录之前失败的，下一步是再发，不是再登一次
+                        it["diag"] = {**publisher.diagnose(c["platform"], ""), "why": "登好了。这一格是登录之前没发出去的。", "todo": "点「再发一次」。"}
             if it["sent"] and c["topic_id"]:
                 # 自动发出去的，链接在这儿就能点（10/3 Park）
                 rec = store.publish_records(c["topic_id"]).get(c["platform"]) or {}
@@ -4630,10 +4633,13 @@ def create_app(
     def _bw_resend(key: str) -> None:
         deadline = time.monotonic() + 1800
         while time.monotonic() < deadline:
+            # 看「今天在发的」那张表本身（库里排的格子 + 上次的结果），不只看内存：服务重启过的话内存里是空的
+            # （10/3 登好了 YouTube 却没再发——10:57 刚自动部署重启过）
+            items = _bw_snapshot(get_backfill())["items"]
             with bw_lock:
                 busy = bw_run["running"]
-                cells = [{"video_id": it["video_id"], "platform": it["platform"]} for it in bw_run["items"]
-                         if it["platform"] == key and it["state"] in ("failed", "login")]
+            cells = [{"video_id": it["video_id"], "platform": it["platform"]} for it in items
+                     if it["platform"] == key and not it["sent"] and it["state"] in ("failed", "login")]
             if not cells:
                 return
             if not busy:
@@ -4698,6 +4704,10 @@ def create_app(
     def _bw_start(picked: list[dict[str, Any]]) -> dict[str, Any]:
         today_key = date.today().isoformat()
         with bw_lock:
+            # 重新发了：之前「登好了」那句作废，这次再要登录就重新给登录按钮
+            for c in picked:
+                if (platform_logins.get(c["platform"]) or {}).get("state") == "ok":
+                    platform_logins.pop(c["platform"], None)
             if bw_run["running"] and bw_run["day"] == today_key:
                 raise ValueError("上一批还在发，等它发完")
             if bw_run["day"] != today_key:

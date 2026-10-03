@@ -633,7 +633,81 @@ def test_a_platform_that_needs_login_is_not_sent_and_resends_itself_after_login(
             if sent.exists() and not c.get("/api/backfill/desk").json()["run"]["running"]:
                 break
             time.sleep(0.05)
-        assert c.get("/api/platforms/x/login").json()["state"] == "ok"
+        assert c.get("/api/platforms/x/login").json()["state"] in ("ok", "idle")  # 再发起来以后「登好了」那句就清掉
         item = settle(c)["items"][0]
         assert item["state"] == "done" and item["sent"] and item["url"] == "https://x.com/i/1"  # 登好了自己再发，链接能点
+    app.state.store.close()
+
+
+def test_login_resends_what_failed_before_a_restart(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/3：YouTube 登好了却没再发——中间自动部署重启过，内存里「今天在发的」是空的。
+    重启后从库里认出上次失败的格子：登好了照样自动再发；没自动发出去时，这一行给「再发一次」而不是再登一次。"""
+    import json
+    import sys
+    import time
+
+    from content_studio import approvals, channel_probe, web as web_module
+    from tests.test_web import SEC, FakeClient, _wait_sync
+
+    monkeypatch.setenv("CONTENT_STUDIO_HOME", str(tmp_path / "cs-home"))
+    monkeypatch.setenv("CONTENT_STUDIO_HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    monkeypatch.setenv("CONTENT_STUDIO_NO_OPEN", "1")
+    monkeypatch.setattr(channel_probe, "CACHE_PATH", tmp_path / "probes.json")
+    monkeypatch.setattr(approvals, "status", lambda folder, fps: {k: {"approved": True, "valid": True, "made": True, "by": "park"}
+                                                                   for k in ("copy", "cover", "article", "figs", "wx", "xhs")})
+    flag, sent = tmp_path / "logged-in", tmp_path / "sent.txt"
+    cred = tmp_path / "secrets.yaml"
+    cred.write_text("{}")
+    # 探测说登着（像 YouTube：令牌在，刷新时才报过期）；上传没登好就报 invalid_grant
+    probe = [sys.executable, "-c", "print('token_valid')"]
+    login = [sys.executable, "-c", f"import pathlib; pathlib.Path({str(flag)!r}).write_text('1')"]
+    upload = [sys.executable, "-c", (f"import json, pathlib, sys\nif not pathlib.Path({str(flag)!r}).exists():\n"
+                                     f"    print('RefreshError: invalid_grant: Token has been expired', file=sys.stderr); sys.exit(1)\n"
+                                     f"pathlib.Path({str(sent)!r}).write_text('x'); print(json.dumps({{'ok': True, 'url': 'https://x.com/i/2'}}))"), "{article}"]
+    specs = {"x": {"label": "X", "copy_key": "x", "credential": cred, "login_hint": "", "no_video": True, "needs_article": True,
+                   "probe": probe, "probe_ok": "token_valid", "login_argv": login,
+                   "modes": {"article_publish": {"label": "发", "argv": upload}}}}
+    cookie = tmp_path / "cookies.json"
+    cookie.write_text(json.dumps({"sessionid": "x"}))
+    cookie.chmod(0o600)
+
+    def make_app():
+        return web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
+                                     downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False, drafts_dir=tmp_path / "drafts",
+                                     publishers=specs)
+
+    def settle(c):
+        for _ in range(200):
+            run = c.get("/api/backfill/desk").json()["run"]
+            if not run["running"]:
+                return run
+            time.sleep(0.05)
+        raise AssertionError("还在发")
+
+    app = make_app()
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
+        c.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+        _wait_sync(c)
+        vid = c.get("/api/backfill").json()["videos"][0]["video_id"]
+        tid = c.post(f"/api/backfill/{vid}/take").json()["topic_id"]
+        art = tmp_path / "drafts" / f"topic-{tid}" / "article.md"
+        art.parent.mkdir(parents=True, exist_ok=True)
+        art.write_text("# 文章标题\n\n第一段。\n", encoding="utf-8")
+        app.state.store.update_topic(tid, article_path=str(art))
+        c.post("/api/backfill/desk/go", json={"cells": [{"video_id": vid, "platform": "x"}]})
+        assert settle(c)["items"][0]["state"] == "failed"
+    app.state.store.close()
+
+    app = make_app()  # 重启：内存里的进度没了
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
+        item = c.get("/api/backfill/desk").json()["run"]["items"][0]
+        assert item["state"] == "failed" and "invalid_grant" in item["message"]
+        c.post("/api/platforms/x/login")
+        for _ in range(200):
+            if sent.exists() and not c.get("/api/backfill/desk").json()["run"]["running"]:
+                break
+            time.sleep(0.05)
+        item = settle(c)["items"][0]
+        assert item["sent"] and item["url"] == "https://x.com/i/2"
     app.state.store.close()
