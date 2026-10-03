@@ -114,6 +114,11 @@ class BackfillCancelBody(BaseModel):
     cancel: bool = True
 
 
+class BackfillSkipBody(BaseModel):
+    platform: str
+    skip: bool = True
+
+
 class DailyPickBody(BaseModel):
     key: str
     path: str
@@ -1310,6 +1315,37 @@ def create_app(
     def platforms() -> dict[str, Any]:
         return {"platforms": _platform_rows()}
 
+    def _skipped(video_id: str | None, topic_id: int | None) -> set[str]:
+        """这一条哪些平台不发：补发工作台里标的（tracker_skip，按抖音作品）加上发布台上跳过的（publish_skips，按选题）。"""
+        out = set((store.settings().get("tracker_skip") or {}).get(video_id) or []) if video_id else set()
+        return out | (store.publish_skips(topic_id) if topic_id else set())
+
+    def _on_keys() -> set[str]:
+        from . import publisher
+
+        return {p["key"] for p in _platform_rows(publisher.readiness(publisher_specs())) if p.get("on")}
+
+    def _fresh(topic: dict[str, Any]) -> bool:
+        """打包、发布页挂着的是「新的那条」：还没上抖音，或者抖音上是两周内发的。
+        10/3：补发的老内容昨晚批量打包过，选题的更新时间是新的，但它们走补发工作台，不该挂在打包页上。"""
+        vid = topic.get("published_video_id")
+        video = store.video(vid) if vid else None
+        if video is None:
+            return True
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        return (video.get("published_at") or "") >= cutoff
+
+    def _unfinished(topic: dict[str, Any], on_keys: set[str]) -> bool:
+        """还没发完：没点「发布完毕」、没「不补发」，还有开着的平台既没发、也没标不发。
+        发了算三种：发布台的记录、补发工作台里点的「发了」（backfill_marks）、抖音挂上了作品。"""
+        vid = topic.get("published_video_id")
+        if topic.get("closed_at") or (vid and vid in set(store.settings().get("tracker_cancel") or [])):
+            return False
+        done = set(store.publish_records(topic["id"])) | _skipped(vid, topic["id"])
+        if vid:
+            done |= {"douyin"} | store.backfill_marks().get(vid, set())
+        return bool(on_keys - done)
+
     @app.get("/api/publish/desk")
     def publish_desk(topic_id: int | None = None) -> dict[str, Any]:
         """发布台：一条内容铺在所有平台上。哪条内容由 topic_id 定，没给就取最接近能发的那条。"""
@@ -1328,22 +1364,9 @@ def create_app(
         waiting = publish_desk.waiting_for(candidates) if not sendable else None
         # 9/29 Park：一条发完了就收起来；没指定哪条时，打包和发布只挑还有平台没发的那条。
         # 10/3：抖音发出只是第一个平台——还有开着的平台没发也没跳过、也没点「发布完毕」，就还没发完。
-        on_keys = {p["key"] for p in _platform_rows(publisher.readiness(publisher_specs())) if p.get("on")}
+        on_keys = _on_keys()
         on_count = len(on_keys)
-
-        # 补发工作台里点的「发了」记在抖音作品上（backfill_marks），「不补发」整条收起（tracker_cancel）——两边都算
-        marks = store.backfill_marks()
-        cancelled = set(store.settings().get("tracker_cancel") or [])
-
-        def still_open(c: dict[str, Any]) -> bool:
-            t = store.topic(c["id"])
-            vid = t.get("published_video_id")
-            if t.get("closed_at") or (vid and vid in cancelled):
-                return False
-            done = set(store.publish_records(c["id"])) | store.publish_skips(c["id"]) | ({"douyin"} | marks.get(vid, set()) if vid else set())
-            return bool(on_keys - done)
-
-        unfinished = [c for c in sendable if still_open(c)]
+        unfinished = [c for c in sendable if (t := store.topic(c["id"])) and _fresh(t) and _unfinished(t, on_keys)]
         chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (unfinished[0] if unfinished else None)
         if topic_id is not None and chosen is None:
             # 不在候选里（归档了、或者太老）也允许直接打开——链接可能是从别处带过来的。
@@ -4457,6 +4480,7 @@ def create_app(
         ready = {(c["video_id"], c["platform"]) for c in _open_cells(sheet)}
         planned = {(r["video_id"], r["platform"]) for r in store.backfill_plan(today_key)}
         cols = [p for p in sheet["platforms"] if p["key"] != "douyin"]
+        on_keys = _on_keys()
         rows = []
         for r in sheet["videos"]:
             if r.get("cancelled") or not r["missing"]:
@@ -4464,7 +4488,9 @@ def create_app(
             cells = {}
             for p in cols:
                 k, key = p["key"], (r["video_id"], p["key"])
-                if k not in r["missing"]:
+                if r["done"].get(k) == "skip":
+                    cells[k] = {"state": "skipped"}
+                elif k not in r["missing"]:
                     cells[k] = {"state": "sent", "url": (r.get("links") or {}).get(k)}
                 elif key in planned:
                     cells[k] = {"state": "planned"}
@@ -4472,8 +4498,12 @@ def create_app(
                     cells[k] = {"state": "open"}
                 else:
                     cells[k] = {"state": "blocked", "why": _bw_blocked(r, k)}
+            # 「发布完毕」只给打包、发布页还挂着的那几条（两周内、还没发完）——老的补发内容没有「结」这回事
+            t = store.topic(r["topic_id"]) if r["topic_id"] else None
+            closable = bool(t and _fresh(t) and _unfinished(t, on_keys))
             rows.append({"video_id": r["video_id"], "topic_id": r["topic_id"], "title": r["headline"] or r["title"][:40],
-                         "published_at": r["published_at"], "likes": r.get("likes"), "multiple": r.get("multiple"), "cells": cells})
+                         "published_at": r["published_at"], "likes": r.get("likes"), "multiple": r.get("multiple"), "cells": cells,
+                         "closable": closable})
         run = _bw_snapshot(sheet)
         need = run.pop("need")
         return {"platforms": [{**p, "how": BW_HOW.get(p["key"], ("hand", ""))[0], "how_text": BW_HOW.get(p["key"], ("hand", ""))[1]} for p in cols],
@@ -5248,6 +5278,10 @@ def create_app(
             r["cancelled"] = r["video_id"] in cancelled
             if r["cancelled"]:
                 r["missing"] = []
+            # 10/3 Park：标了「不发」的格子（这一条这个平台以后也不发）不算缺
+            for k in _skipped(r["video_id"], r["topic_id"]) & set(r["missing"]):
+                r["missing"].remove(k)
+                r["done"][k] = "skip"
         topics = {t["id"]: t for t in store.topics(include_archived=True)}
         for r in rows:
             t = topics.get(r["topic_id"]) if r["topic_id"] else None
@@ -5316,6 +5350,28 @@ def create_app(
             raise ValueError("找不到这条抖音视频")
         store.set_backfill_mark(video_id, body.platform, body.done)
         return {"ok": True}
+
+    @app.post("/api/backfill/{video_id}/skip")
+    def skip_backfill(video_id: str, body: BackfillSkipBody) -> dict[str, Any]:
+        """这一条这个平台不发（10/3 Park：从发布页搬到补发工作台）。不算缺，补发不再挑它；点回来就恢复。"""
+        from . import backfill
+
+        if body.platform not in backfill.PLATFORMS:
+            raise ValueError("没有这个平台")
+        if store.video(video_id) is None:
+            raise ValueError("找不到这条抖音视频")
+        if body.skip and (video_id, body.platform) in {(r["video_id"], r["platform"]) for r in store.backfill_plan(date.today().isoformat())}:
+            raise ValueError("今天排了这一格，先在「今天在发的」里点「不发这格」")
+        skips = {k: list(v) for k, v in (store.settings().get("tracker_skip") or {}).items()}
+        current = [p for p in skips.get(video_id, []) if p != body.platform]
+        if body.skip:
+            current.append(body.platform)
+        if current:
+            skips[video_id] = current
+        else:
+            skips.pop(video_id, None)
+        store.update_settings({"tracker_skip": skips})
+        return {"ok": True, "skip": body.skip}
 
     @app.post("/api/backfill/{video_id}/cancel")
     def cancel_backfill(video_id: str, body: BackfillCancelBody) -> dict[str, Any]:

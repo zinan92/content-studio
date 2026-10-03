@@ -41,6 +41,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "tracker_keep": [],
     # 不补发的旧视频（9/30 Park：半年前的实操、没有时效性的，不再往别的平台补）：全平台追踪里划掉，不算旧内容。
     "tracker_cancel": [],
+    # 某条某个平台不发（10/3 Park：补发工作台里标「不发」）：{抖音作品 id: [平台]}。不算缺，补发不挑它。
+    "tracker_skip": {},
     # 各平台主页的名字、简介、链接（profiles.py）：{platform: {name, bio, link, applied: {name, bio, link, at}}}
     "profiles": {},
     # 9/29 Park：KPI 由 Claude 定，Park 照做。出摊和回私信算他的分；触达和收到私信是结果。
