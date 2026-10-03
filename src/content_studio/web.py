@@ -1572,9 +1572,7 @@ def create_app(
             failed = str(exc)[:300] or type(exc).__name__
             store.update_topic(topic_id, write_state="failed", write_error=failed)
         finally:
-            with writing_lock:
-                writing.discard(topic_id)
-            _pack_job_done(topic_id, "article", failed)
+            _pack_job_done(topic_id, "article", failed, slot=topic_id)
 
     @app.post("/api/topics/{topic_id}/polish")
     def start_polish(topic_id: int) -> dict[str, Any]:
@@ -1603,9 +1601,7 @@ def create_app(
                 failed = str(exc)[:300] or type(exc).__name__
                 store.update_topic(topic_id, write_state="failed", write_error=failed)
             finally:
-                with writing_lock:
-                    writing.discard(topic_id)
-                _pack_job_done(topic_id, "article", failed)
+                _pack_job_done(topic_id, "article", failed, slot=topic_id)
 
         threading.Thread(target=run, name=f"polish-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始润色（按付息稿：开头发债、每段付息、最后兑付本金），一般 2–5 分钟"}
@@ -1857,9 +1853,7 @@ def create_app(
                 logger.warning("gzh layout %s failed: %s", topic_id, exc)
                 layout_errors[topic_id] = str(exc)[:300] or type(exc).__name__
             finally:
-                with writing_lock:
-                    writing.discard(50_000 + topic_id)
-                _pack_job_done(topic_id, "wx", layout_errors.get(topic_id))
+                _pack_job_done(topic_id, "wx", layout_errors.get(topic_id), slot=50_000 + topic_id)
 
         threading.Thread(target=run, name=f"layout-{topic_id}", daemon=True).start()
         return {"started": True, "message": f"开始用 gzh 排版（{gzh_layout.THEME}），一般 5–10 分钟"}
@@ -1896,9 +1890,7 @@ def create_app(
                 logger.warning("illustrate %s failed: %s", topic_id, exc)
                 illustrate_errors[topic_id] = str(exc)[:300] or type(exc).__name__
             finally:
-                with writing_lock:
-                    writing.discard(60_000 + topic_id)
-                _pack_job_done(topic_id, "figs", illustrate_errors.get(topic_id))
+                _pack_job_done(topic_id, "figs", illustrate_errors.get(topic_id), slot=60_000 + topic_id)
 
         threading.Thread(target=run, name=f"illustrate-{topic_id}", daemon=True).start()
         return True
@@ -2204,9 +2196,7 @@ def create_app(
                 logger.warning("xhs cards %s failed: %s", topic_id, exc)
                 xhs_errors[topic_id] = str(exc)[:300] or type(exc).__name__
             finally:
-                with writing_lock:
-                    writing.discard(60_000 + topic_id)
-                _pack_job_done(topic_id, "xhs", xhs_errors.get(topic_id))
+                _pack_job_done(topic_id, "xhs", xhs_errors.get(topic_id), slot=60_000 + topic_id)
 
         threading.Thread(target=run, name=f"xhs-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始出小红书图文，十几秒"}
@@ -3231,9 +3221,7 @@ def create_app(
                 logger.warning("cover %s failed: %s", topic_id, exc)
                 cover_errors[topic_id] = str(exc)[:300] or type(exc).__name__
             finally:
-                with writing_lock:
-                    writing.discard(70_000 + topic_id)
-                _pack_job_done(topic_id, "cover", cover_errors.get(topic_id))
+                _pack_job_done(topic_id, "cover", cover_errors.get(topic_id), slot=70_000 + topic_id)
 
         threading.Thread(target=run, name=f"cover-{topic_id}", daemon=True).start()
         return {"started": True, "message": "开始出封面（图像生成），一般 5–10 分钟"}
@@ -3310,16 +3298,28 @@ def create_app(
                     state = pack_auto.mark(folder, key, state="error", error="被中断了两次（服务重启），点重试再来")
         return state
 
-    def _pack_job_done(topic_id: int, key: str, error: str | None) -> None:
-        """打包要的任务做完（不管是自动档起的还是手点的）：记一笔，自动档往下走。"""
+    def _pack_job_done(topic_id: int, key: str, error: str | None, *, slot: int) -> None:
+        """打包要的任务做完（不管是自动档起的还是手点的）：记一笔，放开占位，自动档往下走。
+
+        顺序要紧：先记下做好了 / 失败了，再放开占位（slot，writing 里那个数）。反过来的话，中间那一下
+        自动档看到「记着在做、可线程没了」，当成服务重启打断，重做一遍（10/3 CI 上偶发：失败被记成「被中断了两次」）。"""
         from . import pack_auto
 
+        armed = False
         try:
             folder = drafts_root / f"topic-{topic_id}"
             state = pack_auto.load(folder)
-            if not state.get("armed"):
-                return
-            pack_auto.mark(folder, key, state="error" if error else "made", error=error)
+            armed = bool(state.get("armed"))
+            if armed:
+                pack_auto.mark(folder, key, state="error" if error else "made", error=error)
+        except Exception as exc:  # noqa: BLE001 - 不让收尾把任务本身弄成失败
+            logger.warning("pack mark after %s %s: %s", key, topic_id, exc)
+        finally:
+            with writing_lock:
+                writing.discard(slot)
+        if not armed:
+            return
+        try:
             pack_advance(topic_id)
         except Exception as exc:  # noqa: BLE001 - 不让收尾把任务本身弄成失败
             logger.warning("pack advance after %s %s: %s", key, topic_id, exc)
