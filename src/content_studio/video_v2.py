@@ -103,6 +103,7 @@ def catalog() -> dict[str, Any]:
         c["poster_url"] = f"/api/video-v2/media/gallery/{c['key']}.jpg" if c.pop("poster", None) else None
     for c in cards:
         c["poster_url"] = f"/api/video-v2/media/shotcraft/{c['name']}.jpg" if c.pop("poster", None) else None
+        c["video_url"] = f"/api/video-v2/media/shotcraft/{c['name']}.mp4" if c.pop("video", None) else None
     return {"components": comps, "shotcraft": cards}
 
 
@@ -112,11 +113,12 @@ def media_path(kind: str, file: str) -> Path:
     if kind == "gallery":
         path = home() / "gallery" / file
     elif kind == "shotcraft":
-        name = file.rsplit(".", 1)[0]
-        hit = next((c for c in json.loads(_pv2("shotcraft")) if c["name"] == name and c.get("poster")), None)
+        name, ext = file.rsplit(".", 1)
+        field = "video" if ext == "mp4" else "poster"
+        hit = next((c for c in json.loads(_pv2("shotcraft")) if c["name"] == name and c.get(field)), None)
         if not hit:
-            raise VideoV2Error("没有这张海报")
-        path = Path(hit["poster"])
+            raise VideoV2Error("没有这个预览")
+        path = Path(hit[field])
     else:
         raise VideoV2Error("只有 gallery / shotcraft")
     if not path.is_file():

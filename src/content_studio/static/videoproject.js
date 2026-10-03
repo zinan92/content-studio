@@ -437,12 +437,19 @@ function drawMotionGallery(q) {
       <b>${esc(c.name)}</b><div class="mg-tags"><span>${esc(V2_FORM[c.form] || c.form)}</span><span>努力 ${esc(c.effort)}</span></div>
       <p>${esc(c.use)}</p><small>你可以这样叫：${esc((c.keywords || []).join('、'))}</small>
       ${(c.shotcraft || []).length ? `<small>形态来自 ShotCraft：${esc(c.shotcraft.join('、'))}</small>` : ''}</div>`).join('')}</div>
-    <h3>ShotCraft 全部样式（${cards.length}）<small>想要哪种，点「复制」把名字贴给 AI，让它改编成新组件（动效努力「像专业 AE」那档）</small></h3>
+    <h3>ShotCraft 全部样式（${cards.length}）<small>鼠标放上去播预览；想要哪种，点「复制」把名字贴给 AI，让它改编成新组件（动效努力「像专业 AE」那档）</small></h3>
     ${Object.entries(groups).map(([g, list]) => `<h4>${esc(g)} · ${list.length}</h4><div class="mg-grid sc">${list.map((c) => `<div class="mg-card sc">
-      ${c.poster_url ? `<img src="${esc(c.poster_url)}" alt="" loading="lazy">` : '<div class="mg-ph">没有预览图</div>'}
+      ${c.video_url ? `<video src="${esc(c.video_url)}" poster="${esc(c.poster_url || '')}" muted loop playsinline preload="none" data-hover></video>`
+        : c.poster_url ? `<img src="${esc(c.poster_url)}" alt="" loading="lazy">` : '<div class="mg-ph">没有预览</div>'}
       <b>${esc(c.name)}</b>${(c.adapted_as || []).length ? `<div class="mg-tags"><span class="ok">已改编成 ${esc(c.adapted_as.map((k) => names[k] || k).join('、'))}</span></div>` : ''}
       <p>${esc(c.summary)}</p><small>${esc(c.use)}</small>
       <button type="button" class="btn small" data-copy="${esc(c.name)}">复制</button></div>`).join('')}</div>`).join('')}`;
+  // 157 段一起自动播太重：鼠标放上去才播
+  $$('#motionBody video[data-hover]').forEach((v) => {
+    const card = v.closest('.mg-card');
+    card.onmouseenter = () => { v.play().catch(() => {}); };
+    card.onmouseleave = () => { v.pause(); };
+  });
   $$('#motionBody [data-copy]').forEach((b) => {
     b.onclick = () => {
       const text = `用 ShotCraft 的 ${b.dataset.copy} 改编一个 park-video-v2 组件`;
