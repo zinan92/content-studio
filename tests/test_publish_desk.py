@@ -150,3 +150,31 @@ def test_platforms_come_in_publishing_order_and_next_skips_done_and_skipped() ->
     for r in rows:
         r["shipped"] = True
     assert pd.next_step(rows) is None
+
+
+def test_a_video_out_on_douyin_stays_in_pack_and_publish_until_the_rest_are_sent(client):
+    """10/3 Park：「昨天这条抖音发了，其他地方都没发，但打包中的页面就没了。」
+
+    抖音发出（挂上作品）只是第一个平台。还有开着的平台没发、也没点「发布完毕」，
+    打包和发布默认就还是这条；每个开着的平台都发了或跳过了，或者点了发布完毕，才收起来。
+    """
+    store = client.app.state.store
+    client.put("/api/settings", json={"platform_accounts": {k: {"on": True, "handle": ""} for k in ("channels", "xiaohongshu", "x")}})
+    topic = client.post("/api/topics", json={"title": "抖音刚发"}).json()
+    store.update_topic(topic["id"], published_video_id="7692084992523930880")
+    client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": "douyin", "published": True, "url": "https://www.douyin.com/video/1"})
+    d = client.get("/api/publish/desk").json()
+    assert d["topic"] is not None and d["topic"]["id"] == topic["id"]
+
+    on = [p["key"] for p in d["platforms"] if p["on"] and p["key"] != "douyin"]
+    assert len(on) >= 2
+    for key in on[:-1]:
+        client.put(f"/api/topics/{topic['id']}/platforms", json={"platform": key, "published": True, "url": f"https://example.com/{key}"})
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    store.set_publish_skip(topic["id"], on[-1], skip=True)
+    assert client.get("/api/publish/desk").json()["topic"] is None
+
+    store.set_publish_skip(topic["id"], on[-1], skip=False)
+    assert client.get("/api/publish/desk").json()["topic"]["id"] == topic["id"]
+    client.post(f"/api/topics/{topic['id']}/close")
+    assert client.get("/api/publish/desk").json()["topic"] is None
