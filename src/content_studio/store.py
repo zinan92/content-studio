@@ -210,6 +210,13 @@ CREATE TABLE IF NOT EXISTS reach_entries (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (day, platform)
 );
+-- 日结（10/3 Park：每天收尾把概览冻结存档）：一天一行，存过不改。kind = live / late / rebuilt（dayclose.py）
+CREATE TABLE IF NOT EXISTS day_close (
+    day TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL,
+    frozen_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS shoot_list (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     text TEXT NOT NULL,
@@ -995,6 +1002,25 @@ class StudioStore:
 
     def post_synced_at(self) -> dict[str, str]:
         return {row["platform"]: row["at"] for row in self._rows("SELECT platform, MAX(fetched_at) AS at FROM post_snapshots GROUP BY platform")}
+
+    def day_close(self, day: str) -> dict[str, Any] | None:
+        row = self._row("SELECT day, kind, data, frozen_at FROM day_close WHERE day = ?", (day,))
+        return {**row, "data": json.loads(row["data"])} if row else None
+
+    def day_closes(self, limit: int = 60) -> list[dict[str, Any]]:
+        rows = self._rows("SELECT day, kind, data, frozen_at FROM day_close ORDER BY day DESC LIMIT ?", (limit,))
+        return [{**r, "data": json.loads(r["data"])} for r in rows]
+
+    def add_day_close(self, day: str, kind: str, data: dict[str, Any]) -> bool:
+        """存一天的日结。已经存过就不动（存档不改），返回有没有新存。"""
+        with self.tx() as conn:
+            cur = conn.execute("INSERT OR IGNORE INTO day_close(day, kind, data, frozen_at) VALUES (?, ?, ?, ?)",
+                               (day, kind, json.dumps(data, ensure_ascii=False), now_iso()))
+            return cur.rowcount > 0
+
+    def first_snapshot_at(self) -> str | None:
+        row = self._row("SELECT MIN(at) AS at FROM (SELECT MIN(fetched_at) AS at FROM video_snapshots UNION ALL SELECT MIN(fetched_at) FROM post_snapshots)")
+        return row["at"] if row else None
 
     def reach_entries(self, since_day: str) -> list[dict[str, Any]]:
         return self._rows("SELECT day, platform, views FROM reach_entries WHERE day >= ? ORDER BY day", (since_day,))

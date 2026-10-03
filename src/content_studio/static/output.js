@@ -149,7 +149,8 @@ function reachBlock(r, posts7) {
       <input class="rp-handle" data-rp-handle="${p.key}" value="${esc(p.handle)}" placeholder="账号名" ${p.auto ? 'disabled' : ''}>
       ${p.form_choices && p.form_choices.length ? `<label class="rp-form">发什么 <select data-rp-form="${p.key}">${p.form_choices.map((f) => `<option value="${f.key}" ${f.key === p.form ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}</select></label>` : ''}</div>`).join('');
   return `<section class="ov-kpi">
-      <div class="ov-k main"><span>今天触达 ${q(`今天 ${on.length} 个平台播放的合计。抖音、B 站、YouTube、X 每天自动读，按两次之间的差算；小红书截图读；视频号、公众号手填。`)}</span><b class="num">${fmt(r.today)}</b>
+      <div class="ov-k main"><span>今天到目前为止 ${q(`今天 ${on.length} 个平台播放的合计：从 0 点起（前一天最后一次读数）涨了多少，到最近一次读数为止。每晚 23:55 读最后一次、存日结，下面「往日」能看。小红书每天 9:25 截图读一次；视频号、公众号手填。`)}</span><b class="num">${fmt(r.today)}</b>
+        ${r.today_as_of ? `<small class="ov-asof">截至 ${new Date(r.today_as_of).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })} 的读数</small>` : '<small class="ov-asof">今天还没读过</small>'}
         <small class="${dToday === null ? '' : dToday < 0 ? 'bad' : 'good'}">${dToday === null ? '' : `比 7 天日均 ${fmt(r.avg7)} ${dToday < 0 ? '少' : '多'} ${Math.abs(dToday)}%`}</small></div>
       <div class="ov-k"><span>这一周触达</span><b class="num">${fmt(week)}</b><small class="${dWeek === null ? '' : dWeek < 0 ? 'bad' : 'good'}">${dWeek === null ? (prevGaps ? `上周有 ${prevGaps} 天没同步，不比` : '上周没数据') : `${dWeek < 0 ? '↓' : '↑'} ${Math.abs(dWeek)}% 比上周`}</small></div>
       <div class="ov-k"><span>这一周发了 ${q('最近 7 天发出的抖音视频条数。目标每天一条。')}</span><b class="num">${posts7} 条</b><small class="${posts7 < WEEK_TARGET ? 'bad' : 'good'}">目标 ${WEEK_TARGET} 条</small></div>
@@ -160,6 +161,56 @@ function reachBlock(r, posts7) {
       <div class="ov-plats tiered"><div class="ov-core">${on.filter((p) => p.core).map(tile).join('')}</div><div class="ov-rest">${on.filter((p) => !p.core).map(tile).join('')}</div></div>
       <details class="ov-manage"><summary>管理平台（开关、账号名）</summary><div class="rp-list">${rows}</div></details>
     </section>`;
+}
+
+/* 往日（10/3 Park：每天收尾存一份日结，要能回头看）：每天 23:55 冻结的那一天，存过不改 */
+const PAST = { list: null, at: 0, day: null, snap: null };
+async function loadPast(force) {
+  if (!force && PAST.list && Date.now() - PAST.at < 60000) return PAST.list;
+  PAST.list = await api('/api/day-close?limit=30'); PAST.at = Date.now();
+  return PAST.list;
+}
+
+function pastBlock(list) {
+  if (!list || !list.days.length) return '';
+  const days = list.days.slice(0, 14);
+  const chip = (d) => `<button type="button" class="past-chip ${PAST.day === d.day ? 'on' : ''} ${d.kind}" data-past="${d.day}" title="${esc(d.kind_label)}">
+      <small>${d.day.slice(5).replace('-', '/')}</small><b class="num">${fmt(d.total || 0)}</b></button>`;
+  return `<section class="panel past-panel"><div class="panel-h"><h2>往日 <small>每晚 ${esc(list.close_at)} 存一份日结，存过不改</small></h2></div>
+      <div class="past-chips">${days.map(chip).join('')}</div><div id="pastDetail">${PAST.snap && PAST.snap.day === PAST.day ? pastDetail(PAST.snap) : ''}</div></section>`;
+}
+
+function pastDetail(x) {
+  const r = x.reach || {};
+  const labels = r.labels || {};
+  const plats = Object.entries(r.by_platform || {}).sort((a, b) => b[1] - a[1]);
+  const reads = Object.entries(x.last_reading || {}).filter(([, t]) => t);
+  const late = reads.filter(([, t]) => t < '23:50').map(([k, t]) => `${labels[k] || k} ${t}`);
+  const k = x.kpi || {};
+  const SHIP = { ok: '出摊了', miss: '没出摊', pending: '—', 'n/a': '不算分', future: '—' };
+  return `<div class="past-detail">
+      <div class="past-head"><b>${x.day}</b><span class="past-kind ${x.kind}">${esc(x.kind_label)}</span></div>
+      <div class="past-nums"><div><small>当天触达</small><b class="num">${fmt(r.total || 0)}</b></div><div><small>近 7 天日均</small><b class="num">${fmt(r.avg7 || 0)}</b></div>
+        <div><small>出摊</small><b>${esc(SHIP[k.ship] || '—')}</b>${k.shipped && k.shipped.length ? `<small>${k.shipped.map((t) => `《${esc(t)}》`).join('')}</small>` : k.backfilled ? '<small>补发了当天的格子</small>' : ''}</div>
+        ${k.demerits ? `<div><small>扣分</small><b class="num bad">−${k.demerits}</b></div>` : ''}</div>
+      ${plats.length ? `<div class="past-plats">${plats.map(([key, v]) => `<span>${esc(labels[key] || key)} <b class="num">${fmt(v)}</b>${x.last_reading && x.last_reading[key] ? `<small>最后读数 ${esc(x.last_reading[key])}</small>` : ''}</span>`).join('')}</div>` : '<p class="pk2-muted">那天没有读数。</p>'}
+      ${plats.length && plats.every(([key]) => key === 'douyin') ? '<p class="past-note">那天只有抖音的读数：B 站、X、YouTube、研习室 9/25 起才自动读，不是别的平台没人看。</p>' : ''}
+      ${late.length && x.kind !== 'live' ? `<p class="past-note">那天没有 23:55 的收尾读数，按最后一次读数算：${esc(late.join('、'))}。</p>` : ''}
+      ${x.matrix ? matrixBlock(x.matrix) : '<p class="past-note">这一天没存「每条内容在各平台的累计」：只有当天收尾时存的日结才有。</p>'}
+    </div>`;
+}
+
+function bindPast(body) {
+  $$('[data-past]', body).forEach((b) => (b.onclick = async () => {
+    const day = b.dataset.past;
+    if (PAST.day === day) { PAST.day = null; PAST.snap = null; } else {
+      PAST.day = day;
+      try { PAST.snap = await api(`/api/day-close/${day}`); } catch (err) { toast(err.message); return; }
+    }
+    $$('[data-past]', body).forEach((x) => x.classList.toggle('on', x.dataset.past === PAST.day));
+    const box = $('#pastDetail', body);
+    if (box) { box.innerHTML = PAST.day && PAST.snap ? pastDetail(PAST.snap) : ''; bindTips(box); }
+  }));
 }
 
 function matrixBlock(mx) {
@@ -223,11 +274,11 @@ window.VIEWS.output = {
       body.innerHTML = '<div class="panel empty"><b>还没连上你的抖音号</b><span>去「我的视频」连接后，这里会画出每条视频的数据。</span><button class="btn primary" type="button" onclick="go(\'mine\')">去连接</button></div>';
       return;
     }
-    let review, board, reach, matrix;
-    try { [review, board, reach, matrix] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null, loadReach(false), api('/api/outbox/matrix').catch(() => null)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
+    let review, board, reach, matrix, past;
+    try { [review, board, reach, matrix, past] = await Promise.all([loadReview(false), typeof loadBoard === 'function' ? loadBoard(false) : null, loadReach(false), api('/api/outbox/matrix').catch(() => null), loadPast(false).catch(() => null)]); } catch (err) { body.innerHTML = `<div class="panel empty"><b>${esc(err.message)}</b></div>`; return; }
     syncNote(reach);
     if (document.activeElement && body.contains(document.activeElement) && document.activeElement.matches('input')) return;
-    const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, RE.at, matrix && matrix.rows.map((r) => r.total)]);
+    const sig = JSON.stringify([m.account.last_synced_at, m.videos.length, review.state, review.updated_at, board && board.streak, RE.at, matrix && matrix.rows.map((r) => r.total), past && past.days.length]);
     if (body.dataset.sig === sig) return;
     body.dataset.sig = sig;
 
@@ -247,6 +298,7 @@ window.VIEWS.output = {
       .sort((a, b) => a.t - b.t);
     const last7 = rows.filter((r) => now - r.t < 7 * 86400000);
     body.innerHTML = `${reachBlock(reach, last7.length)}
+      ${pastBlock(past)}
       ${matrixBlock(matrix)}
       ${reviewBlock(review)}
       <section class="panel chart-panel small">
@@ -254,6 +306,7 @@ window.VIEWS.output = {
         <div class="chart-box">${multipleChart(rows)}</div>
       </section>`;
     bindTips(body);
+    bindPast(body);
     bindTeardownButtons(body);
     bindReach(body, body);
     const gen = $('#rvGen');

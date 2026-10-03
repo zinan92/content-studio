@@ -8,7 +8,7 @@ added into the same total.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 # key, label, auto (the workbench pulls the numbers itself), mark (the tile letter), hue.
@@ -61,6 +61,27 @@ PLATFORM_STYLE: dict[str, dict[str, str]] = {
 }
 
 
+def local_day(stamp: Any) -> str:
+    """一次读数（或发布时间）算哪一天：本机时区（北京）的日历日。
+
+    10/3 Park：「概览晚上 12 点就归零，现在到底怎么算的？」——以前拿 UTC 字符串的前 10 位当日期，
+    北京时间早上 8 点才换日：半夜 0–8 点的读数记到前一天，页面上的「今天」（本地日期）又 0 点就换了。
+    没带时区的时间按字面日期。"""
+    text = str(stamp or "")
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text[:10]
+    if moment.tzinfo is None:
+        return moment.date().isoformat()
+    return moment.astimezone().date().isoformat()
+
+
+def utc_bound(day: date) -> str:
+    """本地 day 的 0 点，写成库里读数时间的样子（UTC），给 SQL 的 fetched_at >= ? 用。"""
+    return datetime.combine(day, time.min).astimezone().astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
 def daily_views(snapshots: list[dict[str, Any]], days: int, today: date) -> dict[str, int]:
     """Views gained per day from snapshots (video_id, fetched_at, views).
 
@@ -75,16 +96,16 @@ def daily_views(snapshots: list[dict[str, Any]], days: int, today: date) -> dict
     for row in snapshots:
         if row.get("views") is None:
             continue
-        by_video.setdefault(row["video_id"], []).append((row["fetched_at"][:10], int(row["views"])))
+        by_video.setdefault(row["video_id"], []).append((row["fetched_at"], int(row["views"])))
         if row.get("published_at"):
-            published[row["video_id"]] = str(row["published_at"])[:10]
+            published[row["video_id"]] = local_day(row["published_at"])
     start = today - timedelta(days=days - 1)
     totals = {(start + timedelta(days=i)).isoformat(): 0 for i in range(days)}
     for video_id, rows in by_video.items():
         rows.sort()
         last_day_value: dict[str, int] = {}
-        for day, views in rows:
-            last_day_value[day] = views  # the last snapshot of each day wins
+        for stamp, views in rows:
+            last_day_value[local_day(stamp)] = views  # the last snapshot of each (local) day wins
         previous: int | None = None
         for day in sorted(last_day_value):
             views = last_day_value[day]

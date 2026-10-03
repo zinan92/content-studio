@@ -549,6 +549,7 @@ def create_app(
         if start_worker:
             worker.start()
             threading.Timer(5, _pack_resume_all).start()
+            threading.Thread(target=_day_close_loop, name="day-close", daemon=True).start()
         yield
         stop_auto.set()
         worker.stop()
@@ -1428,15 +1429,30 @@ def create_app(
             "platforms": rows,
         }
 
-    @app.get("/api/reach")
-    def get_reach(days: int = 14) -> dict[str, Any]:
+    def _reach_totals(days: int, today: date) -> tuple[dict[str, dict[str, int]], list[str], dict[str, str], dict[str, dict[str, str]]]:
+        """近 days 天（到 today 为止）每天每个平台涨了多少播放。一天 = 本地（北京）0 点到 24 点。
+
+        返回 (totals, 自动读的平台, 今天读了没有, 每天每个平台最后一次读数的时间)。日结（day_close）和概览用同一份。"""
         from . import reach
 
-        days = min(max(days, 7), 90)
-        today = date.today()
-        since = (today - timedelta(days=days - 1)).isoformat()
+        # 多取一天：窗口第一天也要有「前一天最后一次读数」当基准，不然老视频那天全算 0
+        bound = reach.utc_bound(today - timedelta(days=days))
         me = store.self_account()
-        auto = reach.daily_views(store.account_snapshots(me["id"], since), days, today) if me else {}
+        last_read: dict[str, dict[str, str]] = {}
+
+        def note(key: str, rows: list[dict[str, Any]]) -> set[str]:
+            seen = set()
+            for r in rows:
+                d = reach.local_day(r["fetched_at"])
+                seen.add(d)
+                cur = last_read.setdefault(d, {}).get(key)
+                if cur is None or str(r["fetched_at"]) > cur:
+                    last_read[d][key] = str(r["fetched_at"])
+            return seen
+
+        snaps = store.account_snapshots(me["id"], bound) if me else []
+        auto = reach.daily_views(snaps, days, today) if me else {}
+        note("douyin", snaps)
         totals: dict[str, dict[str, int]] = {(today - timedelta(days=i)).isoformat(): {} for i in range(days)}
         for day_key, views in auto.items():
             if views:
@@ -1446,18 +1462,30 @@ def create_app(
         pulled = [k for k in reach.PLATFORM_KEYS if k != "douyin" and (k in reach.AUTO_KEYS or k in synced)]
         read_state: dict[str, str] = {}
         for key in pulled:
-            rows = store.post_snapshots(key, since)
-            seen = {str(r["fetched_at"])[:10] for r in rows}
+            rows = store.post_snapshots(key, bound)
+            seen = note(key, rows)
             for day_key, views in reach.daily_views(rows, days, today).items():
                 # 那天读过就记下（哪怕涨了 0）；没读过才空着。9/29 以前涨 0 也显示「—」，看着像没读到。
                 if day_key in totals and (views or day_key in seen):
                     totals[day_key][key] = views
             first = min(seen) if seen else None
             read_state[key] = ("baseline" if first == today.isoformat() else "read") if today.isoformat() in seen else "not_read"
+        since = (today - timedelta(days=days - 1)).isoformat()
         for row in store.reach_entries(since):
             # 自动的平台以读到的为准；以前手填的旧数只在还没开始自动读的日子里算。
             if row["day"] in totals and row["platform"] not in totals[row["day"]]:
                 totals[row["day"]][row["platform"]] = int(row["views"])
+        return totals, pulled, read_state, last_read
+
+    @app.get("/api/reach")
+    def get_reach(days: int = 14) -> dict[str, Any]:
+        from . import reach
+
+        days = min(max(days, 7), 90)
+        today = date.today()
+        me = store.self_account()
+        totals, pulled, read_state, last_read = _reach_totals(days, today)
+        synced = store.post_synced_at()
         accounts = store.settings()["platform_accounts"] or {}
         today_key = today.isoformat()
         return {
@@ -1475,7 +1503,127 @@ def create_app(
             ],
             "douyin_synced_at": me["last_synced_at"] if me else None,
             "synced_at": {**synced, **({"douyin": me["last_synced_at"]} if me else {})},
+            # 「今天到目前为止」截至哪一次读数（10/3：今天的数是 0 点以来涨的，到这次读数为止）
+            "today_as_of": max((last_read.get(today_key) or {}).values(), default=None),
         }
+
+    # -- 日结（dayclose.py）：每天 23:55 读一次、冻结那天的概览，存库 + 存文件，以后不改 -------------------
+    day_close_lock = threading.Lock()
+
+    def _freeze_day(day: date, kind: str) -> bool:
+        """冻结 day 那一天。存过的不动。live 才存「各平台累计」（那是此刻的累计，补存的时候已经不是那天的了）。"""
+        from . import dayclose, driver, reach
+        from .paths import config_dir
+
+        key = day.isoformat()
+        with day_close_lock:
+            if store.day_close(key):
+                return False
+            totals, _pulled, _read, last_read = _reach_totals(7, day)
+            summ = reach.summary(totals, day)
+            labels = {k: label for k, label, _ in reach.PLATFORMS}
+            week = _week(driver.week_start(day), day + timedelta(days=1))  # 当天当成已经过完来算分
+            kpi_day = next((d for d in week["days"] if d["day"] == key), None)
+            matrix = None
+            if kind == "live":
+                try:
+                    matrix = outbox_matrix(8)
+                except Exception as exc:  # noqa: BLE001 - 累计表没了，触达照样存
+                    logger.warning("day close matrix %s: %s", key, exc)
+            data = {
+                "day": key, "kind": kind, "kind_label": dayclose.KIND_LABEL[kind],
+                "reach": {"total": summ["today"], "by_platform": totals.get(key, {}), "avg7": summ["avg7"], "pace30": summ["pace30"],
+                          "labels": {k: labels.get(k, k) for k in totals.get(key, {})}},
+                # 每个平台那天最后一次读数几点：没有 23:55 那次，就照实说最后一次是几点
+                "last_reading": {k: dayclose.hhmm(v) for k, v in (last_read.get(key) or {}).items()},
+                "kpi": {k: kpi_day.get(k) for k in ("ship", "rd", "dm", "xr", "shipped", "backfilled", "demerits")} if kpi_day else None,
+                "matrix": matrix,
+            }
+            if not store.add_day_close(key, kind, data):
+                return False
+            try:
+                dayclose.write_file(config_dir(), data)
+            except OSError as exc:
+                logger.warning("day close file %s: %s", key, exc)
+            store.log_event("sync", f"日结存好了：{key} 触达 {summ['today']}（{dayclose.KIND_LABEL[kind]}）")
+            return True
+
+    def _freeze_missing(today: date) -> int:
+        """今天以前没存过的日子都补上：上线前的从原始读数重算，之后错过的算补存。"""
+        from . import dayclose, reach
+
+        first = store.first_snapshot_at()
+        if not first:
+            return 0
+        day, made = date.fromisoformat(reach.local_day(first)), 0
+        while day < today:
+            if not store.day_close(day.isoformat()):
+                made += _freeze_day(day, dayclose.kind_for(day, today))
+            day += timedelta(days=1)
+        return made
+
+    def _close_sync() -> None:
+        """收尾那次读数：自己的号和各平台，不碰对标、不开读数小 App（半夜截 Park 的 Chrome）。和别的同步排队。"""
+        from .cli import sync_everything
+
+        def run() -> dict:
+            if sync_all_fn is not None:
+                return sync_all_fn(store)
+            return sync_everything(store, cookie_path=cookie_path, creator_db=creator_db or Path("/nonexistent"), benchmarks=False)
+
+        deadline = time.monotonic() + 600
+        while not ops.run("all", run):
+            if stop_auto.is_set() or time.monotonic() > deadline:
+                logger.warning("day close: 10 分钟都有别的同步在跑，这次收尾不读了")
+                return
+            stop_auto.wait(15)
+        deadline = time.monotonic() + 1200
+        while ops.full_sync_running and not stop_auto.is_set() and time.monotonic() < deadline:
+            stop_auto.wait(5)
+
+    def _day_close_loop() -> None:
+        from . import dayclose
+
+        while not stop_auto.is_set():
+            try:
+                _freeze_missing(date.today())
+            except Exception as exc:  # noqa: BLE001 - 下一轮再补
+                logger.warning("day close catch-up: %s", exc)
+            run_at, target = dayclose.plan(datetime.now().astimezone())
+            # 一分钟醒一次看钟：Mac 睡着的时候 sleep 不走，醒来要按墙上的钟算
+            while not stop_auto.is_set() and datetime.now().astimezone() < run_at:
+                stop_auto.wait(60)
+            if stop_auto.is_set():
+                return
+            try:
+                if dayclose.on_time(datetime.now().astimezone(), target):
+                    _close_sync()
+                    _freeze_day(target, "live")
+                else:
+                    _freeze_day(target, "late")
+            except Exception as exc:  # noqa: BLE001 - 明天启动时补存
+                logger.warning("day close %s: %s", target, exc)
+
+    @app.get("/api/day-close")
+    def list_day_close(limit: int = 60) -> dict[str, Any]:
+        from . import dayclose
+
+        rows = store.day_closes(min(max(limit, 1), 400))
+        return {"days": [{"day": r["day"], "kind": r["kind"], "kind_label": dayclose.KIND_LABEL.get(r["kind"], r["kind"]),
+                          "total": (r["data"].get("reach") or {}).get("total"), "frozen_at": r["frozen_at"]} for r in rows],
+                "close_at": dayclose.CLOSE_AT.strftime("%H:%M")}
+
+    @app.get("/api/day-close/{day}")
+    def get_day_close(day: str) -> dict[str, Any]:
+        row = store.day_close(parse_day(day).isoformat())
+        if row is None:
+            raise HTTPException(status_code=404, detail="这天没有日结")
+        return {**row["data"], "frozen_at": row["frozen_at"]}
+
+    @app.post("/api/day-close/catch-up")
+    def catch_up_day_close() -> dict[str, Any]:
+        """把今天以前没存的日子补上（启动时也会自己做）。今天还没过完，不能冻结。"""
+        return {"made": _freeze_missing(date.today())}
 
     @app.put("/api/reach")
     def put_reach(body: ReachBody) -> dict[str, Any]:
@@ -5765,6 +5913,7 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.state.store = store
+    app.state.freeze_day = _freeze_day  # 日结：测试和手动补救用（平时由 23:55 的收尾线程调）
     try:
         store.normalize_publish_links()
     except Exception:  # noqa: BLE001 - 换不了就下次再换，不挡启动
