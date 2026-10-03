@@ -109,3 +109,22 @@ def test_youtube_private_upload_is_a_draft_with_its_public_link_ready(monkeypatc
     payload = {"platform": "youtube", "mode": "private", "video": str(tmp_path / "v.mp4"), "title": "t", "body": "b", "tags": [], "cover": ""}
     result = pub.run(payload)
     assert result["published"] is False and result["public_url"] == "https://www.youtube.com/watch?v=vid9"
+
+
+def test_diagnose_says_why_what_to_do_and_which_button() -> None:
+    """10/3 Park：「只给我展示 error 是没有用的」。用那天真实的两条报错。"""
+    yt = ('andle_error_response(response_data, retryable_error)\n  File "/Users/wendy/work/content-ops/.venv/lib/python3.12/site-packages/google/oauth2/_client.py", '
+          'line 73, in _handle_error_response\n    raise exceptions.RefreshError(\ngoogle.auth.exceptions.RefreshError: '
+          "('invalid_grant: Token has been expired or revoked.', {'error': 'invalid_grant'})")
+    d = pub.diagnose("youtube", yt)
+    assert d["fix"] == "login" and d["label"] == "登录 YouTube" and "过期" in d["why"] and "允许" in d["todo"]
+    x = "连不上 X：<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)>"
+    d = pub.diagnose("x", x)
+    assert d["fix"] == "retry" and "网络" in d["why"] and "SSL" not in d["why"]
+    assert pub.diagnose("x", "X 拒绝了这次调用（401）：密钥不对")["fix"] == "setup"
+    assert pub.diagnose("x", "X 说超额了（429），等额度恢复再发")["fix"] == "wait"
+    wx = pub.diagnose("wechat_mp", "errcode=40164 invalid ip 1.2.3.4 ipv6 ::ffff, not in whitelist")
+    assert wx["fix"] == "setup" and "1.2.3.4" in wx["todo"]
+    other = pub.diagnose("bilibili", 'Traceback (most recent call last):\n  File "a.py", line 1\nValueError: 视频太大')
+    assert other["fix"] == "retry" and other["why"] == "ValueError: 视频太大"
+    assert pub.diagnose("bilibili", "账号未登录")["fix"] == "login"

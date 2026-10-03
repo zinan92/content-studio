@@ -9,7 +9,7 @@
 
 const BW = { data: null, picks: [], step: 'pick', preview: null, poll: null, busy: false, focus: null, skipMode: false };
 const BW_HOW = { auto: '自动发', draft: '进草稿箱', hand: '你来传' };
-const BW_STATE = { idle: '还没发出去', stuck: '上次发到一半被打断了', waiting: '排队', running: '正在发…', done: '✓ 发出去了', draft: '进了草稿箱：去后台点发布，发完点「发了」', hand: '文件夹备好了：你传，传完点「发了」', failed: '没发出去' };
+const BW_STATE = { idle: '还没发出去', stuck: '上次发到一半被打断了', waiting: '排队', running: '正在发…', login: '要先登录', done: '✓ 发出去了', draft: '进了草稿箱：去后台点发布，发完点「发了」', hand: '文件夹备好了：你传，传完点「发了」', failed: '没发出去' };
 
 // focus：从全平台追踪点「补发」进来时那一条，打开后滚到它、闪一下（10/1 Park：补发只走这一个窗口，不再先进打包）
 // preselect：从打包页「去发其他平台」进来（10/3 Park：打包好了直接到挑格子）——这一条现在能发的格子按列的顺序先点好，他看一眼、去掉不发的就行
@@ -31,7 +31,8 @@ async function bwLoad() {
   try { BW.data = await api('/api/backfill/desk'); } catch (err) { $('#bwBody').innerHTML = `<p class="td-note warn">${esc(err.message)}</p>`; return; }
   bwDraw();
   clearTimeout(BW.poll);
-  if (BW.data.run.running) BW.poll = setTimeout(() => { if ($('#bwDlg').open && BW.step === 'pick') bwLoad(); }, 3000);
+  const waiting = BW.data.run.items.some((it) => it.login && it.login.state === 'running');
+  if (BW.data.run.running || waiting) BW.poll = setTimeout(() => { if ($('#bwDlg').open && BW.step === 'pick') bwLoad(); }, 3000);
 }
 
 const bwKey = (vid, p) => `${vid}|${p}`;
@@ -48,17 +49,42 @@ function bwCell(r, p) {
   return `<button type="button" class="bw-c open ${i >= 0 ? 'on' : ''}" data-bw-cell="${esc(r.video_id)}" data-p="${p.key}" title="《${esc(r.title)}》发到${esc(p.label)}" aria-pressed="${i >= 0}">${i >= 0 ? i + 1 : '+'}</button>`;
 }
 
+/* 10/3 Park：没发出去时，不是一屏 error——说清为什么、你要做什么，按钮就在这一行：
+   登录（点了弹出平台的登录页，登好了工作台自己检测、自己再发）、再发一次、或者去后台改设置。原文收在「详情」里。 */
+function bwFix(it) {
+  const d = it.diag;
+  if (!d) return { line: '', acts: '' };
+  const lg = it.login || {};
+  let acts = '';
+  if (d.fix === 'login') {
+    acts = lg.state === 'running' ? '<span class="bw-wait"><span class="spin"></span> 等你在弹出的窗口里登录…</span>'
+      : `<button class="btn small go" type="button" data-bw-login="${it.platform}">${esc(d.label)}</button>`;
+  } else if (d.fix === 'setup') {
+    acts = `<a class="btn small" href="${esc(d.link)}" target="_blank" rel="noopener">${esc(d.label)}</a><button class="btn small" type="button" data-bw-now="${esc(it.video_id)}" data-p="${it.platform}">再发一次</button>`;
+  } else {
+    acts = `<button class="btn small go" type="button" data-bw-now="${esc(it.video_id)}" data-p="${it.platform}">再发一次</button>`;
+  }
+  const note = lg.state === 'failed' && d.fix === 'login' ? `<span class="bw-fix-bad">${esc(lg.message)}</span>` : '';
+  const raw = it.message && d.why !== it.message ? `<details class="bw-raw"><summary>详情</summary><pre>${esc(it.message)}</pre></details>` : '';
+  return { line: `<span class="bw-fix"><b>${esc(d.why)}</b><span>${esc(d.todo)}</span>${note}${raw}</span>`, acts };
+}
+
 function bwRunBlock(run) {
   if (!run.items.length) return '';
   const row = (it, i) => {
     const sent = it.sent || it.state === 'done';
     const hand = it.how === 'hand';
+    const fix = !sent && it.diag ? bwFix(it) : null;
     // 还没发出去的（没起过、失败了、或者重启后没了进度）：自动发的能再点一次「现在发」；要他传的给文件夹和上传页
-    const again = !hand && ['idle', 'failed'].includes(it.state) && !run.running ? `<button class="btn small" type="button" data-bw-now="${esc(it.video_id)}" data-p="${it.platform}">${it.state === 'failed' ? '再发一次' : '现在发'}</button>` : '';
-    const tail = sent ? `<span class="bw-ok">✓ 发了</span>${it.marked ? `<button class="linklike" type="button" data-bw-unsent="${esc(it.video_id)}" data-p="${it.platform}" title="审核没过、点错了：这一格回到没发出去">撤回</button>` : ''}` : ['idle', 'stuck', 'hand', 'draft', 'failed'].includes(it.state)
+    const again = !fix && !hand && ['idle', 'failed'].includes(it.state) && !run.running ? `<button class="btn small" type="button" data-bw-now="${esc(it.video_id)}" data-p="${it.platform}">${it.state === 'failed' ? '再发一次' : '现在发'}</button>` : '';
+    const open = sent && it.url ? `<a class="linklike" href="${esc(it.url)}" target="_blank" rel="noopener">打开 ↗</a>` : '';
+    const tail = sent ? `<span class="bw-ok">✓ 发了</span>${open}${it.marked ? `<button class="linklike" type="button" data-bw-unsent="${esc(it.video_id)}" data-p="${it.platform}" title="审核没过、点错了：这一格回到没发出去">撤回</button>` : ''}`
+      : fix ? `${run.running && fix.acts.includes('data-bw-now') ? '' : fix.acts}<button class="linklike" type="button" data-bw-drop="${esc(it.video_id)}" data-p="${it.platform}">不发这格</button>`
+      : ['idle', 'stuck', 'hand', 'draft', 'failed'].includes(it.state)
       ? `${again}${hand ? `<button class="btn small" type="button" data-bw-folder="${it.topic_id}" data-p="${it.platform}">打开上传文件夹</button>` : ''}${it.upload_url ? `<a class="btn small" href="${esc(it.upload_url)}" target="_blank" rel="noopener">去${esc(it.label)}上传 ↗</a>` : ''}<button class="btn small go" type="button" data-bw-sent="${esc(it.video_id)}" data-p="${it.platform}">发了</button>${['idle', 'failed', 'stuck'].includes(it.state) ? `<button class="linklike" type="button" data-bw-drop="${esc(it.video_id)}" data-p="${it.platform}">不发这格</button>` : ''}` : '';
+    const status = fix ? fix.line : `<small>${it.state === 'running' ? '<span class="spin"></span> ' : ''}${sent ? (it.platform === 'bilibili' && it.url ? 'B 站审核通过后链接才打得开' : '') : esc(BW_STATE[it.state] || it.state)}${it.message && !sent ? ` · ${esc(it.message)}` : ''}</small>`;
     return `<div class="bw-run-i ${sent ? 'sent' : it.state}"><span class="bw-n">${i + 1}</span><span class="t"><b>《${esc(it.title)}》→ ${esc(it.label)}</b>
-      <small>${it.state === 'running' ? '<span class="spin"></span> ' : ''}${sent ? '' : esc(BW_STATE[it.state] || it.state)}${it.message && !sent ? ` · ${esc(it.message)}` : ''}</small></span><span class="acts">${tail}</span></div>`;
+      ${status}</span><span class="acts">${tail}</span></div>`;
   };
   return `<section class="bw-run"><h3>今天在发的 ${run.running ? '<small><span class="spin"></span> 一格一格发，前一格发完才发下一格</small>' : ''}</h3>${run.items.map(row).join('')}</section>`;
 }
@@ -148,6 +174,11 @@ function bwDraw() {
   };
   $$('[data-bw-folder]', body).forEach((b) => (b.onclick = async () => {
     try { await api(`/api/topics/${b.dataset.bwFolder}/upload-folder`, { method: 'POST', body: { platform: b.dataset.p, open: true } }); toast('文件夹打开了：视频、封面、文案.txt 都在里面'); } catch (err) { toast(err.message); }
+  }));
+  $$('[data-bw-login]', body).forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/api/platforms/${b.dataset.bwLogin}/login`, { method: 'POST' }); toast('登录窗口打开了：登好了这里会自己检测、自己再发'); } catch (err) { toast(err.message); b.disabled = false; return; }
+    bwLoad();
   }));
   $$('[data-bw-now]', body).forEach((b) => (b.onclick = async () => {
     if (!confirm('这一格现在发出去？')) return;

@@ -18,6 +18,7 @@ import mimetypes
 from pathlib import Path
 import re
 import secrets
+import time
 from typing import Any, Callable
 import urllib.error
 import urllib.request
@@ -131,8 +132,28 @@ def _check_image(path: Path) -> None:
 Send = Callable[[urllib.request.Request], Any]
 
 
+# 10/3：补发时「连不上 X：SSL UNEXPECTED_EOF」，半分钟后再连就好了。urlopen 抛 URLError 是在连接、握手、
+# 把请求送出去的时候——X 还没收到完整请求，重发不会发出两篇。读回应时断的不重试（可能已经发出去了）。
+RETRY_WAITS = (3, 10)
+
+
 def _call(request: urllib.request.Request, send: Send | None) -> dict[str, Any]:
     opener = send or (lambda r: urllib.request.urlopen(r, timeout=60))
+    waits = list(RETRY_WAITS)
+    while True:
+        try:
+            return _call_once(request, opener)
+        except _Retryable as exc:
+            if not waits:
+                raise XError(f"连不上 X：{exc.__cause__}") from exc.__cause__
+            time.sleep(waits.pop(0))
+
+
+class _Retryable(Exception):
+    pass
+
+
+def _call_once(request: urllib.request.Request, opener: Callable[[urllib.request.Request], Any]) -> dict[str, Any]:
     try:
         with opener(request) as response:
             return json.loads(response.read().decode() or "{}")
@@ -145,6 +166,8 @@ def _call(request: urllib.request.Request, send: Send | None) -> dict[str, Any]:
         if exc.code == 429:
             raise XError("X 说超额了（429），等额度恢复再发") from exc
         raise XError(f"X 返回 {exc.code}：{detail}") from exc
+    except urllib.error.URLError as exc:
+        raise _Retryable() from exc
     except OSError as exc:
         raise XError(f"连不上 X：{exc}") from exc
 

@@ -567,3 +567,73 @@ def test_backfill_desk_marks_a_cell_not_sent_and_closes_the_current_video(client
         conn.execute("UPDATE videos SET published_at = ? WHERE video_id = ?", ("2026-01-01T00:00:00+00:00", vid))
     assert client.get("/api/publish/desk").json()["topic"] is None
     assert next(r for r in client.get("/api/backfill/desk").json()["rows"] if r["video_id"] == vid)["closable"] is False
+
+
+def test_a_platform_that_needs_login_is_not_sent_and_resends_itself_after_login(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/3 Park：出了问题要知道怎么解决、我要做什么、在这一页马上就能做，做完自己检测、自己再发。
+
+    发之前先探测：没登上就不发，这一格变成「要登录」，给登录按钮和一句话。点登录跑平台自己的登录命令，
+    退出后真探测一次；登上了，这个平台今天没发出去的格子自动再发一遍。（假的通道，不碰真平台。）"""
+    import json
+    import sys
+    import time
+
+    from content_studio import approvals, channel_probe, web as web_module
+    from tests.test_web import SEC, FakeClient, _wait_sync
+
+    monkeypatch.setenv("CONTENT_STUDIO_HOME", str(tmp_path / "cs-home"))
+    monkeypatch.setenv("CONTENT_STUDIO_HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv(consult.ROOT_ENV, str(tmp_path / "consults"))
+    monkeypatch.setattr(channel_probe, "CACHE_PATH", tmp_path / "probes.json")
+    monkeypatch.setattr(approvals, "status", lambda folder, fps: {k: {"approved": True, "valid": True, "made": True, "by": "park"}
+                                                                   for k in ("copy", "cover", "article", "figs", "wx", "xhs")})
+    flag, sent = tmp_path / "logged-in", tmp_path / "sent.txt"
+    cred = tmp_path / "secrets.yaml"
+    cred.write_text("{}")
+    probe = [sys.executable, "-c", f"import pathlib; print('token_valid' if pathlib.Path({str(flag)!r}).exists() else 'expired')"]
+    login = [sys.executable, "-c", f"import pathlib, time; time.sleep(0.3); pathlib.Path({str(flag)!r}).write_text('1')"]
+    upload = [sys.executable, "-c", f"import json, pathlib; pathlib.Path({str(sent)!r}).write_text('x'); print(json.dumps({{'ok': True, 'url': 'https://x.com/i/1'}}))", "{article}"]
+    specs = {"x": {"label": "X", "copy_key": "x", "credential": cred, "login_hint": "", "no_video": True, "needs_article": True,
+                   "probe": probe, "probe_ok": "token_valid", "login_argv": login,
+                   "modes": {"article_publish": {"label": "发", "argv": upload}}}}
+    cookie = tmp_path / "cookies.json"
+    cookie.write_text(json.dumps({"sessionid": "x"}))
+    cookie.chmod(0o600)
+    monkeypatch.setenv("CONTENT_STUDIO_NO_OPEN", "1")
+    app = web_module.create_app(store_path=tmp_path / "s.sqlite3", cookie_path=cookie, creator_db=None, data_dir=tmp_path / "d",
+                                downloads_dir=tmp_path / "dl", client_factory=FakeClient, start_worker=False, drafts_dir=tmp_path / "drafts",
+                                publishers=specs)
+
+    def settle(c):
+        for _ in range(200):
+            run = c.get("/api/backfill/desk").json()["run"]
+            if not run["running"]:
+                return run
+            time.sleep(0.05)
+        raise AssertionError("还在发")
+
+    with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
+        c.post("/api/accounts", json={"url": f"https://www.douyin.com/user/{SEC}", "is_self": True})
+        _wait_sync(c)
+        vid = c.get("/api/backfill").json()["videos"][0]["video_id"]
+        tid = c.post(f"/api/backfill/{vid}/take").json()["topic_id"]
+        art = tmp_path / "drafts" / f"topic-{tid}" / "article.md"
+        art.parent.mkdir(parents=True, exist_ok=True)
+        art.write_text("# 文章标题\n\n第一段。\n", encoding="utf-8")
+        app.state.store.update_topic(tid, article_path=str(art))
+
+        assert c.post("/api/backfill/desk/go", json={"cells": [{"video_id": vid, "platform": "x"}]}).json() == {"started": 1}
+        item = settle(c)["items"][0]
+        assert item["state"] == "login" and not sent.exists()  # 没登上：没去发
+        assert item["diag"]["fix"] == "login" and item["diag"]["todo"]
+        assert c.post("/api/platforms/douyin/login").status_code == 400  # 没有登录命令的平台
+
+        assert c.post("/api/platforms/x/login").json()["state"] == "running"
+        for _ in range(200):
+            if sent.exists() and not c.get("/api/backfill/desk").json()["run"]["running"]:
+                break
+            time.sleep(0.05)
+        assert c.get("/api/platforms/x/login").json()["state"] == "ok"
+        item = settle(c)["items"][0]
+        assert item["state"] == "done" and item["sent"] and item["url"] == "https://x.com/i/1"  # 登好了自己再发，链接能点
+    app.state.store.close()

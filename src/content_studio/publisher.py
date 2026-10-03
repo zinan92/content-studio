@@ -71,6 +71,8 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "probe": [str(PUBLISH_ROOT / ".venv/bin/python"), str(PUBLISH_ROOT / "sau_cli.py"), "bilibili", "check", "--account", "creator"],
         "probe_ok": "valid",
         "login_hint": f"cd {PUBLISH_ROOT} && ./.venv/bin/python sau_cli.py bilibili login --account creator",
+        "login_argv": [str(PUBLISH_ROOT / ".venv/bin/python"), str(PUBLISH_ROOT / "sau_cli.py"), "bilibili", "login", "--account", "creator"],
+        "login_cwd": str(PUBLISH_ROOT),
         "modes": {
             "upload": {"label": "投稿（B 站审核后公开）", "argv": ["python3", str(CONTENT_OPS / "scripts/bilibili_web_upload.py"), "--headless", "upload", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}", "--cover", "{cover}"]},
         },
@@ -130,6 +132,8 @@ PUBLISHERS: dict[str, dict[str, Any]] = {
         "probe": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "check"],
         "probe_ok": "token_valid",
         "login_hint": f"python3 {CONTENT_OPS}/scripts/youtube_channel.py auth",
+        # 10/3：工作台里点「登录 YouTube」直接跑它——弹出浏览器选频道、点允许，token 写好就退出
+        "login_argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "auth"],
         "modes": {
             "private": {"label": "上传为私享（自己先看）", "argv": ["python3", str(CONTENT_OPS / "scripts/youtube_channel.py"), "upload-private", "--video", "{video}", "--title", "{title}", "--description", "{body}", "--tags", "{tags}"]},
             # 9/29 YouTube 降权：补发时直接公开，不占 Park 的时间
@@ -392,6 +396,58 @@ def confirm_url(platform: str, result: dict[str, Any]) -> str | None:
     if platform == "youtube" and result.get("video_id"):
         return f"https://studio.youtube.com/video/{result['video_id']}/edit"
     return CONFIRM_PAGES.get(platform) or result_url(result)
+
+
+# 10/3 Park：「只给我展示 error 是没有用的」——出了问题要说清：为什么、我要做什么、在这一页就能做，做完自己检测、自己再发。
+# fix：login = 页面上给「登录 X」按钮（跑 login_argv），retry = 「再发一次」，setup = 去后台改设置的链接，wait = 等。
+LOGIN_LABEL = {"youtube": "登录 YouTube", "bilibili": "登录 B 站"}
+NETWORK_HINTS = ("连不上", "urlopen error", "SSL", "timed out", "Connection reset", "Connection refused", "Temporary failure in name resolution",
+                 "Network is unreachable", "RemoteDisconnected", "EOF occurred")
+
+
+LOGIN_FIX = {
+    "youtube": ("YouTube 的登录过期了（Google 隔几天就要重新授权一次）。", "点「登录 YouTube」，在弹出的网页里选你的频道、点「允许」。登好了这里会自己再发一次。"),
+    "bilibili": ("B 站的登录失效了。", "点「登录 B 站」，在弹出的窗口里用 B 站 App 扫码。登好了这里会自己再发一次。"),
+}
+
+
+def login_fix(platform: str) -> dict[str, Any]:
+    """发之前一查就知道要重新登录（还没发）、或者发的时候报了登录过期：都是这一句。"""
+    why, todo = LOGIN_FIX.get(platform, (f"{platform} 要重新登录。", "点登录按钮，登好了这里会自己再发一次。"))
+    return {"fix": "login", "label": LOGIN_LABEL.get(platform, "登录"), "link": None, "why": why, "todo": todo}
+
+
+def _last_line(message: str) -> str:
+    """Python 报错时，有用的是最后一行异常；别把整段 traceback 摆给他看。"""
+    lines = [x.strip() for x in str(message or "").splitlines() if x.strip() and not x.strip().startswith(("File \"", "Traceback", "^", "~"))]
+    return (lines[-1] if lines else "")[:200]
+
+
+def diagnose(platform: str, message: str) -> dict[str, Any]:
+    """一格没发出去：{why 为什么, todo 你要做什么, fix login/retry/setup/wait, label 按钮字, link 要打开的页面}。"""
+    text = str(message or "")
+    low = text.lower()
+    label = (PUBLISHERS.get(platform) or {}).get("label", platform)
+    if platform == "youtube" and any(k in low for k in ("invalid_grant", "refresherror", "needs_reauth", "token has been expired", "token_missing", "未授权")):
+        return login_fix("youtube")
+    if platform == "bilibili" and any(k in low for k in ("login", "登录", "cookie", "-101", "账号未登录")):
+        return login_fix("bilibili")
+    if "429" in text or "超额" in text:
+        return {"fix": "wait", "label": "再发一次", "link": None, "why": f"{label} 说今天发得太多了（额度用完）。", "todo": "不用做什么，明天再点「再发一次」。"}
+    if platform == "x" and ("401" in text or "403" in text):
+        return {"fix": "setup", "label": "去 X 开发者后台 ↗", "link": "https://developer.x.com/en/portal/dashboard",
+                "why": "X 不认这把钥匙：应用权限不是 Read and Write，或者账号的 Premium 过期了。",
+                "todo": "在 X 开发者后台把应用权限改成 Read and Write、重新生成 Access Token，填进 ~/.config/park/secrets.yaml 的 x: 段，回来点「再发一次」。"}
+    if platform == "wechat_mp" and ("40164" in text or "ip" in low and "white" in low or "白名单" in text):
+        ip = re.search(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b", text)
+        return {"fix": "setup", "label": "去公众号后台 ↗", "link": "https://mp.weixin.qq.com/",
+                "why": "公众号不认这台机器的网络地址（IP 白名单）。",
+                "todo": f"公众号后台 → 设置与开发 → 基本配置 → IP 白名单，加上 {ip.group(1) if ip else '这台机器现在的 IP'}，回来点「再发一次」。"}
+    if any(k in text for k in NETWORK_HINTS):
+        return {"fix": "retry", "label": "再发一次", "link": None,
+                "why": f"网络断了一下，没连上 {label}（不是你的问题，已经自动重试过）。", "todo": "点「再发一次」。"}
+    return {"fix": "retry", "label": "再发一次", "link": None,
+            "why": _last_line(text) or "没发出去，也没说为什么。", "todo": "点「再发一次」。还不行就点开详情，把它发给 Claude。"}
 
 
 STATUS_TEXT = {
