@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from content_studio import reach
 
 
@@ -28,3 +30,29 @@ def test_summary_adds_platforms_and_projects_the_pace() -> None:
     assert [d["total"] for d in s["days"]] == [500, 50]
     assert s["today"] == 50 and s["avg7"] == 275 and s["pace30"] == 275 * 30
     assert reach.PLATFORMS[0] == ("douyin", "抖音", True) and "xiaoyuzhou" in reach.PLATFORM_KEYS
+
+
+@pytest.fixture
+def beijing(monkeypatch: pytest.MonkeyPatch):
+    """钉在北京时间：CI 跑在 UTC 上，新旧两种分天法在 UTC 里一模一样，不钉住测不出来。"""
+    import time
+
+    monkeypatch.setenv("TZ", "Asia/Shanghai")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_a_reading_after_local_midnight_counts_for_the_new_day(beijing) -> None:
+    """10/3 Park：「概览晚上 12 点就归零」。一天是北京时间 0 点到 24 点：
+    凌晨 1 点（UTC 前一天 17 点）的读数算新的一天，不再记到前一天。"""
+    rows = [
+        {"video_id": "v", "fetched_at": "2026-10-01T15:00:00+00:00", "views": 100, "published_at": "2026-09-01T00:00:00+00:00"},  # 10/1 23:00
+        {"video_id": "v", "fetched_at": "2026-10-02T17:00:00+00:00", "views": 150, "published_at": "2026-09-01T00:00:00+00:00"},  # 10/3 01:00
+    ]
+    out = reach.daily_views(rows, 3, date(2026, 10, 3))
+    assert out == {"2026-10-01": 0, "2026-10-02": 0, "2026-10-03": 50}
+    assert reach.local_day("2026-10-02T17:00:00+00:00") == "2026-10-03"
+    assert reach.local_day("2026-10-02T09:30:00") == "2026-10-02"  # 没带时区：按字面
+    assert reach.utc_bound(date(2026, 10, 3)) == "2026-10-02T16:00:00+00:00"

@@ -4,6 +4,14 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-10-03 — 日结：每晚 23:55 读一次、冻结当天的概览；一天改成北京时间 0 点到 24 点
+
+- **面对什么:** Park：「每天 at the end of the day, take a snapshot and save it somewhere……需要留档」，又问「概览晚上 12 点就归零，现在到底怎么算的？」。查下来：只存了每条内容的原始读数，概览每次现算，那一天概览长什么样没有任何冻结记录；而且读数按 UTC 日期归日（北京早上 8 点才换日），页面「今天」按本地日期 0 点换——0–8 点显示 0，半夜的读数记到前一天，每天在哪切由他哪次打开工作台决定。
+- **定了什么:** 一天 = 本机时区（北京）0 点到 24 点：`reach.local_day` 归日，SQL 下界用 `reach.utc_bound`（多取一天当基准）；`/api/reach` 的总数抽成 `_reach_totals`，加 `today_as_of`，概览写「今天到目前为止 · 截至 HH:MM」。工作台里一个线程：23:55 读一次（`sync_everything(benchmarks=False)`，走 `ops` 排队，不开读数小 App），读完 `_freeze_day(live)`；收哪天在排的时候就定（`dayclose.plan`），醒来过了半夜就不读、补存（late）。启动和每轮先补没存的日子：10/3 以前 rebuilt，之后 late。存 `day_close` 表 + `~/.config/content-studio/day-close/日期.json`，存过不改；只有 live 存「每条内容在各平台的累计」。概览加「往日」：最近 14 天，点开看当天触达、各平台、最后一次读数几点、出摊和扣分、（live 才有的）各平台累计。自动部署加 23:50–00:05 不重启（脚本在仓库外，改的本机那份，`docs/operations.md` 同步）。
+- **为什么:** 当天收尾时的样子事后还原不了（累计数还在涨），只能当天存；分天规则必须和「今天」一致，柱子才可比。Park 选了 23:55 自然日，代价是抖音每天多读一次（他晚上打开工作台本来就会读）。
+- **怎么验证:** `tests/test_reach.py::test_a_reading_after_local_midnight_counts_for_the_new_day`（钉北京时区；旧代码下失败）；`tests/test_dayclose.py`（排程、补存只存一次不改、文件、live 带各平台累计和出摊）。复制的库上补存 19 天（9/14–10/2），重算后只有 9/24、9/25、9/28、9/29、9/30 变了（半夜那几次读数挪到第二天，总量不变，9/29 −3,930、9/30 +4,308）。
+- **踩了什么坑:** CI 跑在 UTC，新旧两种分天在 UTC 里一模一样，测试不钉时区测不出来。补存时的「各平台累计」是补存那一刻的，存成那天的就是错的——只给 live。小红书只有 9:25 一次读数，它的「一天」实际是早上到早上，日结里写了最后读数几点。avg7 含今天没过完的部分，所以白天看到的日均和当晚冻结的会差一点。
+
 ## 2026-10-03 — 动效图鉴里 ShotCraft 的卡也能播预览：来自 Park 的私有快照、本机重渲
 
 - **面对什么:** Park 问 video-shotcraft 有没有锁定版本、能不能继续用 9 月 7 日那版的全部功能。查下来：原仓库和图鉴网站都 404，本机 `~/.agents/skills/video-shotcraft` 是唯一一份、没锁版本（「更新全部 skill」会覆盖），预览视频当初就没在本机。
