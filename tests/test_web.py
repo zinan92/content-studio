@@ -1721,3 +1721,34 @@ def test_pack_go_gives_every_video_platform_the_content_tags_from_the_title_run(
     assert platforms["douyin"]["tags"] == ["青年创作者成长计划", "自媒体变现", "咨询", "个人IP"]
     assert platforms["channels"]["tags"] == ["自媒体变现", "咨询", "个人IP"]
     assert platforms["xiaohongshu"]["tags"] == ["自媒体变现", "咨询", "个人IP"]
+
+
+def test_polish_rewrites_the_article_in_the_background_and_says_so_when_there_is_none(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/2 Park：「润色」按付息稿的逻辑把 X 图文重跑一遍。没有文章先说；有文章在后台润色，期间算「在写」。"""
+    import time
+
+    from content_studio import coupon
+
+    tid = client.post("/api/topics", json={"title": "客户咨询1", "formats": "video"}).json()["id"]
+    assert client.post(f"/api/topics/{tid}/polish").status_code == 400
+    article = tmp_path / "article.md"
+    article.write_text("# 原文\n\n散的。\n", encoding="utf-8")
+    client.app.state.store.update_topic(tid, article_path=str(article))
+    seen = []
+
+    def polish(path: Path, **kw) -> dict:
+        seen.append(path)
+        time.sleep(0.1)
+        path.write_text("# 原文\n\n读完你会知道……\n", encoding="utf-8")
+        return {"path": str(path), "backup": str(path) + ".bak"}
+
+    monkeypatch.setattr(coupon, "polish_article", polish)
+    started = client.post(f"/api/topics/{tid}/polish").json()
+    assert started["started"] is True and "付息稿" in started["message"]
+    assert client.post(f"/api/topics/{tid}/polish").json()["started"] is False  # 正在润色，不再起一个
+    for _ in range(60):
+        if client.app.state.store.topic(tid).get("write_state") is None and seen:
+            break
+        time.sleep(0.05)
+    assert seen == [article] and "读完你会知道" in article.read_text(encoding="utf-8")
+    assert client.app.state.store.topic(tid)["write_state"] is None

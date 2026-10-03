@@ -2248,3 +2248,5 @@ button.bw-c.blocked{cursor:pointer}
 .pk2-fold>summary small{font-weight:400;color:var(--ink-3);font-size:12.5px}
 .pk2-fold[open]>summary{border-bottom:1px solid var(--line-soft);margin-bottom:12px}
 @media (max-width:640px){.pk2-step small,.pk2-title-show,.pk2-detail{padding-left:0}.pk2-cand{flex-direction:column;gap:2px}.pk2-cand small{white-space:normal}}
+.pk2-polish{display:flex;align-items:center;gap:12px;padding:10px 12px;margin:0 0 12px;background:var(--sunk);border-radius:9px}
+.pk2-polish small{color:var(--ink-3);font-size:12.5px;line-height:1.5}

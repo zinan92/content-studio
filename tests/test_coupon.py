@@ -85,3 +85,34 @@ def test_the_coupon_tab_is_actually_shown_on_the_video_page() -> None:
     order = re.search(r"const TAB_ORDER = \[([^\]]*)\]", js).group(1)
     assert "'coupon'" in order and order.index("'outline'") < order.index("'coupon'") < order.index("'edit'")
     assert "key: 'coupon'" in js
+
+
+ARTICLE = "# 6000 粉丝也能接咨询\n\n第一段，散的。\n\n![问卷](illustrations/01-q.png)\n\n第二段讲收费 1k 到 2k。\n"
+
+
+def _polished(body: str) -> str:
+    return f"<<<ARTICLE>>>\n{body}\n<<<END>>>"
+
+
+def test_polish_keeps_every_image_line_and_does_not_shrink_to_nothing() -> None:
+    """10/2 Park：润色按付息稿的逻辑重排口述文字；插图行一行不少、一字不改。"""
+    good = "# 6000 粉丝也能接咨询\n\n读完你会知道怎么用问卷筛客户。第一段，散的。\n\n![问卷](illustrations/01-q.png)\n\n第二段讲收费 1k 到 2k。"
+    assert coupon.check_polish(ARTICLE, _polished(good)).startswith("# 6000")
+    with pytest.raises(WriterError, match="图片行"):
+        coupon.check_polish(ARTICLE, _polished(good.replace("![问卷](illustrations/01-q.png)", "")))
+    with pytest.raises(WriterError, match="图片行"):
+        coupon.check_polish(ARTICLE, _polished(good.replace("![问卷]", "![问卷图]")))
+    with pytest.raises(WriterError, match="一半"):
+        coupon.check_polish(ARTICLE, _polished("# 6000\n\n![问卷](illustrations/01-q.png)"))
+
+
+def test_polish_article_backs_up_the_original_then_rewrites(tmp_path: Path) -> None:
+    (tmp_path / "wf").mkdir()
+    (tmp_path / "wf" / coupon.FRAMEWORK_FILE).write_text("开头发债，每 10 秒付息，最后兑付本金。", encoding="utf-8")
+    path = tmp_path / "article.md"
+    path.write_text(ARTICLE, encoding="utf-8")
+    prompts = []
+    new = "# 6000 粉丝也能接咨询\n\n读完你会知道怎么筛客户。第一段，散的。\n\n![问卷](illustrations/01-q.png)\n\n第二段讲收费 1k 到 2k。"
+    r = coupon.polish_article(path, write_fn=lambda p: prompts.append(p) or _polished(new), workflows=tmp_path / "wf")
+    assert path.read_text(encoding="utf-8").startswith("# 6000 粉丝也能接咨询\n\n读完你会知道") and Path(r["backup"]).read_text(encoding="utf-8") == ARTICLE
+    assert "付息" in prompts[0] and "不新增" in prompts[0] and ARTICLE.strip() in prompts[0]

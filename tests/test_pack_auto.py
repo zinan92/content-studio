@@ -76,3 +76,13 @@ def test_view_says_what_is_happening_for_each_step() -> None:
     assert rows["cover"]["state"] == "done" and rows["article"]["state"] == "running"
     assert rows["figs"]["state"] == "error" and rows["figs"]["note"] == "Codex 超时"
     assert rows["wx"]["state"] == "waiting"
+
+
+def test_a_locked_step_being_redone_shows_as_running_and_a_failed_redo_is_said() -> None:
+    """文章定稿了又在润色：显示在做（页面才会接着刷新）；润色没成：仍然算好了，但说一句。"""
+    locked = ap(copy="locked", cover="locked", article="locked")
+    rows = {r["key"]: r for r in pack_auto.view(ARMED, locked, {"article"}, xhs=False)}
+    assert rows["article"]["state"] == "running"
+    failed = {**ARMED, "steps": {"article": {"state": "error", "error": "图片行要原样保留"}}}
+    rows = {r["key"]: r for r in pack_auto.view(failed, locked, set(), xhs=False)}
+    assert rows["article"]["state"] == "done" and "图片行要原样保留" in rows["article"]["note"]

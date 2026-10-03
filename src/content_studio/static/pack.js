@@ -215,8 +215,19 @@ function renderDetail(key, box) {
       : '<p class="pk2-muted">还没出好。</p>';
   } else if (key === 'article') {
     const tab = (window.VIDEO_TABS || []).find((x) => x.key === 'article');
-    if (tab) tab.render(t, box);
-    else box.innerHTML = '<p class="pk2-muted">文章在「加工中」里。</p>';
+    if (!tab) { box.innerHTML = '<p class="pk2-muted">文章在「加工中」里。</p>'; return; }
+    Promise.resolve(tab.render(t, box)).then(() => {
+      if (!d.has_article || !document.body.contains(box)) return;
+      // 10/2 Park：口述整理出来的文字可能散了，「润色」按付息稿的逻辑（发债 → 付息 → 兑付本金）重新跑一遍
+      box.insertAdjacentHTML('afterbegin', `<div class="pk2-polish"><button class="btn small" type="button" id="pkPolish">润色</button>
+        <small>按付息稿的逻辑重新整理：开头说清读完能拿到什么，每段都给点东西，结尾兑现。只改表达，不加新事实；插图跟着段落走；原文会先备份。</small></div>`);
+      $('#pkPolish', box).onclick = async () => {
+        const b = $('#pkPolish', box); b.disabled = true;
+        try { toast((await api(`/api/topics/${id}/polish`, { method: 'POST' })).message); } catch (err) { toast(err.message); b.disabled = false; return; }
+        const row = box.closest('.pk2-row'); if (row) { row.open = false; PK.open.delete('article'); }
+        schedule(1500);
+      };
+    });
   } else if (key === 'figs') {
     box.innerHTML = '<div id="pdlFigs"></div><div id="pdlEvid" class="ev"></div>';
     renderFigs(box, id); renderEvidence(box, id);
