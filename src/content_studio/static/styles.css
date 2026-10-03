@@ -2242,6 +2242,7 @@ button.bw-c.blocked{cursor:pointer}
 .pk2-covers{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .pk2-covers a{display:flex;flex-direction:column;gap:4px;text-decoration:none;color:var(--ink-3);font-size:12px}
 .pk2-covers img{height:200px;width:auto;border-radius:8px;border:1px solid var(--line)}
+.pk2-covers.old img{opacity:.45;filter:grayscale(.6)}
 .pk2-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:6px 2px}
 .pk2-fold{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 20px}
 .pk2-fold>summary{padding:13px 0;cursor:pointer;font-weight:600;display:flex;gap:10px;align-items:baseline}

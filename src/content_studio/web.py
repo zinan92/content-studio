@@ -3310,8 +3310,7 @@ def create_app(
                 from . import cover
 
                 _t, base, _v = _cover_target(topic_id)
-                pr = cover.progress(base)
-                detail["cover"] = f"出图中 · 竖版、横版好了 {pr['done']}/{pr['total']}"
+                detail["cover"] = cover.progress_note(cover.progress(base))
             except Exception:  # noqa: BLE001 - 进度只是一句话
                 detail["cover"] = "出图中"
         if "article" in running:
