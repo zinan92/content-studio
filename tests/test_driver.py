@@ -703,11 +703,18 @@ def test_login_resends_what_failed_before_a_restart(tmp_path, monkeypatch: pytes
     with TestClient(app, headers={"X-Content-Studio": "1"}) as c:
         item = c.get("/api/backfill/desk").json()["run"]["items"][0]
         assert item["state"] == "failed" and "invalid_grant" in item["message"]
+        assert item["diag"]["fix"] == "login"  # 发之前那次探测比失败早：还是要登录
+        # 登录后探测过（比失败晚）、自动再发没起来——比如又重启了：这一行给「再发一次」，不是再登一次
+        probes = tmp_path / "cs-home" / "channel-probes.json"
+        probes.parent.mkdir(parents=True, exist_ok=True)
+        probes.write_text(json.dumps({"x": {"ok": True, "checked_at": "2999-01-01T00:00:00+00:00"}}))
+        assert c.get("/api/backfill/desk").json()["run"]["items"][0]["diag"]["fix"] == "retry"
+
         c.post("/api/platforms/x/login")
         for _ in range(200):
             if sent.exists() and not c.get("/api/backfill/desk").json()["run"]["running"]:
                 break
             time.sleep(0.05)
         item = settle(c)["items"][0]
-        assert item["sent"] and item["url"] == "https://x.com/i/2"
+        assert item["sent"] and item["url"] == "https://x.com/i/2"  # 重启前失败的那格，登好了照样自己再发
     app.state.store.close()
