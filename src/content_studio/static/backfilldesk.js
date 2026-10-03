@@ -10,11 +10,19 @@ const BW_HOW = { auto: '自动发', draft: '进草稿箱', hand: '你来传' };
 const BW_STATE = { idle: '还没发出去', stuck: '上次发到一半被打断了', waiting: '排队', running: '正在发…', done: '✓ 发出去了', draft: '进了草稿箱：去后台点发布，发完点「发了」', hand: '文件夹备好了：你传，传完点「发了」', failed: '没发出去' };
 
 // focus：从全平台追踪点「补发」进来时那一条，打开后滚到它、闪一下（10/1 Park：补发只走这一个窗口，不再先进打包）
-window.openBackfillDesk = async (focus) => {
+// preselect：从打包页「去发其他平台」进来（10/3 Park：打包好了直接到挑格子）——这一条现在能发的格子按列的顺序先点好，他看一眼、去掉不发的就行
+window.openBackfillDesk = async (focus, opts) => {
   BW.picks = []; BW.step = 'pick'; BW.preview = null; BW.focus = focus || null;
   $('#bwBody').innerHTML = '<p class="td-note"><span class="spin"></span> 读全平台追踪…</p>';
   $('#bwDlg').showModal();
   await bwLoad();
+  if (opts && opts.preselect && BW.data && focus) {
+    const row = BW.data.rows.find((r) => r.video_id === focus);
+    if (row) {
+      BW.picks = BW.data.platforms.filter((p) => (row.cells[p.key] || {}).state === 'open').map((p) => ({ video_id: focus, platform: p.key }));
+      bwDraw();
+    }
+  }
 };
 
 async function bwLoad() {
@@ -153,6 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTimeout(BW.poll);
     const tb = $('#todayBody');
     if (tb) tb.dataset.sig = '';
-    if (typeof S !== 'undefined' && ['today', 'backfill'].includes(S.view)) renderView();
+    if (typeof S !== 'undefined' && S.view === 'pack' && window.invalidatePack) window.invalidatePack();
+    if (typeof S !== 'undefined' && ['today', 'backfill', 'pack'].includes(S.view)) renderView();
   });
 });
