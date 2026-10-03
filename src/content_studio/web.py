@@ -157,6 +157,11 @@ class V2StartBody(BaseModel):
     job: str
 
 
+class V2SettingsBody(BaseModel):
+    values: dict[str, Any]
+    scope: str = "project"  # project：只改这条视频；default：设为 Park 以后的默认
+
+
 class AdoptBody(BaseModel):
     path: str
 
@@ -3035,6 +3040,36 @@ def create_app(
         topic, path = v2_project(topic_id)
         message = video_v2.start(path, body.job)
         return {"message": message, "project": video_project.inspect(video_root(), topic["video_project"])}
+
+    @app.get("/api/topics/{topic_id}/video-project/v2/settings")
+    def v2_settings(topic_id: int) -> dict[str, Any]:
+        from . import video_v2
+
+        _topic, path = v2_project(topic_id)
+        return video_v2.settings(path)
+
+    @app.post("/api/topics/{topic_id}/video-project/v2/settings")
+    def save_v2_settings(topic_id: int, body: V2SettingsBody) -> dict[str, Any]:
+        from . import video_v2
+
+        _topic, path = v2_project(topic_id)
+        if body.scope not in ("project", "default"):
+            raise ValueError("scope 只能是 project（这条视频）或 default（以后的默认）")
+        result = video_v2.save_settings(path if body.scope == "project" else None, body.values)
+        return {"result": result, "settings": video_v2.settings(path)}
+
+    @app.get("/api/video-v2/catalog")
+    def v2_catalog() -> dict[str, Any]:
+        from . import video_v2
+
+        return video_v2.catalog()
+
+    @app.get("/api/video-v2/media/{kind}/{file}")
+    def v2_media(kind: str, file: str) -> FileResponse:
+        from . import video_v2
+
+        path = video_v2.media_path(kind, file)
+        return FileResponse(path, media_type="video/mp4" if file.endswith(".mp4") else "image/jpeg")
 
     # -- one-click publishing (Park confirms every job) --------------------
 

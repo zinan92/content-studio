@@ -248,9 +248,10 @@ function renderV2(topic, info, el) {
   }
   el.innerHTML = `<div class="vp" data-topic="${topic.id}">
     <div class="vp-head"><div><b>${esc(info.name)}</b><small>${esc(info.path)}</small></div>
-      <div class="acts"><button class="btn small" type="button" id="vpRefresh">刷新</button><button class="btn small ghost" type="button" id="vpUnlink">取消关联</button></div></div>
+      <div class="acts"><button class="btn small" type="button" id="v2Gallery">动效图鉴</button><button class="btn small" type="button" id="vpRefresh">刷新</button><button class="btn small ghost" type="button" id="vpUnlink">取消关联</button></div></div>
     <ol class="vp-v2-steps">${info.stages.map((s) => `<li class="${s.state}">${esc(s.label)}</li>`).join('')}</ol>
     ${now}
+    <details class="v2s" id="v2Set"${(VP.set[topic.id] || {}).open ? ' open' : ''}><summary><b>动效设置</b><small>密度、动效努力、卡片样子……全部来自 park-video-v2</small></summary><div id="v2SetBody"></div></details>
   </div>`;
   const out = $('#v2Out', el);
   twoStep($('#v2Approve', el), out, async () => {
@@ -266,8 +267,188 @@ function renderV2(topic, info, el) {
   });
   $('#vpRefresh', el).onclick = () => { delete VP.cache[topic.id]; $('#videoBody').dataset.sig = ''; renderView(); };
   $('#vpUnlink', el).onclick = async () => { try { await api(`/api/topics/${topic.id}/video-project`, { method: 'PUT', body: { name: null } }); toast('已取消关联'); await refreshVideoTab(); } catch (err) { toast(err.message); } };
+  $('#v2Gallery', el).onclick = () => openMotionGallery();
+  const setBox = $('#v2Set', el);
+  const setState = VP.set[topic.id] || (VP.set[topic.id] = { draft: {} });
+  if (setState.open) loadV2Settings(topic, $('#v2SetBody', el));
+  setBox.ontoggle = () => { setState.open = setBox.open; if (setBox.open) loadV2Settings(topic, $('#v2SetBody', el)); };
   const cmd = $('#vpCmd', el);
   if (cmd) cmd.onclick = () => navigator.clipboard.writeText(info.continue_command).then(() => toast('已复制，贴到 Claude 或 Codex'), () => toast(info.continue_command));
+}
+
+/* 动效设置：有哪些设置、每档是什么、现在取什么值，全部来自 pv2.py settings——工作台不写死任何视频设置。
+   滑杆从低到高，没做的档位灰着、拖过去会弹回；改完点「只改这条视频」或「设为以后的默认」，结果留在按钮下面。
+   渲染中页面每几秒重画，没保存的改动存在 VP.set[topic].draft 里，不会丢。 */
+VP.set = VP.set || {};
+const V2_SRC = { project: '这条视频', user: '你的默认', repo: '仓库默认' };
+const V2_FORM = { text: '文字', number: '数字', chart: '图表', diagram: '示意图', icon: '图标' };
+
+async function loadV2Settings(topic, box, force) {
+  const st = VP.set[topic.id] || (VP.set[topic.id] = { draft: {} });
+  if (!box) return;
+  if (!st.data || force) {
+    box.innerHTML = '<p class="v2s-now">读取设置…</p>';
+    try { st.data = await api(`/api/topics/${topic.id}/video-project/v2/settings`); } catch (err) {
+      box.innerHTML = `<p class="vp-v2-out bad">读不到设置：${esc(err.message)}</p>`;
+      return;
+    }
+  }
+  drawV2Settings(topic, box);
+}
+
+function drawV2Settings(topic, box) {
+  const st = VP.set[topic.id];
+  const d = st.data;
+  const sc = d.schema;
+  const val = (k) => (k in st.draft ? st.draft[k] : d.values[k]);
+  const src = (k) => (k in st.draft ? '<span class="v2s-src edit">改了还没保存</span>' : `<span class="v2s-src">${esc(V2_SRC[d.source[k]] || '')}</span>`);
+  const slider = (s) => {
+    const i = Math.max(0, s.levels.findIndex((l) => l.value === val(s.key)));
+    const lv = s.levels[i];
+    return `<div class="v2s-row"><div class="v2s-h"><b>${esc(s.name)}</b>${src(s.key)}<small>${esc(s.help || '')}</small></div>
+      <input type="range" min="0" max="${s.levels.length - 1}" step="1" value="${i}" data-slider="${esc(s.key)}" aria-label="${esc(s.name)}">
+      <div class="v2s-ticks" style="grid-template-columns:repeat(${s.levels.length},1fr)">${s.levels.map((l, j) => `<span class="${j === i ? 'on' : ''}${l.available === false ? ' off' : ''}" title="${esc(l.detail || '')}">${esc(l.label)}${l.available === false ? '<i>还没做</i>' : ''}</span>`).join('')}</div>
+      <p class="v2s-now">${esc(lv.detail || '')}${lv.cost ? ` · <em>${esc(lv.cost)}</em>` : ''}</p></div>`;
+  };
+  const comps = (key) => `<div class="chips">${d.components.map((c) => `<button type="button" class="chip${(val(key) || []).includes(c.key) ? ' on' : ''}" data-comp="${esc(key)}" data-key="${esc(c.key)}" title="${esc(V2_FORM[c.form] || c.form)} · 努力 ${esc(c.effort)}">${esc(c.name)}</button>`).join('')}</div>`;
+  const choice = (c) => {
+    const v = val(c.key);
+    let input;
+    if (c.options) input = `<select data-choice="${esc(c.key)}">${c.options.map((o) => `<option value="${esc(o.value)}"${o.value === v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    else if (c.type === 'color') input = `<input type="color" data-choice="${esc(c.key)}" value="${esc(v || '#E2461F')}">`;
+    else if (c.type === 'bool') input = `<input type="checkbox" data-choice="${esc(c.key)}"${v ? ' checked' : ''}>`;
+    else if (c.type === 'int' || c.type === 'number') input = `<input type="number" data-choice="${esc(c.key)}" data-type="${c.type}" min="${c.min ?? ''}" max="${c.max ?? ''}" step="${c.type === 'int' ? 1 : 0.5}" value="${esc(v ?? '')}">`;
+    else if (c.type === 'components') return `<div class="v2s-wide"><div class="v2s-h"><b>${esc(c.name)}</b>${src(c.key)}</div>${comps(c.key)}</div>`;
+    else return '';
+    return `<label class="v2s-choice"><span><b>${esc(c.name)}</b>${src(c.key)}</span>${input}</label>`;
+  };
+  const per = (sc.per_video || []).filter((x) => x.key in d.values).map((x) => {
+    const v = d.values[x.key];
+    const opt = (x.options || []).find((o) => o.value === v);
+    const shown = opt ? opt.label : Array.isArray(v) ? (v.length ? v.map((y) => (Array.isArray(y) ? y.join('–') + 's' : y)).join('、') : '无') : v === true ? '是' : v === false ? '否' : v;
+    return `<span><b>${esc(x.name)}</b>${esc(shown)}</span>`;
+  }).join('');
+  const dirty = Object.keys(st.draft).length;
+  box.innerHTML = `
+    <div class="v2s-presets"><span>一键：</span>${(sc.presets || []).map((p, i) => `<button type="button" class="btn small" data-preset="${i}"${p.available ? '' : ' disabled title="里面有还没做的档位"'}>${esc(p.name)}</button>`).join('')}</div>
+    ${(sc.sliders || []).map(slider).join('')}
+    <div class="v2s-choices">${(sc.choices || []).map(choice).join('')}</div>
+    ${per ? `<div class="v2s-per"><small>这条视频单独定的（在对话里改）：</small>${per}</div>` : ''}
+    <div class="acts"><button class="btn primary" type="button" id="vsSave"${dirty ? '' : ' disabled'}>只改这条视频</button>
+      <button class="btn" type="button" id="vsDefault"${dirty ? '' : ' disabled'}>设为以后的默认</button>
+      <button class="btn ghost small" type="button" id="vsUndo"${dirty ? '' : ' disabled'}>撤销改动</button></div>
+    <div class="vp-v2-out" id="vsOut">${st.note ? esc(st.note) : ''}</div>`;
+  if (st.noteClass) $('#vsOut', box).className = `vp-v2-out ${st.noteClass}`;
+  const put = (k, v) => {
+    if (JSON.stringify(v) === JSON.stringify(d.values[k])) delete st.draft[k]; else st.draft[k] = v;
+    st.note = ''; st.noteClass = '';
+    drawV2Settings(topic, box);
+  };
+  $$('[data-slider]', box).forEach((inp) => {
+    inp.oninput = () => {
+      const s = sc.sliders.find((x) => x.key === inp.dataset.slider);
+      const lv = s.levels[Number(inp.value)];
+      if (lv.available === false) {
+        st.note = `${s.name}「${lv.label}」这一档还没做，先用别的档。`; st.noteClass = 'bad';
+        drawV2Settings(topic, box);
+        return;
+      }
+      put(s.key, lv.value);
+    };
+  });
+  $$('[data-choice]', box).forEach((inp) => {
+    inp.onchange = () => {
+      const k = inp.dataset.choice;
+      if (inp.type === 'checkbox') put(k, inp.checked);
+      else if (inp.type === 'number') { if (inp.value !== '') put(k, inp.dataset.type === 'int' ? parseInt(inp.value, 10) : Number(inp.value)); }
+      else if (inp.type === 'color') put(k, inp.value.toUpperCase());
+      else put(k, inp.value);
+    };
+  });
+  $$('[data-comp]', box).forEach((b) => {
+    b.onclick = () => {
+      const k = b.dataset.comp;
+      const cur = [...(val(k) || [])];
+      const at = cur.indexOf(b.dataset.key);
+      if (at >= 0) cur.splice(at, 1); else cur.push(b.dataset.key);
+      put(k, cur);
+    };
+  });
+  $$('[data-preset]', box).forEach((b) => {
+    b.onclick = () => {
+      const p = sc.presets[Number(b.dataset.preset)];
+      Object.entries(p.values).forEach(([k, v]) => { if (JSON.stringify(v) === JSON.stringify(d.values[k])) delete st.draft[k]; else st.draft[k] = v; });
+      st.note = `已套用「${p.name}」，点下面的按钮保存。`; st.noteClass = '';
+      drawV2Settings(topic, box);
+    };
+  });
+  const save = (scope) => async () => {
+    const btns = $$('#vsSave, #vsDefault', box);
+    btns.forEach((x) => { x.disabled = true; });
+    const values = { ...st.draft };
+    try {
+      const r = await api(`/api/topics/${topic.id}/video-project/v2/settings`, { method: 'POST', body: { values, scope } });
+      st.data = r.settings; st.draft = {};
+      const names = Object.keys(values).map((k) => ((sc.sliders || []).concat(sc.choices || []).find((x) => x.key === k) || { name: k }).name).join('、');
+      st.note = scope === 'default' ? `已设为以后的默认：${names}（新视频都按这个来；这条视频里单独改过的不受影响）` : `已保存到这条视频：${names}`;
+      st.noteClass = 'ok';
+      toast(st.note);
+    } catch (err) {
+      st.note = `没保存：${err.message}`; st.noteClass = 'bad';
+    }
+    drawV2Settings(topic, box);
+  };
+  $('#vsSave', box).onclick = save('project');
+  $('#vsDefault', box).onclick = save('default');
+  $('#vsUndo', box).onclick = () => { st.draft = {}; st.note = ''; st.noteClass = ''; drawV2Settings(topic, box); };
+}
+
+/* 动效图鉴：能直接用的组件（带 3 秒演示）+ ShotCraft 全部样式卡（叫不出名字时翻这里挑，可以让 AI 改编）。 */
+let MOTION_CATALOG = null;
+async function openMotionGallery() {
+  const dlg = $('#motionDlg');
+  const body = $('#motionBody');
+  dlg.showModal();
+  if (!MOTION_CATALOG) {
+    body.innerHTML = '<p class="v2s-now">读取图鉴…</p>';
+    try { MOTION_CATALOG = await api('/api/video-v2/catalog'); } catch (err) {
+      body.innerHTML = `<p class="vp-v2-out bad">读不到图鉴：${esc(err.message)}</p>`;
+      return;
+    }
+  }
+  drawMotionGallery('');
+  $('#motionQ').value = '';
+  $('#motionQ').oninput = (e) => drawMotionGallery(e.target.value.trim().toLowerCase());
+  $('#motionClose').onclick = () => dlg.close();
+}
+
+function drawMotionGallery(q) {
+  const { components, shotcraft } = MOTION_CATALOG;
+  const hit = (...xs) => !q || xs.flat().some((x) => String(x || '').toLowerCase().includes(q));
+  const names = Object.fromEntries(components.map((c) => [c.key, c.name]));
+  const mine = components.filter((c) => hit(c.name, c.key, c.keywords, c.use, V2_FORM[c.form]));
+  const cards = shotcraft.filter((c) => hit(c.name, c.summary, c.use, c.category_zh));
+  const groups = {};
+  cards.forEach((c) => { (groups[c.category_zh || '其他'] = groups[c.category_zh || '其他'] || []).push(c); });
+  $('#motionBody').innerHTML = `
+    <h3>能直接用（${mine.length}）<small>写方案时 AI 从这里挑；在「动效设置」里可以标偏爱 / 不用</small></h3>
+    <div class="mg-grid">${mine.map((c) => `<div class="mg-card">
+      ${c.video_url ? `<video src="${esc(c.video_url)}" poster="${esc(c.poster_url || '')}" autoplay muted loop playsinline></video>` : '<div class="mg-ph">还没渲演示</div>'}
+      <b>${esc(c.name)}</b><div class="mg-tags"><span>${esc(V2_FORM[c.form] || c.form)}</span><span>努力 ${esc(c.effort)}</span></div>
+      <p>${esc(c.use)}</p><small>你可以这样叫：${esc((c.keywords || []).join('、'))}</small>
+      ${(c.shotcraft || []).length ? `<small>形态来自 ShotCraft：${esc(c.shotcraft.join('、'))}</small>` : ''}</div>`).join('')}</div>
+    <h3>ShotCraft 全部样式（${cards.length}）<small>想要哪种，点「复制」把名字贴给 AI，让它改编成新组件（动效努力「像专业 AE」那档）</small></h3>
+    ${Object.entries(groups).map(([g, list]) => `<h4>${esc(g)} · ${list.length}</h4><div class="mg-grid sc">${list.map((c) => `<div class="mg-card sc">
+      ${c.poster_url ? `<img src="${esc(c.poster_url)}" alt="" loading="lazy">` : '<div class="mg-ph">没有预览图</div>'}
+      <b>${esc(c.name)}</b>${(c.adapted_as || []).length ? `<div class="mg-tags"><span class="ok">已改编成 ${esc(c.adapted_as.map((k) => names[k] || k).join('、'))}</span></div>` : ''}
+      <p>${esc(c.summary)}</p><small>${esc(c.use)}</small>
+      <button type="button" class="btn small" data-copy="${esc(c.name)}">复制</button></div>`).join('')}</div>`).join('')}`;
+  $$('#motionBody [data-copy]').forEach((b) => {
+    b.onclick = () => {
+      const text = `用 ShotCraft 的 ${b.dataset.copy} 改编一个 park-video-v2 组件`;
+      navigator.clipboard.writeText(text).then(() => toast('已复制，贴到 Claude 或 Codex'), () => toast(text));
+    };
+  });
 }
 
 /* 这一页只回答一个问题：现在轮到谁、要做什么。

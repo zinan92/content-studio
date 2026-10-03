@@ -22,6 +22,26 @@ elif cmd == "approve":
     print(json.dumps({"by": "Park", "message": sys.argv[sys.argv.index("-m") + 1]}, ensure_ascii=False))
 elif cmd in ("sample", "render"):
     print("已在后台启动")
+elif cmd == "settings":
+    print(json.dumps({"schema": {"sliders": [{"key": "density", "name": "密度", "levels": [{"value": "low", "label": "低"}, {"value": "medium", "label": "中"}]}],
+                                 "choices": [], "presets": []},
+                      "values": {"density": "medium"}, "source": {"density": "repo"}, "components": []}, ensure_ascii=False))
+elif cmd == "set":
+    values = json.loads(sys.argv[4])
+    if values.get("effort") == "c":
+        print(json.dumps({"error": "动效努力「像专业 AE」这一档还没做，先选别的档"}, ensure_ascii=False))
+        sys.exit(1)
+    print(json.dumps({"written": sys.argv[2], "values": values}, ensure_ascii=False))
+elif cmd == "catalog":
+    home = pathlib.Path(__file__).parents[1]
+    print(json.dumps([{"key": "Cycle", "name": "飞轮循环", "form": "diagram", "effort": "b",
+                       "video": str(home / "gallery" / "Cycle.mp4"), "poster": None}], ensure_ascii=False))
+elif cmd == "shotcraft":
+    home = pathlib.Path(__file__).parents[1]
+    print(json.dumps([{"name": "cycle-glass-node-morph", "summary": "循环图", "category_zh": "数据与指标",
+                       "poster": str(home / "sc-cycle.jpg"), "adapted_as": ["Cycle"]},
+                      {"name": "aurora-bloom-bg-flip", "summary": "极光", "category_zh": "开场", "poster": None, "adapted_as": []}],
+                     ensure_ascii=False))
 else:
     sys.exit("unknown")
 '''
@@ -101,3 +121,53 @@ def test_v2_buttons_refuse_old_projects(client: TestClient, tmp_path: Path, pv2_
     topic = client.post("/api/topics", json={"title": "旧的", "formats": "video"}).json()
     client.put(f"/api/topics/{topic['id']}/video-project", json={"name": "2026-01-01_old"})
     assert client.post(f"/api/topics/{topic['id']}/video-project/v2/start", json={"job": "sample"}).status_code == 400
+
+
+
+def _linked(client: TestClient, tmp_path: Path) -> tuple[dict, Path]:  # noqa: F811
+    root = tmp_path / "videos"
+    base = _v2_project(root, "2026-10-03_new")
+    client.put("/api/settings", json={"video_projects_root": str(root)})
+    topic = client.post("/api/topics", json={"title": "拍这条", "formats": "video"}).json()
+    client.put(f"/api/topics/{topic['id']}/video-project", json={"name": base.name})
+    return topic, base
+
+
+def test_settings_come_from_pv2_and_saves_go_back_to_it(client: TestClient, tmp_path: Path, pv2_home: Path) -> None:  # noqa: F811
+    topic, base = _linked(client, tmp_path)
+    r = client.get(f"/api/topics/{topic['id']}/video-project/v2/settings")
+    assert r.status_code == 200 and r.json()["schema"]["sliders"][0]["key"] == "density"
+    assert ["settings", str(base)] in calls(pv2_home)
+
+    r = client.post(f"/api/topics/{topic['id']}/video-project/v2/settings", json={"values": {"density": "low"}})
+    assert r.status_code == 200 and r.json()["result"]["values"] == {"density": "low"}
+    assert ["set", str(base), "--json", '{"density": "low"}'] in calls(pv2_home)
+
+    r = client.post(f"/api/topics/{topic['id']}/video-project/v2/settings", json={"values": {"card": "dark"}, "scope": "default"})
+    assert r.status_code == 200 and ["set", "default", "--json", '{"card": "dark"}'] in calls(pv2_home)
+
+
+def test_unbuilt_level_is_refused_with_pv2s_own_words(client: TestClient, tmp_path: Path, pv2_home: Path) -> None:  # noqa: F811
+    topic, _base = _linked(client, tmp_path)
+    r = client.post(f"/api/topics/{topic['id']}/video-project/v2/settings", json={"values": {"effort": "c"}})
+    assert r.status_code == 400 and "还没做" in r.json()["error"]
+    assert client.post(f"/api/topics/{topic['id']}/video-project/v2/settings", json={"values": {}}).status_code == 400
+    assert client.post(f"/api/topics/{topic['id']}/video-project/v2/settings",
+                       json={"values": {"density": "low"}, "scope": "everyone"}).status_code == 400
+
+
+def test_catalog_gives_urls_not_local_paths_and_serves_the_files(client: TestClient, pv2_home: Path) -> None:  # noqa: F811
+    (pv2_home / "gallery").mkdir()
+    (pv2_home / "gallery" / "Cycle.mp4").write_bytes(b"\x00\x00mp4")
+    (pv2_home / "sc-cycle.jpg").write_bytes(b"\xff\xd8jpg")
+    data = client.get("/api/video-v2/catalog").json()
+    comp = data["components"][0]
+    assert comp["video_url"] == "/api/video-v2/media/gallery/Cycle.mp4" and "video" not in comp
+    cards = {c["name"]: c for c in data["shotcraft"]}
+    assert cards["cycle-glass-node-morph"]["poster_url"].endswith("/shotcraft/cycle-glass-node-morph.jpg")
+    assert cards["aurora-bloom-bg-flip"]["poster_url"] is None
+    assert str(pv2_home) not in json.dumps(data)
+    assert client.get("/api/video-v2/media/gallery/Cycle.mp4").content == b"\x00\x00mp4"
+    assert client.get("/api/video-v2/media/shotcraft/cycle-glass-node-morph.jpg").content == b"\xff\xd8jpg"
+    assert client.get("/api/video-v2/media/gallery/..%2Fsecret.mp4").status_code in (400, 404)
+    assert client.get("/api/video-v2/media/other/Cycle.mp4").status_code == 400
