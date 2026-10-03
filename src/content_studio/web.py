@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 import sqlite3
 import threading
+import time
 from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request
@@ -4308,6 +4309,8 @@ def create_app(
     def _bw_snapshot(sheet: dict[str, Any]) -> dict[str, Any]:
         """今天排上的每一格发到哪一步了。排了哪几格存在库里（重启也在）；正在发的进度只在内存里，
         重启以后没进度的格子显示「还没发出去」，能再点一次发。"""
+        from . import publisher
+
         today_key = date.today().isoformat()
         out = _out_state(today_key, sheet)
         with bw_lock:
@@ -4326,7 +4329,20 @@ def create_app(
                 job = next((j for j in store.publish_jobs(c["topic_id"]) if j["platform"] == c["platform"]), None) if c["topic_id"] else None
                 if job and job["state"] == "running" and not c["sent"]:
                     it.update(state="stuck", message="上次发到一半被打断了：先去平台后台看一眼有没有发出去")
+                elif job and job["state"] == "failed" and not c["sent"]:
+                    # 重启以后也要记得上次为什么没发出去——不然又是一句「还没发出去」，他不知道该干什么
+                    it.update(state="failed", message=job.get("message") or "")
+                elif job and job["state"] == "done" and (job.get("result") or {}).get("published") is False and not c["sent"]:
+                    it.update(state="draft", message="")  # 公众号进了草稿箱：重启以后也说清，别让他再发一遍
             it["sent"] = c["sent"]
+            if not it["sent"] and it["state"] in ("failed", "login"):
+                it["diag"] = publisher.login_fix(c["platform"]) if it["state"] == "login" else publisher.diagnose(c["platform"], it.get("message") or "")
+                if it["diag"]["fix"] == "login":
+                    it["login"] = _login_view(c["platform"])
+            if it["sent"] and c["topic_id"]:
+                # 自动发出去的，链接在这儿就能点（10/3 Park）
+                rec = store.publish_records(c["topic_id"]).get(c["platform"]) or {}
+                it["url"] = rec.get("url") if str(rec.get("url") or "").startswith("http") else None
             # 他点「发了」记下的（不是工作台自己发出去的）：审核没过、发错了可以撤回
             it["marked"] = ((rows.get(c["video_id"]) or {}).get("done") or {}).get(c["platform"]) == "mark"
             items.append(it)
@@ -4542,6 +4558,12 @@ def create_app(
         for it in items:
             with bw_lock:
                 it["state"] = "running"
+            # 10/3：YouTube 登录早就过期了，工作台照样去发，回来一屏 traceback。先查一下，没登上就不发，等他点登录
+            spec = publisher_specs().get(it["platform"]) or {}
+            if it["platform"] in modes and spec.get("login_argv") and _login_ok(it["platform"], spec) is False:
+                with bw_lock:
+                    it.update(state="login", message="")
+                continue
             try:
                 if it["platform"] in modes:
                     job = prepare_publish(it["topic_id"], PublishJobBody(platform=it["platform"], mode=modes[it["platform"]], auto=True))["job"]
@@ -4584,9 +4606,97 @@ def create_app(
     @app.post("/api/backfill/desk/go")
     def backfill_desk_go(body: dict[str, Any]) -> dict[str, Any]:
         """他点了确认：这几格排进今天，马上按顺序发。"""
+        return _bw_start(_bw_pick(body.get("cells") or [], get_backfill(), again=True))
+
+    def _login_ok(key: str, spec: dict[str, Any]) -> bool | None:
+        """现在登着没有（真跑一次探测，不看缓存）。没有探测命令的返回 None。"""
+        from . import channel_probe
+        from .paths import config_dir
+
+        checked = channel_probe.probe(key, spec, force=True, cache_path=config_dir() / "channel-probes.json")
+        return None if checked is None else checked.get("ok")
+
+    # 10/3 Park：出了问题要能在这一页马上做、做完自己检测、自己再发。登录跑平台自己的登录命令（弹浏览器 / 扫码窗口），
+    # 退出后真探测一次；登上了，就把这个平台今天没发出去的格子（发失败的、等登录的）再发一遍，只发一次。
+    platform_logins: dict[str, dict[str, Any]] = {}
+    LOGIN_TIMEOUT_SECONDS = 600
+
+    def _login_view(key: str) -> dict[str, Any]:
+        with bw_lock:
+            cur = dict(platform_logins.get(key) or {"state": "idle", "message": ""})
+        cur.pop("proc", None)
+        return cur
+
+    def _bw_resend(key: str) -> None:
+        deadline = time.monotonic() + 1800
+        while time.monotonic() < deadline:
+            with bw_lock:
+                busy = bw_run["running"]
+                cells = [{"video_id": it["video_id"], "platform": it["platform"]} for it in bw_run["items"]
+                         if it["platform"] == key and it["state"] in ("failed", "login")]
+            if not cells:
+                return
+            if not busy:
+                try:
+                    _bw_start(_bw_pick(cells, get_backfill(), again=True))
+                except Exception as exc:  # noqa: BLE001 - shown on the login status
+                    with bw_lock:
+                        platform_logins[key].update(message=f"登好了，但没能再发：{exc}")
+                return
+            time.sleep(2)
+
+    def _login_watch(key: str, proc: subprocess.Popen, spec: dict[str, Any]) -> None:
+        try:
+            proc.wait(timeout=LOGIN_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            with bw_lock:
+                platform_logins[key].update(state="failed", message=f"{LOGIN_TIMEOUT_SECONDS // 60} 分钟没登好，停了。再点一次登录")
+            return
+        ok = _login_ok(key, spec)
+        with bw_lock:
+            if ok is False:
+                platform_logins[key].update(state="failed", message="登录窗口关了，但还没登上。再点一次登录")
+                return
+            platform_logins[key].update(state="ok", message="登好了，正在把没发出去的再发一遍")
+        _bw_resend(key)
+
+    @app.post("/api/platforms/{key}/login")
+    def platform_login(key: str) -> dict[str, Any]:
+        from . import publisher
+        from .paths import config_dir
+
+        spec = publisher_specs().get(key) or {}
+        argv = list(spec.get("login_argv") or [])
+        if not argv:
+            raise ValueError("这个平台没法在工作台里登录")
+        with bw_lock:
+            if (platform_logins.get(key) or {}).get("state") == "running":
+                return _login_view_unlocked(key)
+        if argv[0] == "python3":
+            argv[0] = publisher.python_with(tuple(spec.get("needs") or ()))
+        log = config_dir() / f"login-{key}.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        cwd = spec.get("login_cwd") or (str(publisher.CONTENT_OPS) if publisher.CONTENT_OPS.is_dir() else None)
+        with log.open("w", encoding="utf-8") as out:
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, cwd=cwd)
+        with bw_lock:
+            platform_logins[key] = {"state": "running", "message": "等你在弹出的窗口里登录…", "proc": proc}
+        store.log_event("publish", f"打开 {spec.get('label', key)} 登录")
+        threading.Thread(target=_login_watch, args=(key, proc, spec), name=f"login-{key}", daemon=True).start()
+        return _login_view(key)
+
+    def _login_view_unlocked(key: str) -> dict[str, Any]:
+        cur = dict(platform_logins.get(key) or {"state": "idle", "message": ""})
+        cur.pop("proc", None)
+        return cur
+
+    @app.get("/api/platforms/{key}/login")
+    def platform_login_state(key: str) -> dict[str, Any]:
+        return _login_view(key)
+
+    def _bw_start(picked: list[dict[str, Any]]) -> dict[str, Any]:
         today_key = date.today().isoformat()
-        sheet = get_backfill()
-        picked = _bw_pick(body.get("cells") or [], sheet, again=True)
         with bw_lock:
             if bw_run["running"] and bw_run["day"] == today_key:
                 raise ValueError("上一批还在发，等它发完")

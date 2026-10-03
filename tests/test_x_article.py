@@ -191,3 +191,41 @@ def test_publish_refused_keeps_the_draft(tmp_path: Path) -> None:
 
     done = x_article.publish_article(tmp_path / "a.md", cover=cover, publish=True, creds=CREDS, send=Refuse())
     assert done["published"] is False and done["id"] == "a1" and "已存草稿" in done["message"]
+
+
+def test_a_dropped_connection_is_retried_but_a_lost_reply_is_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    """10/3 补发：「连不上 X：SSL UNEXPECTED_EOF」，过一会儿再连就好了。
+    连接、握手时断的（URLError）X 还没收到请求，自动再试；读回应时断的可能已经发出去了，不重试。"""
+    import ssl
+    import urllib.error
+    import urllib.request
+
+    waits: list[float] = []
+    monkeypatch.setattr(x_article.time, "sleep", waits.append)
+    request = urllib.request.Request("https://api.x.com/2/articles/draft", data=b"{}")
+    tries = {"n": 0}
+
+    def flaky(_request):
+        tries["n"] += 1
+        if tries["n"] < 3:
+            raise urllib.error.URLError(ssl.SSLEOFError(8, "EOF occurred in violation of protocol"))
+        return io.BytesIO(b'{"data": {"id": "a1"}}')
+
+    assert x_article._call(request, flaky) == {"data": {"id": "a1"}}
+    assert tries["n"] == 3 and waits == list(x_article.RETRY_WAITS)
+
+    def down(_request):
+        raise urllib.error.URLError(ssl.SSLEOFError(8, "EOF"))
+
+    with pytest.raises(XError, match="连不上 X"):
+        x_article._call(request, down)
+
+    lost = {"n": 0}
+
+    def reply_lost(_request):
+        lost["n"] += 1
+        raise ConnectionResetError("reset while reading")
+
+    with pytest.raises(XError, match="连不上 X"):
+        x_article._call(request, reply_lost)
+    assert lost["n"] == 1

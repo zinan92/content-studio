@@ -2171,6 +2171,13 @@ button.bw-c.skipped:hover{background:var(--line-soft);color:var(--ink)}
 .bw-run{border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
 .bw-run h3{margin:0;font-size:15px}.bw-run h3 small{font-weight:400;color:var(--ink-3);font-size:12px;margin-left:6px}
 .bw-run-i{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line-soft)}
+.bw-fix{display:flex;flex-direction:column;gap:2px;font-size:13px;margin-top:2px}
+.bw-fix b{font-weight:600;color:var(--ink)}
+.bw-fix span{color:var(--ink-2)}
+.bw-fix .bw-fix-bad{color:var(--warn)}
+.bw-raw summary{cursor:pointer;color:var(--ink-3);font-size:12px}
+.bw-raw pre{white-space:pre-wrap;word-break:break-all;font-size:11px;color:var(--ink-3);max-height:160px;overflow:auto;margin:4px 0 0}
+.bw-wait{font-size:13px;color:var(--ink-2)}
 .bw-run-i .t{display:flex;flex-direction:column;gap:2px;min-width:0}
 .bw-run-i .t small{font-size:12px;color:var(--ink-3)}
 .bw-run-i.failed .t small{color:var(--warn)}

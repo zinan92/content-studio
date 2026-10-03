@@ -4,6 +4,14 @@
 > Gotchas; a pure deploy/status change is exempt unless it changes a durable
 > operating fact.
 
+## 2026-10-03 — 补发工作台出了问题自己闭环：说清为什么、你做什么、按钮在这一行，做完自己检测、自己再发
+
+- **面对什么:** 客户咨询1 补发时 YouTube 一屏 traceback（`invalid_grant: Token has been expired`），X 一句 `SSL: UNEXPECTED_EOF_WHILE_READING`。Park：「只给我展示 error 是没有用的……需要知道怎么解决、我来做什么、在这个页面我马上就能做，做完它能检测 OK，再重新发。」而且 YouTube 在发布页早就标着「要重新登录」，工作台照样去发了。
+- **定了什么:** `publisher.diagnose(platform, message)` 把报错翻成 {为什么, 你要做什么, 按钮}：登录过期 → 「登录 YouTube / B 站」；网络断 → 「再发一次」（已自动重试过）；X 401/403、公众号 IP 白名单 → 去后台的链接 + 具体改哪里；429 → 明天再发；其它 → 最后一行异常 + 再发一次。原文收进「详情」。发之前对有登录命令的平台真探测一次，没登上就不发，这格变「要先登录」。点登录跑通道自己的 `login_argv`（YouTube `youtube_channel.py auth`、B 站 `sau_cli.py bilibili login`），退出后再真探测；登上了把这个平台今天没发出去的格子自动再发一遍（只一次，`stuck` 不碰；上一批还在发就等它）。X 的请求在连接、握手时断（`URLError`）自动隔 3 秒、10 秒再试两次，读回应时断的不重试（可能已经发出去）。发出去的格子直接给「打开 ↗」。服务重启后，上次失败的原因、公众号进了草稿箱都还记得。
+- **为什么:** 他不该去读 traceback、也不该去终端跑登录命令；页面知道问题在哪，就该把下一步直接摆出来。
+- **怎么验证:** `tests/test_publisher.py::test_diagnose_says_why_what_to_do_and_which_button`（用那天的两条真报错）；`tests/test_x_article.py::test_a_dropped_connection_is_retried_but_a_lost_reply_is_not`；`tests/test_driver.py::test_a_platform_that_needs_login_is_not_sent_and_resends_itself_after_login`（假通道：没登上不发 → 点登录 → 探测通过 → 自己再发、链接能点）。复制的库上看了一遍：YouTube 那行是一句话 + 「登录 YouTube」，X、B 站给链接，公众号重启后还是「进了草稿箱」。
+- **踩了什么坑:** `sleep=time.sleep` 写成默认参数，测试里 monkeypatch `time.sleep` 不生效，真睡了 13 秒。`channel_probe.CACHE_PATH` 在导入时就定了，测试里不改它，假探测结果会写进真机的缓存。YouTube 的刷新令牌每 7 天过期，多半是 Google Cloud 里 OAuth 同意屏幕还在 Testing——发布成正式应用才能根治。
+
 ## 2026-10-03 — 「不发」和「发布完毕」搬进补发工作台；打包页只挂抖音两周内发的那条
 
 - **面对什么:** Park：「这一条发到哪」那页不需要了，发布改走补发工作台。可「跳过这个平台」「发布完毕」只在那一页上，打包页靠它们判断这条发完没有。
