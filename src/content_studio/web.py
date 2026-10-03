@@ -1326,9 +1326,19 @@ def create_app(
             candidates.append({"id": c["id"], "title": c["title"], "stage": c["stage"], "stage_label": dict(board.MILESTONES).get(c["stage"], c["stage"]), "shipped_count": n})
         sendable = publish_desk.ready_to_publish(candidates)
         waiting = publish_desk.waiting_for(candidates) if not sendable else None
-        # 9/29 Park：一条发完了就收起来；没指定哪条时，打包和发布只挑还有平台没发的那条
-        on_count = sum(1 for p in _platform_rows(publisher.readiness(publisher_specs())) if p.get("on"))
-        unfinished = [c for c in sendable if c["stage"] != "shipped" and c["shipped_count"] < on_count]
+        # 9/29 Park：一条发完了就收起来；没指定哪条时，打包和发布只挑还有平台没发的那条。
+        # 10/3：抖音发出只是第一个平台——还有开着的平台没发也没跳过、也没点「发布完毕」，就还没发完。
+        on_keys = {p["key"] for p in _platform_rows(publisher.readiness(publisher_specs())) if p.get("on")}
+        on_count = len(on_keys)
+
+        def still_open(c: dict[str, Any]) -> bool:
+            t = store.topic(c["id"])
+            if t.get("closed_at"):
+                return False
+            done = set(store.publish_records(c["id"])) | store.publish_skips(c["id"]) | ({"douyin"} if t.get("published_video_id") else set())
+            return bool(on_keys - done)
+
+        unfinished = [c for c in sendable if still_open(c)]
         chosen = next((c for c in candidates if c["id"] == topic_id), None) if topic_id is not None else (unfinished[0] if unfinished else None)
         if topic_id is not None and chosen is None:
             # 不在候选里（归档了、或者太老）也允许直接打开——链接可能是从别处带过来的。
